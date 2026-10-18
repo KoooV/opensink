@@ -1,34 +1,49 @@
 import 'dart:async';
+import 'package:collection/collection.dart';
 
 /// In-memory fake реализации всех интерфейсов core_domain для тестов.
 library core_domain.fakes;
 
-import '../models/entity_id.dart';
-import '../models/group.dart';
-import '../models/message.dart';
-import '../events/group_event.dart';
-import '../result.dart';
-import 'signaling_channel.dart';
-import 'peer_link.dart';
-import 'transport.dart';
-import 'relay.dart';
-import 'media_topology.dart';
-import 'event_store.dart';
-import 'secure_key_store.dart';
-import 'screen_capture_source.dart';
+import '../models/identifiers.dart';
+import '../models/identity.dart';
+import '../interfaces/signaling_channel.dart';
+import '../interfaces/signer.dart';
+import '../interfaces/peer_link.dart';
+import '../interfaces/transport.dart';
+import '../interfaces/relay.dart';
+import '../interfaces/media_topology.dart';
+import '../interfaces/event_store.dart';
+import '../interfaces/sync_engine.dart';
+import '../interfaces/group_state.dart';
+import '../interfaces/secure_key_store.dart';
+import '../interfaces/screen_capture_source.dart';
+
+// ---------------------------------------------------------------------------
+// SignalingChannel
+// ---------------------------------------------------------------------------
 
 class FakeSignalingChannel implements SignalingChannel {
   final _controller = StreamController<SignalingMessage>.broadcast();
+  final _joined = <String>{};
   final _sent = <SignalingMessage>[];
 
   @override
   Stream<SignalingMessage> get incoming => _controller.stream;
 
   List<SignalingMessage> get sent => List.unmodifiable(_sent);
+  Set<String> get joined => Set.unmodifiable(_joined);
 
   @override
-  Future<void> send(PeerId to, SignalingMessage message) async {
-    _sent.add(message);
+  Future<void> join(String topic) async => _joined.add(topic);
+
+  @override
+  Future<void> publish(String topic, List<int> bytes) async {
+    _sent.add(SignalingMessage(
+      topic: topic,
+      bytes: List<int>.unmodifiable(bytes),
+      from: PeerId(Uint8List.fromList([0, 0, 0, 0])),
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+    ));
   }
 
   @override
@@ -37,112 +52,183 @@ class FakeSignalingChannel implements SignalingChannel {
   void emit(SignalingMessage message) => _controller.add(message);
 }
 
+// ---------------------------------------------------------------------------
+// Signer
+// ---------------------------------------------------------------------------
+
+class FakeSigner implements Signer {
+  final _signatures = <String, String>{}; // data hex -> signature
+
+  @override
+  Future<String> sign(Uint8List data) async {
+    final hex = data.toList().join(',');
+    final sig = 'sig-$hex';
+    _signatures[hex] = sig;
+    return sig;
+  }
+
+  @override
+  Future<bool> verify(Uint8List data, String signatureHex, PeerId peerId) async {
+    final hex = data.toList().join(',');
+    return _signatures[hex] == signatureHex;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PeerLink
+// ---------------------------------------------------------------------------
+
 class FakePeerLink implements PeerLink {
-  final _dataController = StreamController<List<int>>.broadcast();
-  final _stateController = StreamController<ConnectionState>.broadcast();
-  final _sent = <List<int>>[];
+  final _incomingController = StreamController<Incoming>.broadcast();
+  final _stateController = StreamController<PeerLinkState>.broadcast();
+  final _sent = <Incoming>[];
 
   @override
   final PeerId remotePeerId;
 
+  @override
+  PeerLinkState get state => _state;
+
+  PeerLinkState _state = PeerLinkState.connected;
+
+  @override
+  Stream<PeerLinkState> get stateStream => _stateController.stream;
+
+  @override
+  Stream<Incoming> get incoming => _incomingController.stream;
+
+  @override
+  PeerLinkStats get stats => const PeerLinkStats(
+        rtt: Duration(milliseconds: 10),
+        bytesSent: 0,
+        bytesReceived: 0,
+        loss: 0.0,
+      );
+
   FakePeerLink(this.remotePeerId) {
-    _stateController.add(ConnectionState.connected);
+    _stateController.add(PeerLinkState.connected);
   }
 
-  @override
-  Stream<List<int>> get incomingData => _dataController.stream;
+  List<Incoming> get sent => List.unmodifiable(_sent);
 
   @override
-  Stream<ConnectionState> get state => _stateController.stream;
-
-  List<List<int>> get sent => List.unmodifiable(_sent);
-
-  @override
-  Future<void> sendData(List<int> data) async => _sent.add(data);
-
-  @override
-  Future<void> setRemoteDescription(String sdp, String type) async {}
-
-  @override
-  Future<String> createOffer() async => 'fake-offer';
-
-  @override
-  Future<String> createAnswer() async => 'fake-answer';
-
-  @override
-  Future<void> addIceCandidate(String candidate, String sdpMid, int sdpMLineIndex) async {}
+  Future<void> send(String channel, List<int> bytes) async {
+    _sent.add(Incoming(
+      channel: channel,
+      bytes: List<int>.unmodifiable(bytes),
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+    ));
+  }
 
   @override
   Future<void> close() async {
-    await _dataController.close();
+    _state = PeerLinkState.closed;
+    await _incomingController.close();
     await _stateController.close();
   }
 
-  void emitData(List<int> data) => _dataController.add(data);
-  void emitState(ConnectionState state) => _stateController.add(state);
+  void emitIncoming(Incoming incoming) => _incomingController.add(incoming);
+  void emitState(PeerLinkState state) {
+    _state = state;
+    _stateController.add(state);
+  }
 }
 
+// ---------------------------------------------------------------------------
+// Transport
+// ---------------------------------------------------------------------------
+
 class FakeTransport implements Transport {
-  final _incoming = StreamController<TransportMessage>.broadcast();
-  final _sent = <TransportMessage>[];
+  final _eventsController = StreamController<PeerLinkEvent>.broadcast();
+  final _sent = <PeerLinkEvent>[];
+  final _links = <PeerId, FakePeerLink>{};
 
   @override
-  Stream<TransportMessage> get incoming => _incoming.stream;
+  Stream<PeerLinkEvent> get events => _eventsController.stream;
+
+  List<PeerLinkEvent> get sent => List.unmodifiable(_sent);
 
   @override
-  Set<PeerId> get knownPeers => {};
-
-  @override
-  Future<void> send(PeerId to, List<int> data) async {
-    _sent.add(TransportMessage(from: to, payload: data, timestamp: DateTime.now().millisecondsSinceEpoch));
+  Future<PeerLink> connect(PeerId peerId) async {
+    final link = FakePeerLink(peerId);
+    _links[peerId] = link;
+    _eventsController.add(const PeerLinkEvent._('connected', peerId));
+    return link;
   }
 
   @override
-  Future<void> close() async => await _incoming.close();
+  Future<void> send(PeerId dst, List<int> bytes) async {
+    _sent.add(const PeerLinkEvent._('send', dst));
+  }
 
-  List<TransportMessage> get sent => List.unmodifiable(_sent);
+  @override
+  Future<void> close() async {
+    for (final link in _links.values) {
+      await link.close();
+    }
+    _links.clear();
+    await _eventsController.close();
+  }
 
-  void emit(TransportMessage message) => _incoming.add(message);
+  void emitEvent(PeerLinkEvent event) => _eventsController.add(event);
 }
+
+// ---------------------------------------------------------------------------
+// Relay
+// ---------------------------------------------------------------------------
 
 class FakeRelay implements Relay {
-  final _incoming = StreamController<RelayMessage>.broadcast();
+  final _routed = <PeerId>{};
+  final _forwarded = <RelayFrame>[];
+  int _capacity = 1000;
 
   @override
-  Stream<RelayMessage> get incoming => _incoming.stream;
+  bool routes(PeerId dst) => _routed.contains(dst);
 
   @override
-  Future<void> relayToGroup(GroupId groupId, List<int> payload) async {}
+  Future<void> forward(RelayFrame frame) async {
+    _forwarded.add(frame);
+  }
 
   @override
-  Future<void> close() async => await _incoming.close();
+  int get capacity => _capacity;
 
-  void emit(RelayMessage message) => _incoming.add(message);
+  List<RelayFrame> get forwarded => List.unmodifiable(_forwarded);
+  Set<PeerId> get routed => Set.unmodifiable(_routed);
+
+  @override
+  Future<void> close() async {}
+
+  void routeTo(PeerId peer) => _routed.add(peer);
 }
+
+// ---------------------------------------------------------------------------
+// MediaTopology
+// ---------------------------------------------------------------------------
 
 class FakeMediaTopology implements MediaTopology {
-  final _events = StreamController<MediaEvent>.broadcast();
+  final _plans = <TopologyPlan>[];
 
   @override
-  Stream<MediaEvent> get events => _events.stream;
+  TopologyPlan plan(Set<PeerId> participants,
+      Map<PeerId, PeerCapabilities> capabilities) {
+    final plan = TopologyPlan(
+      type: TopologyType.mesh,
+      participants: Set.unmodifiable(participants),
+    );
+    _plans.add(plan);
+    return plan;
+  }
+
+  List<TopologyPlan> get plans => List.unmodifiable(_plans);
 
   @override
-  Future<void> join(ChannelId channelId) async {}
-
-  @override
-  Future<void> leave() async {}
-
-  @override
-  Future<void> addTrack(String trackId, MediaTrackKind kind) async {}
-
-  @override
-  Future<void> removeTrack(String trackId) async {}
-
-  @override
-  Future<void> close() async => await _events.close();
-
-  void emit(MediaEvent event) => _events.add(event);
+  Future<void> close() async {}
 }
+
+// ---------------------------------------------------------------------------
+// EventStore
+// ---------------------------------------------------------------------------
 
 class FakeEventStore implements EventStore {
   final _records = <EventRecord>[];
@@ -161,18 +247,71 @@ class FakeEventStore implements EventStore {
   Stream<EventRecord> watchGroup(GroupId groupId) =>
       _controller.stream.where((r) => r.groupId == groupId);
 
+  List<EventRecord> get records => List.unmodifiable(_records);
+
   @override
   Future<void> close() async => await _controller.close();
-
-  List<EventRecord> get records => List.unmodifiable(_records);
 }
+
+// ---------------------------------------------------------------------------
+// SyncEngine
+// ---------------------------------------------------------------------------
+
+class FakeSyncEngine implements SyncEngine {
+  final _changesController = StreamController<void>.broadcast();
+  var _synced = false;
+
+  @override
+  Future<void> sync() async {
+    _synced = true;
+    _changesController.add(null);
+  }
+
+  @override
+  Stream<void> get changes => _changesController.stream;
+
+  bool get synced => _synced;
+
+  @override
+  Future<void> close() async => await _changesController.close();
+}
+
+// ---------------------------------------------------------------------------
+// GroupState
+// ---------------------------------------------------------------------------
+
+class FakeGroupState implements IGroupState {
+  GroupState _state;
+  final _controller = StreamController<GroupState>.broadcast();
+
+  FakeGroupState(this._state);
+
+  @override
+  GroupState get state => _state;
+
+  @override
+  Stream<GroupState> get watch => _controller.stream;
+
+  void setState(GroupState next) {
+    _state = next;
+    _controller.add(next);
+  }
+
+  @override
+  Future<void> close() async => await _controller.close();
+}
+
+// ---------------------------------------------------------------------------
+// SecureKeyStore
+// ---------------------------------------------------------------------------
 
 class FakeSecureKeyStore implements SecureKeyStore {
   final _store = <UserId, IdentityBundle>{};
 
   @override
-  Future<void> storeIdentity(UserId userId, IdentityBundle bundle) async =>
-      _store[userId] = bundle;
+  Future<void> storeIdentity(UserId userId, IdentityBundle bundle) async {
+    _store[userId] = bundle;
+  }
 
   @override
   Future<IdentityBundle?> loadIdentity(UserId userId) async => _store[userId];
@@ -183,6 +322,10 @@ class FakeSecureKeyStore implements SecureKeyStore {
   @override
   Future<bool> hasIdentity(UserId userId) async => _store.containsKey(userId);
 }
+
+// ---------------------------------------------------------------------------
+// ScreenCaptureSource
+// ---------------------------------------------------------------------------
 
 class FakeScreenCaptureSource implements ScreenCaptureSource {
   final _frames = StreamController<List<int>>.broadcast();

@@ -1,0 +1,25 @@
+name: app
+description: "OpenSink client application."
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  core_domain:
+    path: ../packages/core_domain
+  core_crypto:
+    path: ../packages/core_crypto
+  riverpod: ^2.5.1
+  flutter_riverpod: ^2.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  test: ^1.26.0
+
+flutter:
+  uses-material-design: true

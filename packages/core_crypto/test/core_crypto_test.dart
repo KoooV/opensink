@@ -1,9 +1,12 @@
+import 'dart:typed_data';
 import 'package:test/test.dart';
 import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:core_domain/src/events/group_event.dart';
 
 void main() {
+  const testPeer = PeerId(Uint8List.fromList([1, 2, 3, 4]));
+
   group('CryptoSigner', () {
     test('generateIdentity создаёт непустую пару ключей', () async {
       final identity = await generateIdentity();
@@ -13,34 +16,42 @@ void main() {
     });
 
     test('sign/verify roundtrip проходит', () async {
-      const signer = CryptoSigner();
       final identity = await generateIdentity();
+      const signer = CryptoSigner(identity.privateKey);
       const data = Uint8List.fromList([1, 2, 3, 4, 5]);
 
-      final signature = await signer.sign(data, identity.privateKey);
+      final signature = await signer.sign(data);
       expect(signature, isNotEmpty);
 
-      final valid = await signer.verify(data, signature, identity.publicKey);
+      final valid = await signer.verify(data, signature, identity.peerId);
       expect(valid, isTrue);
 
-      final invalid = await signer.verify(Uint8List.fromList([9, 9, 9]), signature, identity.publicKey);
+      final invalid = await signer.verify(
+        Uint8List.fromList([9, 9, 9]),
+        signature,
+        identity.peerId,
+      );
       expect(invalid, isFalse);
     });
 
     test('подпись другого ключа не верифицируется', () async {
-      const signer = CryptoSigner();
       final identityA = await generateIdentity();
       final identityB = await generateIdentity();
+      const signerA = CryptoSigner(identityA.privateKey);
+      const signerB = CryptoSigner(identityB.privateKey);
       const data = Uint8List.fromList([7, 8, 9]);
 
-      final signature = await signer.sign(data, identityA.privateKey);
-      final valid = await signer.verify(data, signature, identityB.publicKey);
-      expect(valid, isFalse);
+      final signature = await signerA.sign(data);
+      final validA = await signerA.verify(data, signature, identityA.peerId);
+      expect(validA, isTrue);
+
+      final validB = await signerB.verify(data, signature, identityB.peerId);
+      expect(validB, isFalse);
     });
 
     test('signEvent / verifyEvent с GroupEvent', () async {
-      const signer = CryptoSigner();
       final identity = await generateIdentity();
+      const signer = CryptoSigner(identity.privateKey);
       final event = GroupCreated(
         id: EventId('evt-1'),
         groupId: GroupId('g-1'),
@@ -52,9 +63,8 @@ void main() {
         initialMembers: {UserId('u-1')},
       );
 
-      final signature = await signer.signEvent(event, identity.privateKey);
+      final signature = await signer.signEvent(event);
 
-      // Проверяем verifyEvent с подписанным событием.
       final valid = await signer.verifyEvent(
         GroupCreated(
           id: event.id,
@@ -66,7 +76,6 @@ void main() {
           ownerId: event.ownerId,
           initialMembers: event.initialMembers,
         ),
-        identity.publicKey,
       );
       expect(valid, isTrue);
     });

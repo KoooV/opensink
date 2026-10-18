@@ -1,41 +1,49 @@
-/// Топология медиа-звонка: SFU / mesh / relay.
-abstract class MediaTopology {
-  /// Присоединиться к голосовому каналу.
-  Future<void> join(ChannelId channelId);
+import '../models/identifiers.dart';
 
-  /// Покинуть канал.
-  Future<void> leave();
+/// Возможности участника медиасессии (кодеки, аппаратное ускорение и т.п.).
+@immutable
+class PeerCapabilities {
+  const PeerCapabilities({
+    this.audio = true,
+    this.video = true,
+    this.screen = false,
+    this.maxBitrateKbps,
+  });
 
-  /// Отправить локальный трек (аудио/видео/экран).
-  Future<void> addTrack(String trackId, MediaTrackKind kind);
-
-  /// Удалить трек.
-  Future<void> removeTrack(String trackId);
-
-  Stream<MediaEvent> get events;
+  final bool audio;
+  final bool video;
+  final bool screen;
+  final int? maxBitrateKbps;
 }
 
-enum MediaTrackKind { audio, video, screen }
+/// Тип топологии медиасессии.
+enum TopologyType {
+  mesh,
+  hosted,
+}
 
-sealed class MediaEvent {
-  const MediaEvent();
-  class PeerJoined extends MediaEvent {
-    const PeerJoined(this.peerId);
-    final PeerId peerId;
-  }
-  class PeerLeft extends MediaEvent {
-    const PeerLeft(this.peerId);
-    final PeerId peerId;
-  }
-  class TrackAdded extends MediaEvent {
-    const TrackAdded(this.peerId, this.trackId, this.kind);
-    final PeerId peerId;
-    final String trackId;
-    final MediaTrackKind kind;
-  }
-  class TrackRemoved extends MediaEvent {
-    const TrackRemoved(this.peerId, this.trackId);
-    final PeerId peerId;
-    final String trackId;
-  }
+/// План топологии медиасессии.
+@immutable
+class TopologyPlan {
+  const TopologyPlan({
+    required this.type,
+    this.host,
+    required this.participants,
+  });
+
+  final TopologyType type;
+  /// Для [TopologyType.hosted] — peer, который хостит сессию (SFU).
+  final PeerId? host;
+  final Set<PeerId> participants;
+}
+
+/// Топология медиа-звонка: mesh или hosted-by-peer.
+///
+/// Реализация в core_media; для тестов — [FakeMediaTopology].
+abstract class MediaTopology {
+  /// Вычисляет план топологии для участников и их возможностей.
+  TopologyPlan plan(Set<PeerId> participants, Map<PeerId, PeerCapabilities> capabilities);
+
+  /// Закрывает топологию.
+  Future<void> close();
 }

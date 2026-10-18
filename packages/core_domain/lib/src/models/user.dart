@@ -1,4 +1,4 @@
-import 'entity_id.dart';
+import 'identifiers.dart';
 
 /// Пользователь сети OpenSink.
 /// Анонимная модель: открытый ключ Ed25519 выступает в роли UserId.

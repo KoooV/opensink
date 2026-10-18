@@ -1,26 +1,33 @@
-/// Транспортный уровень: отправка/приём байт в узле сети (P2P или через релей).
-abstract class Transport {
-  /// Поток входящих сообщений.
-  Stream<TransportMessage> get incoming;
+import '../models/identifiers.dart';
+import 'peer_link.dart';
 
-  /// Отправляет сообщение узлу.
-  Future<void> send(PeerId to, List<int> data);
+/// Событие транспортного уровня.
+@immutable
+class PeerLinkEvent {
+  const PeerLinkEvent._(this.type, this.peerId, [this.error]);
 
-  /// Возвращает список известных peer'ов.
-  Set<PeerId> get knownPeers;
+  final String type; // 'connected' | 'disconnected' | 'error' | 'stats'
+  final PeerId? peerId;
+  final Object? error;
 
-  Future<void> close();
+  @override
+  String toString() => 'PeerLinkEvent(type=$type, peerId=$peerId)';
 }
 
-@immutable
-class TransportMessage {
-  const TransportMessage({
-    required this.from,
-    required this.payload,
-    required this.timestamp,
-  });
+/// Транспортный уровень: отправка/приём байт в узле сети (P2P или через релей).
+///
+/// [Transport] прозрачно выбирает прямой путь или Relay. Реализация скрыта
+/// за интерфейсом; для тестов — [FakeTransport].
+abstract class Transport {
+  /// Устанавливает соединение с peer и возвращает [PeerLink].
+  Future<PeerLink> connect(PeerId peerId);
 
-  final PeerId from;
-  final List<int> payload;
-  final int timestamp;
+  /// Поток событий транспортного уровня.
+  Stream<PeerLinkEvent> get events;
+
+  /// Отправляет байты узлу (прозрачно через прямую ссылку или Relay).
+  Future<void> send(PeerId dst, List<int> bytes);
+
+  /// Закрывает транспорт и все соединения.
+  Future<void> close();
 }

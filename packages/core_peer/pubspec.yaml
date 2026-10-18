@@ -1,0 +1,15 @@
+name: core_peer
+description: "OpenSink peer layer: WebRTC connections via flutter_webrtc."
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  core_domain:
+    path: ../core_domain
+  flutter_webrtc: ^0.10.0
+
+dev_dependencies:
+  test: ^1.26.0

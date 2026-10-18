@@ -1,56 +1,41 @@
 import 'package:cryptography/cryptography.dart';
-import 'package:core_domain/core_domain.dart';
+import 'package:core_domain/core_domain.dart;
 
-/// Идентичность пользователя в сети OpenSink.
+/// Конкретная реализация доменной [Identity] с закрытым ключом Ed25519.
 ///
-/// Открытый ключ Ed25519 является UserId. Закрытый ключ никогда не покидает
-/// SecureKeyStore и не логируется.
-class Identity {
-  const Identity({
-    required this.userId,
+/// Закрытый ключ никогда не покидает [SecureKeyStore] и не логируется.
+class CryptoIdentity extends Identity {
+  const CryptoIdentity({
+    required super.peerId,
+    required super.userId,
     required this.publicKey,
     required this.privateKey,
   });
 
-  final UserId userId;
+  /// Открытый ключ Ed25519.
   final PublicKey publicKey;
+
+  /// Закрытый ключ Ed25519.
   final SecretKey privateKey;
 
-  /// Сериализует открытую часть идентичности (без секрета).
-  IdentityBundle toBundle(List<int> encryptedPrivateKey) => IdentityBundle(
-        userId: userId,
-        publicKey: publicKey.hex,
-        encryptedPrivateKey: encryptedPrivateKey,
-        createdAt: DateTime.now().millisecondsSinceEpoch,
-      );
+  @override
+  Map<String, Object?> toPublicMap() => {
+        'peerId': publicKey.hex,
+        'userId': userId.value,
+      };
 
   @override
-  String toString() => 'Identity(userId=${userId.value}, publicKey=${publicKey.hex})';
+  String toString() => 'CryptoIdentity(userId=${userId.value}, publicKey=${publicKey.hex})';
 }
 
 /// Сгенерировать новую Ed25519 идентичность.
-Future<Identity> generateIdentity() async {
+Future<CryptoIdentity> generateIdentity() async {
   final algorithm = Ed25519();
   final keyPair = await algorithm.newKeyPair();
-  return Identity(
+  return CryptoIdentity(
+    peerId: PeerId(keyPair.publicKey.bytes),
     userId: UserId(keyPair.publicKey.hex),
     publicKey: keyPair.publicKey,
     privateKey: keyPair.privateKey,
   );
-}
-
-/// Пакет для хранения в SecureKeyStore (секрет зашифрован).
-@immutable
-class IdentityBundle {
-  const IdentityBundle({
-    required this.userId,
-    required this.publicKey,
-    required this.encryptedPrivateKey,
-    required this.createdAt,
-  });
-
-  final UserId userId;
-  final String publicKey;
-  final List<int> encryptedPrivateKey;
-  final int createdAt;
 }

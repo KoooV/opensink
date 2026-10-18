@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:test/test.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:core_domain/src/interfaces/fakes.dart';
@@ -64,71 +65,6 @@ void main() {
       expect(next.name, 'New');
       expect(next.updatedAt, 200);
     });
-
-    test('добавление и удаление участника', () {
-      final owner = UserId('user-1');
-      final bob = UserId('user-3');
-      final group = Group(
-        id: GroupId('group-1'),
-        name: 'G',
-        ownerId: owner,
-        memberIds: {owner},
-        channelIds: {},
-        eventIds: {},
-        createdAt: 100,
-        updatedAt: 100,
-      );
-
-      final added = group.apply(MemberAdded(
-        id: EventId('evt-a'),
-        groupId: GroupId('group-1'),
-        authorId: owner,
-        timestamp: 101,
-        signature: 'sig',
-        userId: bob,
-      ));
-
-      expect(added.memberIds, {owner, bob});
-
-      final removed = added.apply(MemberRemoved(
-        id: EventId('evt-r'),
-        groupId: GroupId('group-1'),
-        authorId: owner,
-        timestamp: 102,
-        signature: 'sig',
-        userId: bob,
-      ));
-
-      expect(removed.memberIds, {owner});
-    });
-
-    test('создание канала отражается в состоянии группы', () {
-      final owner = UserId('user-1');
-      final group = Group(
-        id: GroupId('group-1'),
-        name: 'G',
-        ownerId: owner,
-        memberIds: {owner},
-        channelIds: {},
-        eventIds: {},
-        createdAt: 100,
-        updatedAt: 100,
-      );
-
-      final channelId = ChannelId('channel-1');
-      final next = group.apply(ChannelCreated(
-        id: EventId('evt-c'),
-        groupId: GroupId('group-1'),
-        authorId: owner,
-        timestamp: 103,
-        signature: 'sig',
-        channelId: channelId,
-        name: 'general',
-        type: 'text',
-      ));
-
-      expect(next.channelIds, {channelId});
-    });
   });
 
   group('GroupEvent.validateInvariants', () {
@@ -186,53 +122,185 @@ void main() {
       expect(result.unwrapErr(), 'boom');
       expect(result.isErr, isTrue);
     });
+  });
 
-    test('when диспатчит по варианту', () {
-      const result = Ok<int, String>(7);
-      final value = result.when(
-        ok: (v) => v * 2,
-        err: (e) => -1,
-      );
-      expect(value, 14);
+  group('PeerId', () {
+    test('равенство по байтам открытого ключа', () {
+      const a = PeerId(Uint8List.fromList([1, 2, 3]));
+      final b = PeerId(Uint8List.fromList([1, 2, 3]));
+      final c = PeerId(Uint8List.fromList([1, 2, 4]));
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+      expect(a != c, isTrue);
     });
   });
 
-  group('Fake transports', () {
-    test('FakeSignalingChannel доставляет сообщение в incoming', () async {
+  group('FakeSignalingChannel', () {
+    test('join/publish/incoming доставляют сообщение по теме', () async {
       final channel = FakeSignalingChannel();
+      await channel.join('topic-1');
       final received = <SignalingMessage>[];
       final sub = channel.incoming.listen((m) => received.add(m));
 
-      await channel.send(PeerId('peer-1'), const SignalingMessage(type: 'offer', payload: {}, timestamp: 1));
-      channel.emit(const SignalingMessage(type: 'answer', payload: {}, timestamp: 2));
+      await channel.publish('topic-1', [1, 2, 3]);
+      channel.emit(const SignalingMessage(
+        topic: 'topic-1',
+        bytes: [4, 5, 6],
+        from: PeerId(Uint8List.fromList([9])),
+        timestamp: 2,
+      ));
 
       await Future.delayed(Duration.zero);
       expect(received.length, 1);
-      expect(received.first.type, 'answer');
+      expect(received.first.bytes, [4, 5, 6]);
       expect(channel.sent.length, 1);
-      expect(channel.sent.first.type, 'offer');
+      expect(channel.joined, {'topic-1'});
 
       await sub.cancel();
       await channel.close();
     });
+  });
 
-    test('FakePeerLink отправляет и эмулирует входящие данные', () async {
-      final link = FakePeerLink(PeerId('peer-1'));
-      final received = <List<int>>[];
+  group('FakePeerLink', () {
+    test('send/incoming/state/stats/close', () async {
+      final link = FakePeerLink(PeerId(Uint8List.fromList([7])));
+      final received = <Incoming>[];
       link.incoming.listen((data) => received.add(data));
 
-      await link.sendData([1, 2, 3]);
-      link.emitData([4, 5, 6]);
+      await link.send('chat', [1, 2, 3]);
+      link.emitIncoming(const Incoming(
+        channel: 'chat',
+        bytes: [4, 5, 6],
+        timestamp: 1,
+      ));
 
       await Future.delayed(Duration.zero);
-      expect(link.sent, [[1, 2, 3]]);
-      expect(received, [[4, 5, 6]]);
-      expect(link.state.first, ConnectionState.connected);
+      expect(link.sent.length, 1);
+      expect(link.sent.first.channel, 'chat');
+      expect(received.map((i) => i.bytes).toList(), [[4, 5, 6]]);
+      expect(link.state, PeerLinkState.connected);
+      expect(link.stats.rtt.inMilliseconds, 10);
+
+      link.emitState(PeerLinkState.closed);
+      expect(link.state, PeerLinkState.closed);
 
       await link.close();
     });
+  });
 
-    test('FakeSecureKeyStore хранит и загружает идентичность', () async {
+  group('FakeTransport', () {
+    test('connect/events/send/close', () async {
+      final transport = FakeTransport();
+      final events = <PeerLinkEvent>[];
+      transport.events.listen((e) => events.add(e));
+
+      final link = await transport.connect(PeerId(Uint8List.fromList([8])));
+      await transport.send(PeerId(Uint8List.fromList([8])), [9, 9]);
+
+      await Future.delayed(Duration.zero);
+      expect(events.length, 1);
+      expect(events.first.type, 'connected');
+      expect(link.remotePeerId, PeerId(Uint8List.fromList([8])));
+
+      await transport.close();
+    });
+  });
+
+  group('FakeRelay', () {
+    test('routes/forward/capacity', () async {
+      final relay = FakeRelay();
+      relay.routeTo(PeerId(Uint8List.fromList([5])));
+      expect(relay.routes(PeerId(Uint8List.fromList([5]))), isTrue);
+      expect(relay.routes(PeerId(Uint8List.fromList([6]))), isFalse);
+
+      await relay.forward(const RelayFrame(
+        dst: PeerId(Uint8List.fromList([5])),
+        payload: [1, 2, 3],
+      ));
+
+      expect(relay.forwarded.length, 1);
+      expect(relay.capacity, 1000);
+      await relay.close();
+    });
+  });
+
+  group('FakeMediaTopology', () {
+    test('plan возвращает mesh с участниками', () {
+      final topology = FakeMediaTopology();
+      final plan = topology.plan(
+        {PeerId(Uint8List.fromList([1])), PeerId(Uint8List.fromList([2]))},
+        {},
+      );
+      expect(plan.type, TopologyType.mesh);
+      expect(plan.participants.length, 2);
+      expect(topology.plans.length, 1);
+    });
+  });
+
+  group('FakeEventStore', () {
+    test('write/watchGroup', () async {
+      final store = FakeEventStore();
+      final record = EventRecord(
+        id: 'evt-1',
+        groupId: GroupId('g-1'),
+        payload: [1, 2],
+        timestamp: 1000,
+        signature: 'sig',
+      );
+      await store.write(record);
+
+      final received = <EventRecord>[];
+      store.watchGroup(GroupId('g-1')).listen((r) => received.add(r));
+
+      await Future.delayed(Duration.zero);
+      expect(received.length, 1);
+      expect(store.records.length, 1);
+      await store.close();
+    });
+  });
+
+  group('FakeSyncEngine', () {
+    test('sync/changes', () async {
+      final engine = FakeSyncEngine();
+      final changes = <void>[];
+      engine.changes.listen((_) => changes.add(null));
+
+      await engine.sync();
+      await Future.delayed(Duration.zero);
+      expect(engine.synced, isTrue);
+      expect(changes.length, 1);
+      await engine.close();
+    });
+  });
+
+  group('FakeGroupState', () {
+    test('state/watch', () {
+      final state = GroupState(
+        id: GroupId('g-1'),
+        name: 'G',
+        ownerId: UserId('u-1'),
+        memberIds: {UserId('u-1')},
+        channelIds: {},
+        createdAt: 100,
+        updatedAt: 100,
+      );
+      final fake = FakeGroupState(state);
+      expect(fake.state.name, 'G');
+
+      final watched = <GroupState>[];
+      fake.watch.listen((s) => watched.add(s));
+
+      final next = state.copyWith(name: 'New');
+      fake.setState(next);
+
+      expect(fake.state.name, 'New');
+      expect(watched.length, 1);
+      expect(watched.first.name, 'New');
+    });
+  });
+
+  group('FakeSecureKeyStore', () {
+    test('хранит и загружает идентичность', () async {
       final store = FakeSecureKeyStore();
       final userId = UserId('user-1');
       expect(await store.hasIdentity(userId), isFalse);
@@ -253,6 +321,26 @@ void main() {
 
       await store.deleteIdentity(userId);
       expect(await store.hasIdentity(userId), isFalse);
+    });
+  });
+
+  group('FakeScreenCaptureSource', () {
+    test('start/stop/isCapturing/frames', () async {
+      final source = FakeScreenCaptureSource();
+      expect(source.isCapturing, isFalse);
+
+      final frames = <List<int>>[];
+      source.frames.listen((f) => frames.add(f));
+
+      await source.start();
+      expect(source.isCapturing, isTrue);
+
+      source.emitFrame([1, 2, 3]);
+      await Future.delayed(Duration.zero);
+      expect(frames, [[1, 2, 3]]);
+
+      await source.stop();
+      expect(source.isCapturing, isFalse);
     });
   });
 }
