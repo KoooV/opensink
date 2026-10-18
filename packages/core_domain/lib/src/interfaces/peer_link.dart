@@ -1,39 +1,67 @@
+import '../models/identifiers.dart';
+
+/// Входящие данные по peer-ссылке.
+@immutable
+class Incoming {
+  const Incoming({
+    required this.channel,
+    required this.bytes,
+    required this.timestamp,
+  });
+
+  final String channel;
+  final List<int> bytes;
+  final int timestamp; // Unix ms
+}
+
+/// Статистика peer-ссылки.
+@immutable
+class PeerLinkStats {
+  const PeerLinkStats({
+    required this.rtt,
+    required this.bytesSent,
+    required this.bytesReceived,
+    required this.loss,
+  });
+
+  /// Round-trip time.
+  final Duration rtt;
+  final int bytesSent;
+  final int bytesReceived;
+  /// Доля потерянных пакетов (0.0–1.0).
+  final double loss;
+}
+
+enum PeerLinkState {
+  connecting,
+  connected,
+  closed,
+  failed,
+}
+
 /// Абстракция над WebRTC peer connection.
-/// Реализация в core_peer (flutter_webrtc); платформенные детали — за интерфейсом.
+///
+/// Реализация в core_peer (flutter_webrtc); платформенные детали — за
+/// интерфейсом. Для тестов — [FakePeerLink].
 abstract class PeerLink {
   /// Id удалённого peer.
   PeerId get remotePeerId;
 
-  /// Поток входящих данных (текст / бинарные чанки мультимедиа).
-  Stream<List<int>> get incomingData;
+  /// Текущее состояние соединения.
+  PeerLinkState get state;
 
-  /// Поток изменений состояния соединения.
-  Stream<ConnectionState> get state;
+  /// Поток изменений состояния.
+  Stream<PeerLinkState> get stateStream;
 
-  /// Отправляет бинарные данные peer'у.
-  Future<void> sendData(List<int> data);
+  /// Поток входящих данных.
+  Stream<Incoming> get incoming;
 
-  /// Устанавливает удалённое SDP описание (offer / answer).
-  Future<void> setRemoteDescription(String sdp, String type);
+  /// Статистика соединения (RTT, байты, потери).
+  PeerLinkStats get stats;
 
-  /// Создаёт локальный offer.
-  Future<String> createOffer();
-
-  /// Создаёт локальный answer.
-  Future<String> createAnswer();
-
-  /// Добавляет ICE-кандидата.
-  Future<void> addIceCandidate(String candidate, String sdpMid, int sdpMLineIndex);
+  /// Отправляет байты в канал.
+  Future<void> send(String channel, List<int> bytes);
 
   /// Закрывает соединение.
   Future<void> close();
-}
-
-enum ConnectionState {
-  new_,
-  connecting,
-  connected,
-  disconnected,
-  failed,
-  closed,
 }

@@ -1,0 +1,15 @@
+name: core_protocol
+description: "OpenSink protocol: protobuf schemas and message envelopes."
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  core_domain:
+    path: ../core_domain
+  protobuf: ^3.1.0
+
+dev_dependencies:
+  test: ^1.26.0

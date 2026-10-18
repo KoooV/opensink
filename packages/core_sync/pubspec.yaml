@@ -1,0 +1,16 @@
+name: core_sync
+description: "OpenSync sync engine: event log and state convergence."
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  core_domain:
+    path: ../core_domain
+  core_storage:
+    path: ../core_storage
+
+dev_dependencies:
+  test: ^1.26.0

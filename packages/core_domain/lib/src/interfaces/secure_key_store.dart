@@ -1,7 +1,8 @@
-import 'package:meta/meta.dart';
+import '../models/identity.dart';
 import '../models/user.dart';
 
 /// Хранилище секретов пользователя (закрытые ключи Ed25519, сессионные ключи).
+///
 /// Реализация платформенная (Keystore / libsecret / Web Crypto API) — через
 /// platform_* пакеты с conditional import. В core_domain — только интерфейс.
 abstract class SecureKeyStore {
@@ -18,17 +19,19 @@ abstract class SecureKeyStore {
   Future<bool> hasIdentity(UserId userId);
 }
 
+/// Пакет для хранения в SecureKeyStore (секрет зашифрован ключом устройства).
 @immutable
 class IdentityBundle {
   const IdentityBundle({
     required this.userId,
     required this.publicKey,
-    required this.encryptedPrivateKey, // зашифровано ключом устройства
+    required this.encryptedPrivateKey,
     required this.createdAt,
   });
 
   final UserId userId;
-  final String publicKey; // hex Ed25519 public key
+  /// Hex Ed25519 public key.
+  final String publicKey;
   final List<int> encryptedPrivateKey;
-  final int createdAt;
+  final int createdAt; // Unix ms
 }

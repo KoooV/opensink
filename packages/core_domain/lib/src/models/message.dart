@@ -1,4 +1,4 @@
-import 'entity_id.dart';
+import 'identifiers.dart';
 import 'user.dart';
 import 'channel.dart';
 

@@ -1,19 +1,6 @@
-import 'package:meta/meta.dart';
+import '../models/identifiers.dart';
 
-/// Хранилище событий (log). Каждое событие — неизменяемая запись.
-abstract class EventStore {
-  /// Записывает событие.
-  Future<void> write(EventRecord record);
-
-  /// Читает события после (включительно) заданного курсора.
-  Stream<EventRecord> watchFrom(String cursor);
-
-  /// Все события группы.
-  Stream<EventRecord> watchGroup(GroupId groupId);
-
-  Future<void> close();
-}
-
+/// Запись события в логе.
 @immutable
 class EventRecord {
   const EventRecord({
@@ -26,7 +13,26 @@ class EventRecord {
 
   final String id;
   final GroupId groupId;
-  final List<int> payload; // сериализованное событие
-  final int timestamp;
-  final String signature;
+  /// Сериализованное событие (protobuf / JSON).
+  final List<int> payload;
+  final int timestamp; // Unix ms
+  final String signature; // hex Ed25519
+
+  @override
+  String toString() => 'EventRecord(id=$id, groupId=$groupId)';
+}
+
+/// Хранилище событий (log). Каждое событие — неизменяемая запись.
+abstract class EventStore {
+  /// Записывает событие.
+  Future<void> write(EventRecord record);
+
+  /// Читает события после (включительно) заданного курсора.
+  Stream<EventRecord> watchFrom(String cursor);
+
+  /// Все события группы.
+  Stream<EventRecord> watchGroup(GroupId groupId);
+
+  /// Закрывает хранилище.
+  Future<void> close();
 }

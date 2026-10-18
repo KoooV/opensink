@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install melos
+        run: dart pub global activate melos
+
+      - name: Bootstrap (pub get)
+        run: melos bootstrap
+
+      - name: Analyze
+        run: melos run analyze
+
+      - name: Test
+        run: melos run test
+
+      - name: Assert no dart:io / dart:html in core_* packages
+        run: |
+          for pkg in packages/core_*; do
+            if grep -rlE "import 'dart:(io|html)';" "$pkg/lib" 2>/dev/null; then
+              echo "FORBIDDEN: $pkg imports dart:io or dart:html"
+              exit 1
+            fi
+          done
+          echo "OK: no core_* package imports dart:io/dart:html"
+
+  builds:
+    needs: analyze-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter doctor
+        run: flutter doctor
+
+      - name: Build Web
+        run: |
+          cd apps/app
+          flutter build web
+
+      - name: Build Linux
+        run: |
+          cd apps/app
+          flutter build linux
+
+      - name: Build APK
+        run: |
+          cd apps/app
+          flutter build apk --debug

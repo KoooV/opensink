@@ -1,4 +1,4 @@
-import 'package:meta/meta.dart';
+import '../models/identifiers.dart';
 
 /// Источник captura экрана (платформенный: MediaProjection на Android,
 /// wlr-screencopy / PipeWire на Linux, getDisplayMedia на Web).
@@ -15,5 +15,6 @@ abstract class ScreenCaptureSource {
   /// Остановить captura.
   Future<void> stop();
 
+  /// Идёт ли captura в данный момент.
   bool get isCapturing;
 }
