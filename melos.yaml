@@ -1,0 +1,17 @@
+name: opensink
+
+packages:
+  - packages/core_domain
+  - packages/core_crypto
+  - packages/core_protocol
+  - packages/core_storage
+  - packages/core_signaling
+  - packages/core_peer
+  - packages/core_sync
+  - packages/core_group
+  - packages/core_relay
+  - packages/core_media
+  - packages/platform_android
+  - packages/platform_linux
+  - packages/platform_web
+  - apps/app

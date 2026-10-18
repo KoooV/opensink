@@ -1,0 +1,14 @@
+name: core_domain
+description: "OpenSink core domain models and interfaces."
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  meta: ^1.15.0
+  collection: ^1.19.0
+
+dev_dependencies:
+  test: ^1.26.0
