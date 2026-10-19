@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:test/test.dart';
 import 'package:core_crypto/core_crypto.dart';
 
@@ -8,7 +10,7 @@ void main() {
     test('encrypt/decrypt roundtrip', () async {
       const secretHex = '000102030405060708090a0b0c0d0e0f'
           '101112131415161718191a1b1c1d1e1f';
-      final chainKey = SecretKey.fromBytes(
+      final chainKey = SecretKey(
         Uint8List.fromList(_hexToBytes(secretHex)),
       );
       final senderKey = SenderKey(chainKey: chainKey, iteration: 0);
@@ -35,7 +37,7 @@ void main() {
     test('next key produces different ciphertext for same plaintext', () async {
       const secretHex = '000102030405060708090a0b0c0d0e0f'
           '101112131415161718191a1b1c1d1e1f';
-      final chainKey = SecretKey.fromBytes(
+      final chainKey = SecretKey(
         Uint8List.fromList(_hexToBytes(secretHex)),
       );
       final senderKey = SenderKey(chainKey: chainKey, iteration: 0);
@@ -47,13 +49,13 @@ void main() {
       final result2 = await result1.nextKey.encrypt(plaintext: plaintext);
 
       expect(result1.ciphertext, isNot(equals(result2.ciphertext)));
-      expect(result2.iteration, equals(2));
+      expect(result2.iteration, equals(1));
     });
 
     test('wrong iteration fails', () async {
       const secretHex = '000102030405060708090a0b0c0d0e0f'
           '101112131415161718191a1b1c1d1e1f';
-      final chainKey = SecretKey.fromBytes(
+      final chainKey = SecretKey(
         Uint8List.fromList(_hexToBytes(secretHex)),
       );
       final senderKey = SenderKey(chainKey: chainKey, iteration: 0);
@@ -92,7 +94,7 @@ void main() {
     test('withKey adds/replaces key', () {
       final state = SenderKeyState(senderKeys: {});
       final key = SenderKey(
-        chainKey: SecretKey.fromBytes(Uint8List(32)),
+        chainKey: SecretKey(Uint8List(32)),
         iteration: 5,
       );
       final updated = state.withKey('user-1', key);

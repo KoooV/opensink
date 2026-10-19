@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:collection/collection.dart';
+import 'package:meta/meta.dart';
 
 /// In-memory fake реализации всех интерфейсов core_domain для тестов.
-library core_domain.fakes;
 
 import '../models/identifiers.dart';
 import '../models/identity.dart';
@@ -152,13 +154,13 @@ class FakeTransport implements Transport {
   Future<PeerLink> connect(PeerId peerId) async {
     final link = FakePeerLink(peerId);
     _links[peerId] = link;
-    _eventsController.add(const PeerLinkEvent._('connected', peerId));
+    _eventsController.add(PeerLinkEvent('connected', peerId));
     return link;
   }
 
   @override
   Future<void> send(PeerId dst, List<int> bytes) async {
-    _sent.add(const PeerLinkEvent._('send', dst));
+    _sent.add(PeerLinkEvent('send', dst));
   }
 
   @override
@@ -290,7 +292,7 @@ class FakeGroupState implements IGroupState {
   GroupState get state => _state;
 
   @override
-  Stream<GroupState> get watch => _controller.stream;
+  Stream<GroupState> watch() => _controller.stream;
 
   void setState(GroupState next) {
     _state = next;

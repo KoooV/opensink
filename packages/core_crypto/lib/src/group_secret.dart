@@ -1,36 +1,23 @@
-import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'hkdf.dart';
 
-/// Производство ключей группы из group_secret через HKDF.
-///
-/// Из одного group_secret выводится три независимых ключа с разными
-/// контекстами (info):
-///  1. signaling topic — для подписки в Nostr-реле / трекере
-///  2. signaling payload key — для AEAD-шифрования сообщений в signaling
-///  3. invitation key — для шифрования приглашений в группу
 class GroupSecret {
-  const GroupSecret._(this._secret);
+  GroupSecret(this._secret);
 
   final SecretKey _secret;
 
-  /// Создать [GroupSecret] из shared secret.
-  factory GroupSecret(SecretKey secret) => GroupSecret._(secret);
-
-  /// Создать [GroupSecret] из случайных байт (32 байта рекомендуется).
   static Future<GroupSecret> random() async {
-    final algorithm = const XChaCha20Poly1305();
+    final algorithm = AesGcm.with256bits();
     final key = await algorithm.newSecretKey();
-    return GroupSecret._(key);
+    return GroupSecret(key);
   }
 
-  final _hkdf = Hkdf();
+  final _hkdf = GroupHkdf();
 
-  /// Zero-filled salt (HKDF позволяет нулевую соль, если secret уже высокоэнтропный).
-  static const _zeroSalt = Uint8List(32);
+  static final _zeroSalt = Uint8List(32);
 
-  /// Signaling topic (байтовый идентификатор для подписки в реле).
   Future<Uint8List> topic() async {
     return _hkdf.deriveBytes(
       secret: _secret,
@@ -40,12 +27,10 @@ class GroupSecret {
     );
   }
 
-  /// Signaling topic как hex-строка.
   Future<String> topicHex() async {
-    return (await topic()).hex;
+    return bytesToHex(await topic());
   }
 
-  /// Ключ шифрования signaling-payload (XChaCha20-Poly1305, 256 бит).
   Future<SecretKey> signalingPayloadKey() async {
     final bytes = await _hkdf.deriveBytes(
       secret: _secret,
@@ -56,7 +41,6 @@ class GroupSecret {
     return SecretKey(bytes);
   }
 
-  /// Ключ приглашений в группу (XChaCha20-Poly1305, 256 бит).
   Future<SecretKey> invitationKey() async {
     final bytes = await _hkdf.deriveBytes(
       secret: _secret,
@@ -67,21 +51,19 @@ class GroupSecret {
     return SecretKey(bytes);
   }
 
-  /// Все три ключа за один вызов.
   Future<GroupKeys> allKeys() async {
-    final topic = await topic();
+    final topicBytes = await topic();
     final signalingKey = await signalingPayloadKey();
-    final invitationKey = await invitationKey();
+    final invitationKeyDerived = await invitationKey();
     return GroupKeys(
-      topic: topic,
-      topicHex: topic.hex,
+      topic: topicBytes,
+      topicHex: bytesToHex(topicBytes),
       signalingPayloadKey: signalingKey,
-      invitationKey: invitationKey,
+      invitationKey: invitationKeyDerived,
     );
   }
 }
 
-/// Набор производных ключей группы.
 class GroupKeys {
   const GroupKeys({
     required this.topic,

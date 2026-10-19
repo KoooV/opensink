@@ -2,6 +2,7 @@ name: platform_linux
 description: "OpenSink Linux platform implementation (flutter_secure_storage via libsecret)."
 version: 0.1.0
 publish_to: 'none'
+resolution: workspace
 
 environment:
   sdk: ^3.13.5

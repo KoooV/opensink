@@ -20,11 +20,11 @@ sealed class Result<T, E> {
   }
 
   R when<R>({
-    required R Ok(T value),
-    required R Err(E error),
+    required R Function(T) ok,
+    required R Function(E) err,
   }) {
-    if (this is Ok<T, E>) return Ok((this as Ok<T, E>).value);
-    return Err((this as Err<T, E>).error);
+    if (this is Ok<T, E>) return ok((this as Ok<T, E>).value);
+    return err((this as Err<T, E>).error);
   }
 
   R? mapOrElse<R>(R Function(T) ok, R Function(E) err) => when(ok: ok, err: err);

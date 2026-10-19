@@ -1,15 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import '../aead.dart';
+import '../hkdf.dart';
 
-/// Sender Keys для групповых чатов.
-///
-/// Каждый участник группы поддерживает цепочку ключей (sender key chain).
-/// Каждое сообщение шифруется message key, производным от текущего chain key,
-/// после чего chain key продвигается вперёд (ratchet).
-/// При изменении состава группы (вход/выход участника) выполняется ротация:
-/// отправитель генерирует новый chain key и рассылает его всем участникам
-/// через зашифрованные личные каналы (Double Ratchet).
 class SenderKey {
   SenderKey({
     required this.chainKey,
@@ -19,13 +14,13 @@ class SenderKey {
   final SecretKey chainKey;
   final int iteration;
 
-  /// Зашифровать сообщение для группы.
-  /// Возвращает зашифрованные данные и следующее состояние ключа.
+  final _aead = XChaCha20Poly1305Aead();
+
   Future<SenderKeyResult> encrypt({
     required Uint8List plaintext,
     Uint8List? associatedData,
   }) async {
-    final hkdf = Hkdf();
+    final hkdf = GroupHkdf();
     final mkBytes = await hkdf.deriveBytes(
       secret: chainKey,
       salt: Uint8List(32),
@@ -44,8 +39,7 @@ class SenderKey {
     );
 
     final messageKey = SecretKey(mkBytes);
-    final aead = XChaCha20Poly1305Aead();
-    final encrypted = await aead.encrypt(
+    final encrypted = await _aead.encrypt(
       key: messageKey,
       plaintext: plaintext,
       aad: associatedData,
@@ -61,16 +55,13 @@ class SenderKey {
     );
   }
 
-  /// Расшифровать сообщение от другого отправителя.
-  /// [senderIteration] — итерация, с которой было зашифровано сообщение.
-  /// Должен совпадать с текущим состоянием получателя для этого отправителя.
   static Future<Uint8List> decrypt({
     required SecretKey chainKey,
     required int expectedIteration,
     required Uint8List ciphertext,
     Uint8List? associatedData,
   }) async {
-    final hkdf = Hkdf();
+    final hkdf = GroupHkdf();
     final mkBytes = await hkdf.deriveBytes(
       secret: chainKey,
       salt: Uint8List(32),
@@ -91,16 +82,12 @@ class SenderKey {
     return decrypted.unwrap();
   }
 
-  /// Ротация ключа:.generate новый chain key.
-  /// Вызывается при изменении состава группы.
   static Future<SenderKey> rotate() async {
-    final aead = XChaCha20Poly1305Aead();
-    final newKey = await aead.generateAeadKey();
-    return SenderKey(chainKey: newKey, iteration: 0);
+    final key = await generateAeadKey();
+    return SenderKey(chainKey: key, iteration: 0);
   }
 }
 
-/// Результат шифрования Sender Key.
 class SenderKeyResult {
   const SenderKeyResult({
     required this.ciphertext,
@@ -113,19 +100,16 @@ class SenderKeyResult {
   final SenderKey nextKey;
 }
 
-/// Состояние sender keys для группы: по одному ключу на отправителя.
 class SenderKeyState {
   const SenderKeyState({
     required this.senderKeys,
   });
 
-  /// Отправитель (UserId) → его SenderKey.
   final Map<String, SenderKey> senderKeys;
 
-  /// Получить ключ отправителя или сгенерировать новый.
   SenderKey keyFor(String userId) {
     return senderKeys[userId] ?? SenderKey(
-      chainKey: const SecretKey(Uint8List(32)), // placeholder, будет заменён
+      chainKey: SecretKey(Uint8List(32)),
       iteration: 0,
     );
   }

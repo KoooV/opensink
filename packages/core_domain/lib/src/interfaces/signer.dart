@@ -1,3 +1,7 @@
+import 'dart:typed_data';
+
+import '../models/identifiers.dart';
+
 /// Интерфейс подписчика / верификатора Ed25519.
 ///
 /// Реализация в [core_crypto] (package:cryptography). Все подписные операции

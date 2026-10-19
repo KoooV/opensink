@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:test/test.dart';
 import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
@@ -9,7 +10,7 @@ void main() {
   group('XChaCha20Poly1305Aead', () {
     test('encrypt/decrypt roundtrip', () async {
       final aead = XChaCha20Poly1305Aead();
-      final key = SecretKey.fromBytes(
+      final key = SecretKey(
         Uint8List.fromList(List<int>.generate(32, (i) => i)),
       );
       const plaintext = 'Hello, OpenSink!';
@@ -23,7 +24,7 @@ void main() {
       );
       expect(encrypted.isOk, isTrue);
       final ciphertext = encrypted.unwrap();
-      expect(ciphertext.length, equals(data.length + 24 + 16)); // nonce + tag
+      expect(ciphertext.length, equals(data.length + 12 + 16)); // nonce + tag
 
       final decrypted = await aead.decrypt(
         key: key,
@@ -36,7 +37,7 @@ void main() {
 
     test('tampered ciphertext fails', () async {
       final aead = XChaCha20Poly1305Aead();
-      final key = SecretKey.fromBytes(
+      final key = SecretKey(
         Uint8List.fromList(List<int>.generate(32, (i) => i)),
       );
       const plaintext = 'Hello, OpenSink!';
@@ -56,10 +57,10 @@ void main() {
 
     test('wrong key fails', () async {
       final aead = XChaCha20Poly1305Aead();
-      final key = SecretKey.fromBytes(
+      final key = SecretKey(
         Uint8List.fromList(List<int>.generate(32, (i) => i)),
       );
-      final wrongKey = SecretKey.fromBytes(
+      final wrongKey = SecretKey(
         Uint8List.fromList(List<int>.generate(32, (i) => 255 - i)),
       );
 
@@ -78,7 +79,7 @@ void main() {
 
     test('data too short fails', () async {
       final aead = XChaCha20Poly1305Aead();
-      final key = SecretKey.fromBytes(
+      final key = SecretKey(
         Uint8List.fromList(List<int>.generate(32, (i) => i)),
       );
 
@@ -92,7 +93,7 @@ void main() {
 
     test('property: different plaintexts produce different ciphertexts', () async {
       final aead = XChaCha20Poly1305Aead();
-      final key = SecretKey.fromBytes(
+      final key = SecretKey(
         Uint8List.fromList(List<int>.generate(32, (i) => i)),
       );
 
@@ -109,7 +110,7 @@ void main() {
 
     test('property: same plaintext twice produces different ciphertexts (random nonce)', () async {
       final aead = XChaCha20Poly1305Aead();
-      final key = SecretKey.fromBytes(
+      final key = SecretKey(
         Uint8List.fromList(List<int>.generate(32, (i) => i)),
       );
 
@@ -136,7 +137,7 @@ void main() {
       final identity = await generateIdentity();
       final signer = CryptoSigner(identity.ed25519PrivateKey);
 
-      const wireBytes = Uint8List.fromList([0x0a, 0x07, 0x74, 0x65, 0x73, 0x74]);
+      final wireBytes = Uint8List.fromList([0x0a, 0x07, 0x74, 0x65, 0x73, 0x74]);
 
       final signature = await signer.sign(wireBytes);
       final valid = await signer.verify(wireBytes, signature, identity.peerId);
@@ -147,8 +148,8 @@ void main() {
       final identity = await generateIdentity();
       final signer = CryptoSigner(identity.ed25519PrivateKey);
 
-      const rawBytes = Uint8List.fromList([1, 2, 3]);
-      const jsonBytes = Uint8List.fromList(utf8.encode('{"type":"test"}'));
+      final rawBytes = Uint8List.fromList([1, 2, 3]);
+      final jsonBytes = Uint8List.fromList(utf8.encode('{"type":"test"}'));
 
       final sigFromRaw = await signer.sign(rawBytes);
       final sigFromJson = await signer.sign(jsonBytes);

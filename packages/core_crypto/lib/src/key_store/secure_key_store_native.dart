@@ -1,15 +1,19 @@
-/// Платформенная реализация SecureKeyStore (native: Android, Linux).
+import 'package:core_domain/core_domain.dart';
+
+/// Stub SecureKeyStore для нативных платформ (Android, Linux).
 ///
-/// Реализацияflutter_secure_storage находится в platform_android /
-/// platform_linux. Этот файл в core_crypto — заглушка, которая выбрасывает
-/// UnimplementedError, пока реальная реализация не подключена через DI.
+/// Реальная реализация с flutter_secure_storage находится в platform_android /
+/// platform_linux. Этот stub выбрасывает UnimplementedError, пока реальная
+/// реализация не подключена через DI.
 class NativeSecureKeyStore implements SecureKeyStore {
   NativeSecureKeyStore();
 
   @override
   Future<void> storeIdentity(UserId userId, IdentityBundle bundle) async {
-    throw UnimplementedError('NativeSecureKeyStore не реализован в core_crypto. '
-        'Используйте платформенную реализацию из platform_android / platform_linux.');
+    throw UnimplementedError(
+      'NativeSecureKeyStore не реализован в core_crypto. '
+      'Используйте платформенную реализацию из platform_android / platform_linux.',
+    );
   }
 
   @override

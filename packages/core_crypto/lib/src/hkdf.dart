@@ -1,45 +1,34 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
-import 'package:cryptography/cryptography.dart';
-import 'package:core_domain/core_domain.dart';
-import 'crypto_exceptions.dart';
+import 'package:cryptography/cryptography.dart' as crypto_pkg;
 
-/// HKDF key derivation (RFC 5869) поверх [package:cryptography].
-///
-/// Используется для выработки нескольких ключей из одного group_secret с
-/// разными контекстами (info): topic для signaling, ключ шифрования payload,
-/// ключ приглашений. Разные info гарантируют криптографическую независимость
-/// производных ключей.
-class Hkdf {
-  Hkdf();
+/// HKDF key derivation (RFC 5869) поверх [package:cryptography] v2.9.0.
+class GroupHkdf {
+  GroupHkdf();
 
-  final _sha256 = const Sha256();
+  final _hmac = crypto_pkg.Hmac.sha256();
 
-  /// Производит [length] байт ключа из [secret] с солью [salt] и контекстом [info].
-  Future<SecretKey> derive({
-    required SecretKey secret,
+  Future<crypto_pkg.SecretKey> derive({
+    required crypto_pkg.SecretKey secret,
     required Uint8List salt,
     required Uint8List info,
-    required int length,
+    required int outputLength,
   }) async {
-    try {
-      final algorithm = Hkdf(
-        hashAlgorithm: _sha256,
-        salt: salt,
-        info: info,
-      );
-      return await algorithm.deriveKey(
-        secretKey: secret,
-        length: length,
-      );
-    } on Exception {
-      throw const KeyDerivationFailed();
-    }
+    final algorithm = crypto_pkg.Hkdf(
+      hmac: _hmac,
+      outputLength: outputLength,
+    );
+    final derived = await algorithm.deriveKey(
+      secretKey: secret,
+      nonce: salt,
+      info: info,
+    );
+    return derived;
   }
 
-  /// Производит сырые байты ключа (не SecretKey).
   Future<Uint8List> deriveBytes({
-    required SecretKey secret,
+    required crypto_pkg.SecretKey secret,
     required Uint8List salt,
     required Uint8List info,
     required int length,
@@ -48,34 +37,44 @@ class Hkdf {
       secret: secret,
       salt: salt,
       info: info,
-      length: length,
+      outputLength: length,
     );
-    return key.extractBytes();
+    return Uint8List.fromList(await key.extractBytes());
   }
 }
 
-/// Контексты (info) для HKDF-производных ключей группы.
 abstract class GroupKeyContext {
   const GroupKeyContext();
 }
 
 class SignalingTopicContext extends GroupKeyContext {
   const SignalingTopicContext();
-  static const Uint8List info = Uint8List.fromList(
+  static final Uint8List info = Uint8List.fromList(
     utf8.encode('opensink/group/signaling-topic'),
   );
 }
 
 class SignalingPayloadKeyContext extends GroupKeyContext {
   const SignalingPayloadKeyContext();
-  static const Uint8List info = Uint8List.fromList(
+  static final Uint8List info = Uint8List.fromList(
     utf8.encode('opensink/group/signaling-payload-key'),
   );
 }
 
 class InvitationKeyContext extends GroupKeyContext {
   const InvitationKeyContext();
-  static const Uint8List info = Uint8List.fromList(
+  static final Uint8List info = Uint8List.fromList(
     utf8.encode('opensink/group/invitation-key'),
+  );
+}
+
+String bytesToHex(List<int> bytes) {
+  return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
+}
+
+List<int> hexToBytes(String hex) {
+  return List<int>.generate(
+    hex.length ~/ 2,
+    (i) => int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16),
   );
 }

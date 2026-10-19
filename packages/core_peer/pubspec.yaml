@@ -2,6 +2,7 @@ name: core_peer
 description: "OpenSink peer layer: WebRTC connections via flutter_webrtc."
 version: 0.1.0
 publish_to: 'none'
+resolution: workspace
 
 environment:
   sdk: ^3.13.5

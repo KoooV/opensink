@@ -1,4 +1,5 @@
 import '../models/identifiers.dart';
+import 'package:meta/meta.dart';
 
 /// Возможности участника медиасессии (кодеки, аппаратное ускорение и т.п.).
 @immutable

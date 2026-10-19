@@ -1,64 +1,65 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
-import 'hkdf.dart';
+import '../hkdf.dart';
 
-/// X3DH (Extended Triple Diffie-Hellman) хендшейк.
-///
-/// Реализация по спецификации Signal Protocol поверх [package:cryptography]
-/// (X25519, HKDF-SHA-256, XChaCha20-Poly1305).
-///
-/// Касается только ключевого согласования — шифрование сообщений delegates в
-/// [DoubleRatchet]. Собственные примитивы не изобретаются.
 class X3DH {
   X3DH();
 
   final _x25519 = X25519();
   final _ed25519 = Ed25519();
-  final _hkdf = Hkdf();
+  final _hkdf = GroupHkdf();
 
-  /// Генерировать полный комплект ключей получателя:
-  /// IK (долгосрочный), SPK (среднесрочный, подписан IK), OPK (одноразовый).
   Future<X3DHKeyBundle> generateKeyBundle() async {
     final ikPair = await _x25519.newKeyPair();
     final spkPair = await _x25519.newKeyPair();
     final opkPair = await _x25519.newKeyPair();
 
-    // SPK подписывается IK для защиты от подмены.
+    final ikPublicKey = await ikPair.extractPublicKey();
+    final spkPublicKey = await spkPair.extractPublicKey();
+    final opkPublicKey = await opkPair.extractPublicKey();
+
     final spkSignature = await _ed25519.sign(
-      spkPair.publicKey.bytes,
-      privateKey: _ed25519PrivateKeyFromX25519(ikPair.privateKey),
+      spkPublicKey.bytes,
+      keyPair: ikPair,
     );
 
+    final ikPrivateKeyBytes = await ikPair.extractPrivateKeyBytes();
+    final spkPrivateKeyBytes = await spkPair.extractPrivateKeyBytes();
+    final opkPrivateKeyBytes = await opkPair.extractPrivateKeyBytes();
+
     return X3DHKeyBundle(
-      identityKey: ikPair.publicKey,
-      identityPrivateKey: ikPair.privateKey,
-      signedPrekey: spkPair.publicKey,
-      signedPrekeyPrivateKey: spkPair.privateKey,
-      signedPrekeySignature: spkSignature.hex,
-      oneTimePrekey: opkPair.publicKey,
-      oneTimePrekeyPrivateKey: opkPair.privateKey,
+      identityKey: ikPublicKey,
+      identityPrivateKey: SecretKey(ikPrivateKeyBytes),
+      signedPrekey: spkPublicKey,
+      signedPrekeyPrivateKey: SecretKey(spkPrivateKeyBytes),
+      signedPrekeySignature: bytesToHex(spkSignature.bytes),
+      oneTimePrekey: opkPublicKey,
+      oneTimePrekeyPrivateKey: SecretKey(opkPrivateKeyBytes),
     );
   }
 
-  /// Сторона отправителя: вычислить общий секрет и эфемерный открытый ключ.
-  ///
-  /// [remoteBundle] — публичные ключи получателя.
-  /// [useOneTimePrekey] — использовать ли OPK.
   Future<X3DHSenderResult> sender({
     required X3DHPublicBundle remoteBundle,
     bool useOneTimePrekey = true,
   }) async {
     final ephemeral = await _x25519.newKeyPair();
 
-    // DH2 = EK × IK_receiver
-    final dh2 = await _agree(ephemeral.privateKey, remoteBundle.identityKey);
-    // DH3 = EK × SPK_receiver
-    final dh3 = await _agree(ephemeral.privateKey, remoteBundle.signedPrekey);
-    SharedSecret? dh4;
+    final dh2 = await _x25519.sharedSecretKey(
+      keyPair: ephemeral,
+      remotePublicKey: remoteBundle.identityKey,
+    );
+    final dh3 = await _x25519.sharedSecretKey(
+      keyPair: ephemeral,
+      remotePublicKey: remoteBundle.signedPrekey,
+    );
+    SecretKey? dh4;
     if (useOneTimePrekey && remoteBundle.oneTimePrekey != null) {
-      // DH4 = EK × OPK_receiver
-      dh4 = await _agree(ephemeral.privateKey, remoteBundle.oneTimePrekey!);
+      dh4 = await _x25519.sharedSecretKey(
+        keyPair: ephemeral,
+        remotePublicKey: remoteBundle.oneTimePrekey!,
+      );
     }
 
     final sharedKey = await _deriveSharedKey(
@@ -67,80 +68,89 @@ class X3DH {
       dh4: dh4,
     );
 
+    final ephemeralPublicKey = await ephemeral.extractPublicKey();
+
     return X3DHSenderResult(
-      ephemeralPublicKey: ephemeral.publicKey,
+      ephemeralPublicKey: ephemeralPublicKey,
       sharedKey: sharedKey,
       usedOneTimePrekey: dh4 != null,
     );
   }
 
-  /// Сторона получателя: вычислить общий секрет.
   Future<SecretKey> receiver({
     required X3DHKeyBundle bundle,
     required PublicKey senderEphemeralPublicKey,
     required bool usedOneTimePrekey,
   }) async {
-    // DH2 = IK_receiver × EK_sender
-    final dh2 = await _agree(bundle.identityPrivateKey, senderEphemeralPublicKey);
-    // DH3 = SPK_receiver × EK_sender
-    final dh3 = await _agree(bundle.signedPrekeyPrivateKey, senderEphemeralPublicKey);
-    SharedSecret? dh4;
-    if (usedOneTimePrekey) {
-      // DH4 = OPK_receiver × EK_sender
-      dh4 = await _agree(bundle.oneTimePrekeyPrivateKey!, senderEphemeralPublicKey);
+    // cryptography v2.9.0 lacks KeyPair.fromPrivateKeyBytes, but
+    // SimpleKeyPairData implements KeyPair and accepts raw private key bytes
+    // plus the matching public key.  This is the same pattern used by
+    // CryptoSigner (signer.dart) for Ed25519.
+    final identityKeyPair = SimpleKeyPairData(
+      await bundle.identityPrivateKey.extractBytes(),
+      publicKey: bundle.identityKey as SimplePublicKey,
+      type: KeyPairType.x25519,
+    );
+    final spkKeyPair = SimpleKeyPairData(
+      await bundle.signedPrekeyPrivateKey.extractBytes(),
+      publicKey: bundle.signedPrekey as SimplePublicKey,
+      type: KeyPairType.x25519,
+    );
+
+    final dh2 = await _x25519.sharedSecretKey(
+      keyPair: identityKeyPair,
+      remotePublicKey: senderEphemeralPublicKey,
+    );
+    final dh3 = await _x25519.sharedSecretKey(
+      keyPair: spkKeyPair,
+      remotePublicKey: senderEphemeralPublicKey,
+    );
+
+    SecretKey? dh4;
+    if (usedOneTimePrekey &&
+        bundle.oneTimePrekeyPrivateKey != null &&
+        bundle.oneTimePrekey != null) {
+      final opkKeyPair = SimpleKeyPairData(
+        await bundle.oneTimePrekeyPrivateKey!.extractBytes(),
+        publicKey: bundle.oneTimePrekey! as SimplePublicKey,
+        type: KeyPairType.x25519,
+      );
+      dh4 = await _x25519.sharedSecretKey(
+        keyPair: opkKeyPair,
+        remotePublicKey: senderEphemeralPublicKey,
+      );
     }
 
-    return await _deriveSharedKey(
-      dh2: dh2,
-      dh3: dh3,
-      dh4: dh4,
-    );
-  }
-
-  Future<SharedSecret> _agree(SecretKey privateKey, PublicKey publicKey) async {
-    return await _x25519.agree(
-      remotePublicKey: publicKey,
-      privateKey: privateKey,
-    );
+    return await _deriveSharedKey(dh2: dh2, dh3: dh3, dh4: dh4);
   }
 
   Future<SecretKey> _deriveSharedKey({
-    required SharedSecret dh2,
-    required SharedSecret dh3,
-    SharedSecret? dh4,
+    required SecretKey dh2,
+    required SecretKey dh3,
+    SecretKey? dh4,
   }) async {
-    final dh2Bytes = await dh2.extractBytes();
-    final dh3Bytes = await dh3.extractBytes();
+    final dh2Bytes = Uint8List.fromList(await dh2.extractBytes());
+    final dh3Bytes = Uint8List.fromList(await dh3.extractBytes());
     final allDh = Uint8List.fromList([...dh2Bytes, ...dh3Bytes]);
     if (dh4 != null) {
-      final dh4Bytes = await dh4.extractBytes();
+      final dh4Bytes = Uint8List.fromList(await dh4.extractBytes());
       final combined = Uint8List.fromList([...allDh, ...dh4Bytes]);
       return await _hkdf.derive(
         secret: SecretKey(combined),
         salt: Uint8List(32),
         info: Uint8List.fromList(utf8.encode('opensink/x3dh/shared-key')),
-        length: 32,
+        outputLength: 32,
       );
     }
     return await _hkdf.derive(
       secret: SecretKey(allDh),
       salt: Uint8List(32),
       info: Uint8List.fromList(utf8.encode('opensink/x3dh/shared-key')),
-      length: 32,
+      outputLength: 32,
     );
-  }
-
-  /// Псевдо-приватный ключ Ed25519 из приватного X25519 (для подписи SPK).
-  /// В продакшене IK Ed25519 и X25519 — разные пары. Здесь для простоты
-  /// производим Ed25519 ключ из X25519 приватного ключа через HKDF.
-  SecretKey _ed25519PrivateKeyFromX25519(SecretKey x25519PrivateKey) {
-    // TODO(verify): отдельная Ed25519 пара для подписи SPK вместо вывода из X25519.
-    final bytes = x25519PrivateKey.extractBytes();
-    return SecretKey(bytes);
   }
 }
 
-/// Публичный банdle ключей получателя (без секретов).
 class X3DHPublicBundle {
   const X3DHPublicBundle({
     required this.identityKey,
@@ -155,7 +165,6 @@ class X3DHPublicBundle {
   final PublicKey? oneTimePrekey;
 }
 
-/// Полный комплект ключей получателя (с секретами).
 class X3DHKeyBundle {
   const X3DHKeyBundle({
     required this.identityKey,
@@ -183,7 +192,6 @@ class X3DHKeyBundle {
       );
 }
 
-/// Результат стороны отправителя X3DH.
 class X3DHSenderResult {
   const X3DHSenderResult({
     required this.ephemeralPublicKey,
@@ -196,7 +204,6 @@ class X3DHSenderResult {
   final bool usedOneTimePrekey;
 }
 
-/// Ключевой материал для инициализации Double Ratchet.
 class X3DHSessionKeys {
   const X3DHSessionKeys({
     required this.rootKey,
@@ -209,9 +216,8 @@ class X3DHSessionKeys {
   final SecretKey receivingChainKey;
 }
 
-/// Произвести сессионные ключи Double Ratchet из общего секрета X3DH.
 Future<X3DHSessionKeys> x3dhToSessionKeys(SecretKey sharedSecret) async {
-  final hkdf = Hkdf();
+  final hkdf = GroupHkdf();
   final rootKey = await hkdf.deriveBytes(
     secret: sharedSecret,
     salt: Uint8List(32),

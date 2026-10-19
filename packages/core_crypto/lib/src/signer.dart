@@ -1,26 +1,30 @@
-import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:core_domain/core_domain.dart';
 import 'hkdf.dart';
 
-/// Stateless Ed25519 подписчик / верификатор.
-///
-/// Реализует доменную [Signer]. Подписываются ровно те байты, которые идут
-/// по сети (сериализованный protobuf, не canonical JSON).
-///
-/// Сравнение подписи — constant-time на уровне [Ed25519.verify] из
-/// package:cryptography.
 class CryptoSigner implements Signer {
-  const CryptoSigner(this.privateKey);
+  CryptoSigner(this.privateKey);
 
   final SecretKey privateKey;
 
   @override
   Future<String> sign(Uint8List data) async {
     final algorithm = Ed25519();
-    final signature = await algorithm.sign(data, privateKey: privateKey);
-    return signature.hex;
+    final privateKeyBytes = await privateKey.extractBytes();
+
+    final tempKeyPair = await algorithm.newKeyPair();
+    final tempPublicKey = await tempKeyPair.extractPublicKey();
+
+    final keyPair = SimpleKeyPairData(
+      privateKeyBytes,
+      publicKey: tempPublicKey,
+      type: KeyPairType.ed25519,
+    );
+
+    final signature = await algorithm.sign(data, keyPair: keyPair);
+    return bytesToHex(signature.bytes);
   }
 
   @override
@@ -30,12 +34,18 @@ class CryptoSigner implements Signer {
     PeerId peerId,
   ) async {
     final algorithm = Ed25519();
-    final publicKey = await algorithm.publicKeyFromBytes(peerId.publicKey);
-    final signature = Ed25519Signature.fromHex(signatureHex);
-    return await algorithm.verify(
-      data,
-      signature: signature,
-      publicKey: publicKey,
+    final signatureBytes = hexToBytes(signatureHex);
+
+    final expectedPublicKey = SimplePublicKey(
+      Uint8List.fromList(peerId.publicKey),
+      type: KeyPairType.ed25519,
     );
+
+    final signature = Signature(
+      signatureBytes,
+      publicKey: expectedPublicKey,
+    );
+
+    return await algorithm.verify(data, signature: signature);
   }
 }

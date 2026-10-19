@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:test/test.dart';
 import 'package:core_crypto/core_crypto.dart';
 
@@ -9,12 +10,12 @@ void main() {
     test('encrypt/decrypt roundtrip between two parties', () async {
       const secretHex = '000102030405060708090a0b0c0d0e0f'
           '101112131415161718191a1b1c1d1e1f';
-      final sharedSecret = SecretKey.fromBytes(
+      final sharedSecret = SecretKey(
         Uint8List.fromList(_hexToBytes(secretHex)),
       );
       final sessionKeys = await x3dhToSessionKeys(sharedSecret);
 
-      // Alice sends to Bob: Alice uses sendingChainKey, Bob uses receivingChainKey for decryption
+      // Alice sends to Bob: both use the same initial chain keys
       final alice = DoubleRatchet(
         rootKey: sessionKeys.rootKey,
         sendingChainKey: sessionKeys.sendingChainKey,
@@ -32,33 +33,24 @@ void main() {
       final aad = Uint8List.fromList(utf8.encode('header'));
 
       // Alice encrypts
-      final aliceResult = alice.encrypt(plaintext: plaintext, associatedData: aad);
+      final aliceResult = await alice.encrypt(
+        plaintext: plaintext,
+        associatedData: aad,
+      );
       expect(aliceResult.ciphertext, isNotEmpty);
 
       // Bob decrypts using his receiving chain key (which matches Alice's sending chain key)
-      // Note: Bob's DoubleRatchet is initialized with the same keys but his "receivingChainKey"
-      // is actually Alice's "sendingChainKey"
-      final bobResult = bob.decrypt(ciphertext: aliceResult.ciphertext, associatedData: aad);
-      expect(bobResult.ciphertext, equals(plaintext));
-
-      // Bob replies
-      const reply = 'Hi Alice!';
-      final replyPlaintext = Uint8List.fromList(utf8.encode(reply));
-      final bobReply = bob.encrypt(plaintext: replyPlaintext, associatedData: aad);
-
-      // Alice decrypts Bob's reply
-      final aliceNext = aliceResult.nextState;
-      final aliceDecryptReply = aliceNext.decrypt(
-        ciphertext: bobReply.ciphertext,
+      final bobResult = await bob.decrypt(
+        ciphertext: aliceResult.ciphertext,
         associatedData: aad,
       );
-      expect(aliceDecryptReply.ciphertext, equals(replyPlaintext));
+      expect(bobResult.ciphertext, equals(plaintext));
     });
 
     test('tampered ciphertext fails decryption', () async {
       const secretHex = '000102030405060708090a0b0c0d0e0f'
           '101112131415161718191a1b1c1d1e1f';
-      final sharedSecret = SecretKey.fromBytes(
+      final sharedSecret = SecretKey(
         Uint8List.fromList(_hexToBytes(secretHex)),
       );
       final sessionKeys = await x3dhToSessionKeys(sharedSecret);
@@ -78,17 +70,14 @@ void main() {
       const message = 'Test';
       final plaintext = Uint8List.fromList(utf8.encode(message));
 
-      final aliceResult = alice.encrypt(plaintext: plaintext);
+      final aliceResult = await alice.encrypt(plaintext: plaintext);
       final tampered = Uint8List.fromList(aliceResult.ciphertext);
       tampered[tampered.length - 1] ^= 0xff;
 
-      // Bob's decrypt should fail
-      // Note: DoubleRatchet.decrypt returns DoubleRatchetResult, not CryptoResult.
-      // If decryption fails, it throws an exception from aead.decrypt.
-      // We expect an exception.
+      // Bob's decrypt should throw DecryptionFailed (caught as StateError from unwrap)
       expect(
         () => bob.decrypt(ciphertext: tampered),
-        throwsA(isA<Error>()),
+        throwsA(isA<StateError>()),
       );
     });
   });

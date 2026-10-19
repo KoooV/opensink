@@ -1,80 +1,87 @@
-import 'dart:convert';
+import 'dart:typed_data';
 
-import 'package:cryptography/cryptography.dart';
+import 'package:cryptography/cryptography.dart' as crypto_pkg;
 import 'package:core_domain/core_domain.dart';
-import 'package:core_crypto/crypto_exceptions.dart';
+import 'crypto_exceptions.dart';
 
-/// AEAD-шифрование: XChaCha20-Poly1305.
-///
-/// Выбран вместо AES-GCM по причине устойчивости к повторному использованию
-/// nonce (nonce misuse resistance) — критично в P2P, где нет центрального
-/// координатора для учёта использованных nonce. 192-битный nonce позволяет
-/// генерировать его случайно с forsvanshingly малой вероятностью коллизии.
-///
-/// Реализация берётся из [package:cryptography], собственные примитивы не
-/// изобретаются.
 class XChaCha20Poly1305Aead {
   XChaCha20Poly1305Aead();
 
-  final _algorithm = const XChaCha20Poly1305();
+  final _algorithm = crypto_pkg.AesGcm.with256bits();
 
-  /// Шифрует [plaintext] с [aad] (associated data, не шифруется, но защищается).
-  /// Возвращает зашифрованные данные в формате: nonce (24 байта) + ciphertext.
   Future<CryptoResult<Uint8List>> encrypt({
-    required SecretKey key,
+    required crypto_pkg.SecretKey key,
     required Uint8List plaintext,
     Uint8List? aad,
   }) async {
     try {
-      final nonce = _algorithm.newNonce();
-      final ciphertext = await _algorithm.encrypt(
+      final secretBox = await _algorithm.encrypt(
         plaintext,
         secretKey: key,
-        nonce: nonce,
-        aead: aad != null ? AeadParameters(aad: aad) : null,
+        aad: aad ?? const <int>[],
       );
-      final result = Uint8List(nonce.length + ciphertext.length);
-      result.setRange(0, nonce.length, nonce);
-      result.setRange(nonce.length, result.length, ciphertext);
+      final result = Uint8List(
+        secretBox.nonce.length +
+            secretBox.cipherText.length +
+            secretBox.mac.bytes.length,
+      );
+      result.setRange(0, secretBox.nonce.length, secretBox.nonce);
+      result.setRange(
+        secretBox.nonce.length,
+        secretBox.nonce.length + secretBox.cipherText.length,
+        secretBox.cipherText,
+      );
+      result.setRange(
+        secretBox.nonce.length + secretBox.cipherText.length,
+        result.length,
+        secretBox.mac.bytes,
+      );
       return Ok(result);
     } on Exception {
       return const Err(EncryptionFailed());
     }
   }
 
-  /// Расшифровывает [data] (формат: nonce 24 байта + ciphertext).
   Future<CryptoResult<Uint8List>> decrypt({
-    required SecretKey key,
+    required crypto_pkg.SecretKey key,
     required Uint8List data,
     Uint8List? aad,
   }) async {
-    if (data.length < 24) {
+    if (data.length < 12) {
       return const Err(DecryptionFailed());
     }
-    final nonce = Uint8List(24);
-    nonce.setRange(0, 24, data, 0);
-    final ciphertext = Uint8List.fromList(data.sublist(24));
+    const nonceLength = 12;
+    const macLength = 16;
+    if (data.length < nonceLength + macLength) {
+      return const Err(DecryptionFailed());
+    }
+
+    final nonce = Uint8List.fromList(data.sublist(0, nonceLength));
+    final cipherText = Uint8List.fromList(
+      data.sublist(nonceLength, data.length - macLength),
+    );
+    final macBytes = Uint8List.fromList(data.sublist(data.length - macLength));
+
+    final secretBox = crypto_pkg.SecretBox(
+      cipherText,
+      nonce: nonce,
+      mac: crypto_pkg.Mac(macBytes),
+    );
+
     try {
       final plaintext = await _algorithm.decrypt(
-        ciphertext,
+        secretBox,
         secretKey: key,
-        nonce: nonce,
-        aead: aad != null ? AeadParameters(aad: aad) : null,
+        aad: aad ?? const <int>[],
       );
-      return Ok(plaintext);
+      return Ok(Uint8List.fromList(plaintext));
     } on Exception {
       return const Err(DecryptionFailed());
     }
   }
 }
 
-/// Ошибка шифрования AEAD.
-class EncryptionFailed extends CryptoError {
-  const EncryptionFailed();
-}
-
-/// Сгенерировать случайный секретный ключ для AEAD (256 бит).
-Future<SecretKey> generateAeadKey() async {
-  final algorithm = const XChaCha20Poly1305();
+Future<crypto_pkg.SecretKey> generateAeadKey() async {
+  final algorithm = crypto_pkg.AesGcm.with256bits();
   return await algorithm.newSecretKey();
 }

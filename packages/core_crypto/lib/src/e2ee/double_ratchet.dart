@@ -1,16 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
-import 'hkdf.dart';
+import '../aead.dart';
+import '../hkdf.dart';
 
-/// Double Ratchet (Signal Protocol) поверх [package:cryptography].
-///
-/// Состояние: корневой ключ, цепочки ключей отправки/приёма, DH-пары.
-/// Каждое сообщение продвигает симметрическую крышку (symmetric ratchet),
-/// периодически выполняется DH-крышка с новой эфемерной парой.
-///
-/// Реализация упрощённая (без skipped message keys, без out-of-order доставки)
-/// — достаточно для P2P мессенджера с надёжным транспортом WebRTC.
 class DoubleRatchet {
   DoubleRatchet({
     required this.rootKey,
@@ -32,19 +26,18 @@ class DoubleRatchet {
   final int messageCounter;
   final int previousChainLength;
 
-  /// Зашифровать сообщение.
-  /// Возвращает зашифрованные данные и следующее состояние.
+  final _aead = XChaCha20Poly1305Aead();
+
   Future<DoubleRatchetResult> encrypt({
     required Uint8List plaintext,
     Uint8List? associatedData,
   }) async {
-    // Symmetric ratchet: производим message key из цепочки отправки.
-    final hkdf = Hkdf();
+    final hkdf = GroupHkdf();
     final mkBytes = await hkdf.deriveBytes(
       secret: sendingChainKey,
       salt: Uint8List(32),
       info: Uint8List.fromList(
-        utf8.encode('opensink/double-ratchet/message-key-send'),
+        utf8.encode('opensink/double-ratchet/message-key'),
       ),
       length: 32,
     );
@@ -60,8 +53,7 @@ class DoubleRatchet {
     final messageKey = SecretKey(mkBytes);
     final nextSendingChainKey = SecretKey(nextChainKey);
 
-    final aead = XChaCha20Poly1305Aead();
-    final encrypted = await aead.encrypt(
+    final encrypted = await _aead.encrypt(
       key: messageKey,
       plaintext: plaintext,
       aad: associatedData,
@@ -85,17 +77,16 @@ class DoubleRatchet {
     );
   }
 
-  /// Расшифровать сообщение.
   Future<DoubleRatchetResult> decrypt({
     required Uint8List ciphertext,
     Uint8List? associatedData,
   }) async {
-    final hkdf = Hkdf();
+    final hkdf = GroupHkdf();
     final mkBytes = await hkdf.deriveBytes(
       secret: receivingChainKey,
       salt: Uint8List(32),
       info: Uint8List.fromList(
-        utf8.encode('opensink/double-ratchet/message-key-recv'),
+        utf8.encode('opensink/double-ratchet/message-key'),
       ),
       length: 32,
     );
@@ -111,8 +102,7 @@ class DoubleRatchet {
     final messageKey = SecretKey(mkBytes);
     final nextReceivingChainKey = SecretKey(nextChainKey);
 
-    final aead = XChaCha20Poly1305Aead();
-    final decrypted = await aead.decrypt(
+    final decrypted = await _aead.decrypt(
       key: messageKey,
       data: ciphertext,
       aad: associatedData,
@@ -136,63 +126,14 @@ class DoubleRatchet {
     );
   }
 
-  /// DH Ratchet step: создать новую DH paire, произвести с удалённой публичной ключом,
-  /// derived новый root key и цепочки.
   Future<DoubleRatchetResult> dhRatchetStep(PublicKey remotePublicKey) async {
-    final x25519 = X25519();
-    final newDhPair = await x25519.newKeyPair();
-    final sharedSecret = await x25519.agree(
-      remotePublicKey: remotePublicKey,
-      privateKey: newDhPair.privateKey,
-    );
-    final sharedBytes = await sharedSecret.extractBytes();
-
-    final hkdf = Hkdf();
-    final combined = Uint8List.fromList([
-      ...await rootKey.extractBytes(),
-      ...sharedBytes,
-    ]);
-    final newRootKey = await hkdf.deriveBytes(
-      secret: SecretKey(combined),
-      salt: Uint8List(32),
-      info: Uint8List.fromList(utf8.encode('opensink/double-ratchet/root-key')),
-      length: 32,
-    );
-    final newSendingChainKey = await hkdf.deriveBytes(
-      secret: SecretKey(newRootKey),
-      salt: Uint8List(32),
-      info: Uint8List.fromList(
-        utf8.encode('opensink/double-ratchet/chain-key-send-init'),
-      ),
-      length: 32,
-    );
-    final newReceivingChainKey = await hkdf.deriveBytes(
-      secret: SecretKey(newRootKey),
-      salt: Uint8List(32),
-      info: Uint8List.fromList(
-        utf8.encode('opensink/double-ratchet/chain-key-recv-init'),
-      ),
-      length: 32,
-    );
-
-    return DoubleRatchetResult(
-      ciphertext: Uint8List(0),
-      messageKey: SecretKey(Uint8List(32)),
-      nextState: DoubleRatchet(
-        rootKey: SecretKey(newRootKey),
-        sendingChainKey: SecretKey(newSendingChainKey),
-        receivingChainKey: SecretKey(newReceivingChainKey),
-        dhPrivateKey: newDhPair.privateKey,
-        dhPublicKey: newDhPair.publicKey,
-        remoteDhPublicKey: remotePublicKey,
-        messageCounter: 0,
-        previousChainLength: messageCounter,
-      ),
+    throw UnimplementedError(
+      'dhRatchetStep требует X25519.sharedSecretKey с KeyPair. '
+      'TODO(verify): перейти на cryptography v3.x.',
     );
   }
 }
 
-/// Результат операции Double Ratchet.
 class DoubleRatchetResult {
   const DoubleRatchetResult({
     required this.ciphertext,

@@ -1,5 +1,7 @@
+import '../models/identifiers.dart';
 import '../models/identity.dart';
 import '../models/user.dart';
+import 'package:meta/meta.dart';
 
 /// Хранилище секретов пользователя (закрытые ключи Ed25519, сессионные ключи).
 ///

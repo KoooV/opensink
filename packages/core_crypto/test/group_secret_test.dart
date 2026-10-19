@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:test/test.dart';
 import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
@@ -26,7 +28,7 @@ void main() {
       const secretHex = '000102030405060708090a0b0c0d0e0f'
           '101112131415161718191a1b1c1d1e1f';
       final secret = GroupSecret(
-        SecretKey.fromBytes(Uint8List.fromList(_hexToBytes(secretHex))),
+        SecretKey(Uint8List.fromList(_hexToBytes(secretHex))),
       );
 
       final keys1 = await secret.allKeys();
@@ -40,12 +42,12 @@ void main() {
       const secretHex = '000102030405060708090a0b0c0d0e0f'
           '101112131415161718191a1b1c1d1e1f';
       final secret = GroupSecret(
-        SecretKey.fromBytes(Uint8List.fromList(_hexToBytes(secretHex))),
+        SecretKey(Uint8List.fromList(_hexToBytes(secretHex))),
       );
 
       final topic = await secret.topic();
       final topicHex = await secret.topicHex();
-      expect(topicHex, equals(topic.hex));
+      expect(topicHex, equals(bytesToHex(topic)));
     });
   });
 }

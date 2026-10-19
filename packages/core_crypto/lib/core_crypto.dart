@@ -1,6 +1,8 @@
 library core_crypto;
 
 export 'src/aead.dart';
+export 'src/bip39.dart';
+export 'src/bip39_wordlist.dart';
 export 'src/crypto_exceptions.dart';
 export 'src/group_secret.dart';
 export 'src/hkdf.dart';

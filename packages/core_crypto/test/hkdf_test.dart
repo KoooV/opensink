@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:test/test.dart';
 import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
@@ -7,10 +9,10 @@ import 'package:core_domain/core_domain.dart';
 void main() {
   group('Hkdf', () {
     test('derive produces different keys for different info', () async {
-      final hkdf = Hkdf();
+      final hkdf = GroupHkdf();
       const secretHex = '000102030405060708090a0b0c0d0e0f'
           '101112131415161718191a1b1c1d1e1f';
-      final secret = SecretKey.fromBytes(
+      final secret = SecretKey(
         Uint8List.fromList(
           _hexToBytes(secretHex),
         ),
@@ -35,10 +37,10 @@ void main() {
     });
 
     test('same inputs produce same output (deterministic)', () async {
-      final hkdf = Hkdf();
+      final hkdf = GroupHkdf();
       const secretHex = '000102030405060708090a0b0c0d0e0f'
           '101112131415161718191a1b1c1d1e1f';
-      final secret = SecretKey.fromBytes(
+      final secret = SecretKey(
         Uint8List.fromList(_hexToBytes(secretHex)),
       );
       final salt = Uint8List.fromList(_hexToBytes('000102030405060708090a0b0c0d0e0f'));
@@ -61,10 +63,10 @@ void main() {
     });
 
     test('different salt produces different output', () async {
-      final hkdf = Hkdf();
+      final hkdf = GroupHkdf();
       const secretHex = '000102030405060708090a0b0c0d0e0f'
           '101112131415161718191a1b1c1d1e1f';
-      final secret = SecretKey.fromBytes(
+      final secret = SecretKey(
         Uint8List.fromList(_hexToBytes(secretHex)),
       );
       final info = Uint8List.fromList(utf8.encode('same-info'));
