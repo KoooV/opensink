@@ -14,14 +14,9 @@ class CryptoSigner implements Signer {
     final algorithm = Ed25519();
     final privateKeyBytes = await privateKey.extractBytes();
 
-    final tempKeyPair = await algorithm.newKeyPair();
-    final tempPublicKey = await tempKeyPair.extractPublicKey();
-
-    final keyPair = SimpleKeyPairData(
-      privateKeyBytes,
-      publicKey: tempPublicKey,
-      type: KeyPairType.ed25519,
-    );
+    // Восстанавливаем ключевую пару из того же seed, что и приватный ключ,
+    // чтобы открытый ключ был производным от приватного (D-02).
+    final keyPair = await algorithm.newKeyPairFromSeed(privateKeyBytes);
 
     final signature = await algorithm.sign(data, keyPair: keyPair);
     return bytesToHex(signature.bytes);
@@ -33,19 +28,26 @@ class CryptoSigner implements Signer {
     String signatureHex,
     PeerId peerId,
   ) async {
-    final algorithm = Ed25519();
-    final signatureBytes = hexToBytes(signatureHex);
+    // Любое некорректное входящее значение (не-hex, неверная длина,
+    // пустая подпись, неверная длина ключа в PeerId) должно вернуть false,
+    // а не бросить исключение.
+    try {
+      final algorithm = Ed25519();
+      final signatureBytes = hexToBytes(signatureHex);
 
-    final expectedPublicKey = SimplePublicKey(
-      Uint8List.fromList(peerId.publicKey),
-      type: KeyPairType.ed25519,
-    );
+      final expectedPublicKey = SimplePublicKey(
+        Uint8List.fromList(peerId.publicKey),
+        type: KeyPairType.ed25519,
+      );
 
-    final signature = Signature(
-      signatureBytes,
-      publicKey: expectedPublicKey,
-    );
+      final signature = Signature(
+        signatureBytes,
+        publicKey: expectedPublicKey,
+      );
 
-    return await algorithm.verify(data, signature: signature);
+      return await algorithm.verify(data, signature: signature);
+    } catch (_) {
+      return false;
+    }
   }
 }

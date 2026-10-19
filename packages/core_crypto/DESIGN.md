@@ -74,3 +74,39 @@ Chrome в данном окружении отсутствует — прове�
 - Web Crypto API: `deriveKey` с PBKDF2-HMAC-SHA512 для BIP-39 seed на вебе.
 - flutter_secure_storage версия с поддержкой Linux.
 - Механизм подключения platform-реализации SecureKeyStore через DI (docs/OPEN_QUESTIONS.md Q2).
+
+## 8. Identity и мнемоника (слой 2, фаза 1)
+
+### 8.1 Выбор:mnemonic и seed
+
+BIP-39 мнемонима 12 слов (128 бит энтропии). Обоснование:
+- 12 слов достаточно для 128 бит безопасности, что соответствует уровню Ed25519/X25519.
+- 24 слова (256 бит) избыточны для нашей угрозы модели и увеличивают нагрузку на пользователя.
+- Встроенный английский wordlist (2048 слов) — без внешней зависимости `package:bip39`. Сравнение: пакет `bip39` добавляет внешнюю зависимость, её лицензию и支持ность нужно отслеживать; собственная реализация ограничивается кодированием (wordlist + checksum), что не запрещено правилами (примитивы — только из `package:cryptography`).
+
+Seed: PBKDF2-HMAC-SHA-512, 2048 итераций, соль `"mnemonic" + passphrase`, длина 512 бит (64 байта). Реализовано в `Bip39.mnemonicToSeed()` (core_crypto/lib/src/bip39.dart).
+
+### 8.2 Производство ключей из seed
+
+HKDF-SHA-256 с разными versioned info для Ed25519 и X25519:
+- `opensink/identity/ed25519/v1` → 32 байта → `Ed25519().newKeyPairFromSeed(seed)` → пара ключей
+- `opensink/identity/x25519/v1` → 32 байта → `X25519().newKeyPairFromSeed(seed)` → пара ключей
+
+Ключи независимы: разные info, разные пары. Публичные ключи производятся из тех же seed, что и приватные (исправляет D-03).
+
+### 8.3 Binding X25519 → Ed25519
+
+Открытый ключ X25519 подписывается закрытым ключом Ed25519. Подпись хранится в `CryptoIdentity.x25519BindingSignature` (hex). Метод `verifyBinding()` проверяет подпись. Подмена X25519 ключа без переподписи делает binding неверным.
+
+### 8.4 Domain separation
+
+Контекст подписи (domain separation) не реализуется на этом слое — задача слоя 3 (Envelope). `CryptoSigner.sign()` подписывает сырые байты как есть.
+
+### 8.5 Секреты в toString()
+
+`toString()` у `CryptoIdentity` и любых объектов с секретами не раскрывает содержимое `SecretKey`, `peerId` или `mnemonic`. Проверяется тестом.
+
+### 8.6 Измерение PBKDF2
+
+PBKDF2-HMAC-SHA-512 (2048 итераций, 512 бит) на VM: ~33.6 ms на одну derived-ключ (10 итераций в среднем, Dart VM, без JIT-прогрева после первого вызова). Измерено скриптом `tool/pbkdf2_bench.dart`. Chrome-замер отложен (см. docs/OPEN_QUESTIONS.md Q4).
+
