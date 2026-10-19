@@ -1,5 +1,5 @@
 name: platform_web
-description: "OpenSink Web platform layer."
+description: "OpenSink Web platform implementation (Web Crypto API + IndexedDB)."
 version: 0.1.0
 publish_to: 'none'
 

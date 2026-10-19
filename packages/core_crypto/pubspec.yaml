@@ -1,5 +1,5 @@
 name: core_crypto
-description: "OpenSink cryptography: identity, Ed25519 signing, key store interface."
+description: "OpenSink cryptography: identity, Ed25519 signing, key store interface, AEAD, E2EE."
 version: 0.1.0
 publish_to: 'none'
 
@@ -10,6 +10,7 @@ dependencies:
   core_domain:
     path: ../core_domain
   cryptography: ^3.1.1
+  bip39: ^3.0.0
 
 dev_dependencies:
   test: ^1.26.0

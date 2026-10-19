@@ -1,11 +1,16 @@
 import 'dart:convert';
+
 import 'package:cryptography/cryptography.dart';
 import 'package:core_domain/core_domain.dart';
+import 'hkdf.dart';
 
 /// Stateless Ed25519 подписчик / верификатор.
 ///
-/// Реализует доменную [Signer]. Закрытый ключ хранится внутри экземпляра и не
-/// попадает в логи.
+/// Реализует доменную [Signer]. Подписываются ровно те байты, которые идут
+/// по сети (сериализованный protobuf, не canonical JSON).
+///
+/// Сравнение подписи — constant-time на уровне [Ed25519.verify] из
+/// package:cryptography.
 class CryptoSigner implements Signer {
   const CryptoSigner(this.privateKey);
 
@@ -24,26 +29,13 @@ class CryptoSigner implements Signer {
     String signatureHex,
     PeerId peerId,
   ) async {
-    // TODO(verify): уточнить API десеализации подписи из hex в package:cryptography v3.
     final algorithm = Ed25519();
     final publicKey = await algorithm.publicKeyFromBytes(peerId.publicKey);
     final signature = Ed25519Signature.fromHex(signatureHex);
-    return await algorithm.verify(data, signature: signature, publicKey: publicKey);
-  }
-
-  /// Подписывает груповое событие по его каноническому JSON-представлению.
-  Future<String> signEvent(GroupEvent event) async {
-    final canonical = const JsonEncoder().convert(event.toCanonicalMap());
-    return sign(Uint8List.fromList(utf8.encode(canonical)));
-  }
-
-  /// Верифицирует подпись групового события.
-  Future<bool> verifyEvent(GroupEvent event) async {
-    final canonical = const JsonEncoder().convert(event.toCanonicalMap());
-    return await verify(
-      Uint8List.fromList(utf8.encode(canonical)),
-      event.signature,
-      PeerId(Uint8List.fromList(event.authorId.value.codeUnits)), // TODO(verify): authorId -> PeerId mapping
+    return await algorithm.verify(
+      data,
+      signature: signature,
+      publicKey: publicKey,
     );
   }
 }
