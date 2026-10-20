@@ -56,9 +56,11 @@ void main() {
     test('stores and loads IdentityBundle', () async {
       final store = FakeSecureKeyStore();
       final userId = UserId('u-1');
-      expect(await store.hasIdentity(userId), isFalse);
+      final has = await store.hasIdentity(userId);
+      expect(has.isOk, isTrue);
+      expect((has as Ok<bool, KeyStoreError>).value, isFalse);
 
-      await store.storeIdentity(
+      final stored = await store.storeIdentity(
         userId,
         IdentityBundle(
           userId: UserId('u-1'),
@@ -67,15 +69,23 @@ void main() {
           createdAt: 5,
         ),
       );
+      expect(stored.isOk, isTrue);
 
-      expect(await store.hasIdentity(userId), isTrue);
+      final hasAfter = await store.hasIdentity(userId);
+      expect(hasAfter.isOk, isTrue);
+      expect((hasAfter as Ok<bool, KeyStoreError>).value, isTrue);
       final loaded = await store.loadIdentity(userId);
-      expect(loaded, isNotNull);
-      expect(loaded?.publicKey, 'pk-hex');
+      expect(loaded.isOk, isTrue);
+      expect((loaded as Ok<IdentityBundle, KeyStoreError>).value.publicKey, 'pk-hex');
 
-      await store.deleteIdentity(userId);
-      expect(await store.hasIdentity(userId), isFalse);
-      expect(await store.loadIdentity(userId), isNull);
+      final deleted = await store.deleteIdentity(userId);
+      expect(deleted.isOk, isTrue);
+      final hasDeleted = await store.hasIdentity(userId);
+      expect(hasDeleted.isOk, isTrue);
+      expect((hasDeleted as Ok<bool, KeyStoreError>).value, isFalse);
+      final loadedAgain = await store.loadIdentity(userId);
+      expect(loadedAgain.isErr, isTrue);
+      expect(loadedAgain.unwrapErr(), isA<IdentityNotFound>());
     });
   });
 }

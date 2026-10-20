@@ -4,20 +4,31 @@ import 'package:cryptography/cryptography.dart' as crypto_pkg;
 import 'package:core_domain/core_domain.dart';
 import 'crypto_exceptions.dart';
 
+/// AEAD-шифрование XChaCha20-Poly1305.
+///
+/// Wire format: nonce(24 байта) || ciphertext || mac(16 байт).
+/// Nonce генерируется случайным образом; для тестовых векторов можно
+/// передать фиксированный nonce (использовать только в тестах).
 class XChaCha20Poly1305Aead {
   XChaCha20Poly1305Aead();
 
-  final _algorithm = crypto_pkg.AesGcm.with256bits();
+  final _algorithm = crypto_pkg.Xchacha20.poly1305Aead();
+
+  static const int _nonceLength = 24;
+  static const int _macLength = 16;
 
   Future<CryptoResult<Uint8List>> encrypt({
     required crypto_pkg.SecretKey key,
     required Uint8List plaintext,
     Uint8List? aad,
+    /// Не использовать в продакшене — только для тестовых векторов.
+    Uint8List? nonce,
   }) async {
     try {
       final secretBox = await _algorithm.encrypt(
         plaintext,
         secretKey: key,
+        nonce: nonce,
         aad: aad ?? const <int>[],
       );
       final result = Uint8List(
@@ -47,20 +58,15 @@ class XChaCha20Poly1305Aead {
     required Uint8List data,
     Uint8List? aad,
   }) async {
-    if (data.length < 12) {
-      return const Err(DecryptionFailed());
-    }
-    const nonceLength = 12;
-    const macLength = 16;
-    if (data.length < nonceLength + macLength) {
+    if (data.length < _nonceLength + _macLength) {
       return const Err(DecryptionFailed());
     }
 
-    final nonce = Uint8List.fromList(data.sublist(0, nonceLength));
+    final nonce = Uint8List.fromList(data.sublist(0, _nonceLength));
     final cipherText = Uint8List.fromList(
-      data.sublist(nonceLength, data.length - macLength),
+      data.sublist(_nonceLength, data.length - _macLength),
     );
-    final macBytes = Uint8List.fromList(data.sublist(data.length - macLength));
+    final macBytes = Uint8List.fromList(data.sublist(data.length - _macLength));
 
     final secretBox = crypto_pkg.SecretBox(
       cipherText,
@@ -82,6 +88,6 @@ class XChaCha20Poly1305Aead {
 }
 
 Future<crypto_pkg.SecretKey> generateAeadKey() async {
-  final algorithm = crypto_pkg.AesGcm.with256bits();
+  final algorithm = crypto_pkg.Xchacha20.poly1305Aead();
   return await algorithm.newSecretKey();
 }

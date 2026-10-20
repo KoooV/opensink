@@ -22,7 +22,7 @@ class GroupSecret {
     return _hkdf.deriveBytes(
       secret: _secret,
       salt: _zeroSalt,
-      info: SignalingTopicContext.info,
+      info: GroupKeyContext.signalingTopic.info,
       length: 32,
     );
   }
@@ -35,7 +35,7 @@ class GroupSecret {
     final bytes = await _hkdf.deriveBytes(
       secret: _secret,
       salt: _zeroSalt,
-      info: SignalingPayloadKeyContext.info,
+      info: GroupKeyContext.signalingPayloadKey.info,
       length: 32,
     );
     return SecretKey(bytes);
@@ -45,7 +45,7 @@ class GroupSecret {
     final bytes = await _hkdf.deriveBytes(
       secret: _secret,
       salt: _zeroSalt,
-      info: InvitationKeyContext.info,
+      info: GroupKeyContext.invitationKey.info,
       length: 32,
     );
     return SecretKey(bytes);
@@ -62,6 +62,9 @@ class GroupSecret {
       invitationKey: invitationKeyDerived,
     );
   }
+
+  @override
+  String toString() => 'GroupSecret(<secret>)';
 }
 
 class GroupKeys {
@@ -76,4 +79,8 @@ class GroupKeys {
   final String topicHex;
   final SecretKey signalingPayloadKey;
   final SecretKey invitationKey;
+
+  @override
+  String toString() =>
+      'GroupKeys(topicHex=$topicHex, signalingPayloadKey=<secret>, invitationKey=<secret>)';
 }

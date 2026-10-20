@@ -12,6 +12,7 @@ dependencies:
     path: ../core_domain
   core_crypto:
     path: ../core_crypto
+  web: ^0.5.1
 
 dev_dependencies:
   test: ^1.26.0

@@ -3,81 +3,53 @@ import 'dart:typed_data';
 import 'package:test/test.dart';
 import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
+import 'secure_key_store_contract.dart';
 
 void main() {
   group('MemorySecureKeyStore', () {
-    test('stores and loads identity', () async {
+    SecureKeyStore factory() => MemorySecureKeyStore();
+
+    secureKeyStoreContract(factory, label: ' (Memory)');
+
+    test('toString не раскрывает секреты хранилища', () async {
       final store = MemorySecureKeyStore();
-      final userId = UserId('u-1');
-
-      expect(await store.hasIdentity(userId), isFalse);
-
+      final secret = Uint8List(32)..fillRange(0, 32, 7);
       await store.storeIdentity(
-        userId,
-        const IdentityBundle(
-          userId: UserId('u-1'),
-          publicKey: 'pk-hex',
-          encryptedPrivateKey: [1, 2, 3],
-          createdAt: 1000,
-        ),
-      );
-
-      expect(await store.hasIdentity(userId), isTrue);
-      final loaded = await store.loadIdentity(userId);
-      expect(loaded, isNotNull);
-      expect(loaded?.publicKey, 'pk-hex');
-      expect(loaded?.encryptedPrivateKey, equals([1, 2, 3]));
-      expect(loaded?.createdAt, 1000);
-    });
-
-    test('deleteIdentity removes entry', () async {
-      final store = MemorySecureKeyStore();
-      final userId = UserId('u-1');
-
-      await store.storeIdentity(
-        userId,
-        const IdentityBundle(
-          userId: UserId('u-1'),
-          publicKey: 'pk',
-          encryptedPrivateKey: [],
+        const UserId('u-secret'),
+        IdentityBundle(
+          userId: const UserId('u-secret'),
+          publicKey: 'pk-secret',
+          encryptedPrivateKey: secret,
           createdAt: 1,
         ),
       );
-      expect(await store.hasIdentity(userId), isTrue);
 
-      await store.deleteIdentity(userId);
-      expect(await store.hasIdentity(userId), isFalse);
-      expect(await store.loadIdentity(userId), isNull);
+      final s = store.toString();
+      expect(s, isNot(contains('77777777')));
+      expect(s, isNot(contains(secret.toList().toString())));
+      expect(s, contains('MemorySecureKeyStore'));
     });
 
-    test('loadIdentity returns null for missing user', () async {
-      final store = MemorySecureKeyStore();
-      expect(await store.loadIdentity(UserId('missing')), isNull);
+    test('toString бандла не раскрывает encryptedPrivateKey', () {
+      final secret = [10, 20, 30, 40];
+      final bundle = IdentityBundle(
+        userId: const UserId('u-b'),
+        publicKey: 'pk-b',
+        encryptedPrivateKey: secret,
+        createdAt: 2,
+      );
+      final s = bundle.toString();
+      expect(s, isNot(contains('10, 20, 30, 40')));
+      expect(s, isNot(contains(secret.toString())));
+      expect(s, contains('encryptedPrivateKeyLength=4'));
+      expect(s, contains('userId=u-b'));
     });
 
-    test('multiple users are independent', () async {
+    test('loadIdentity возвращает Err(IdentityNotFound), а не исключение, для отсутствующего ключа', () async {
       final store = MemorySecureKeyStore();
-      await store.storeIdentity(
-        UserId('u-1'),
-        const IdentityBundle(
-          userId: UserId('u-1'),
-          publicKey: 'pk-1',
-          encryptedPrivateKey: [1],
-          createdAt: 1,
-        ),
-      );
-      await store.storeIdentity(
-        UserId('u-2'),
-        const IdentityBundle(
-          userId: UserId('u-2'),
-          publicKey: 'pk-2',
-          encryptedPrivateKey: [2],
-          createdAt: 2,
-        ),
-      );
-
-      expect((await store.loadIdentity(UserId('u-1')))?.publicKey, 'pk-1');
-      expect((await store.loadIdentity(UserId('u-2')))?.publicKey, 'pk-2');
+      final result = await store.loadIdentity(const UserId('missing'));
+      expect(result.isErr, isTrue);
+      expect(result.unwrapErr(), isA<IdentityNotFound>());
     });
   });
 }

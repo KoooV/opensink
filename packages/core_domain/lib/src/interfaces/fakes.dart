@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:collection/collection.dart';
 import 'package:meta/meta.dart';
 
+import '../result.dart';
+
 /// In-memory fake реализации всех интерфейсов core_domain для тестов.
 
 import '../models/identifiers.dart';
@@ -311,18 +313,32 @@ class FakeSecureKeyStore implements SecureKeyStore {
   final _store = <UserId, IdentityBundle>{};
 
   @override
-  Future<void> storeIdentity(UserId userId, IdentityBundle bundle) async {
+  Future<Result<void, KeyStoreError>> storeIdentity(
+    UserId userId,
+    IdentityBundle bundle,
+  ) async {
     _store[userId] = bundle;
+    return const Ok(null);
   }
 
   @override
-  Future<IdentityBundle?> loadIdentity(UserId userId) async => _store[userId];
+  Future<Result<IdentityBundle, KeyStoreError>> loadIdentity(UserId userId) async {
+    final bundle = _store[userId];
+    if (bundle == null) {
+      return const Err(IdentityNotFound());
+    }
+    return Ok(bundle);
+  }
 
   @override
-  Future<void> deleteIdentity(UserId userId) async => _store.remove(userId);
+  Future<Result<void, KeyStoreError>> deleteIdentity(UserId userId) async {
+    _store.remove(userId);
+    return const Ok(null);
+  }
 
   @override
-  Future<bool> hasIdentity(UserId userId) async => _store.containsKey(userId);
+  Future<Result<bool, KeyStoreError>> hasIdentity(UserId userId) async =>
+      Ok(_store.containsKey(userId));
 }
 
 // ---------------------------------------------------------------------------

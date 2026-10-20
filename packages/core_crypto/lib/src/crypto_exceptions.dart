@@ -20,10 +20,6 @@ class KeyDerivationFailed extends CryptoError {
   const KeyDerivationFailed();
 }
 
-class IdentityNotFound extends CryptoError {
-  const IdentityNotFound();
-}
-
 class AlreadyInitialized extends CryptoError {
   const AlreadyInitialized();
 }

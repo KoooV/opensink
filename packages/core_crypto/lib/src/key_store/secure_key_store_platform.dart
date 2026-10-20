@@ -1,57 +1,35 @@
 import 'package:core_domain/core_domain.dart';
 
-/// Stub SecureKeyStore для нативных платформ (Android, Linux).
-class NativeSecureKeyStore implements SecureKeyStore {
-  NativeSecureKeyStore();
+/// Заглушка SecureKeyStore, выбрасывающая/domain-ошибку при любом вызове.
+///
+/// Реальная платформенная реализация находится в `platform_android` /
+/// `platform_linux` / `platform_web` и подключается через DI. Эта заглушка
+/// не подключается по умолчанию.
+class SecureKeyStoreStub implements SecureKeyStore {
+  SecureKeyStoreStub();
+
+  static const _notImplemented = StoreError(
+    'SecureKeyStore не реализован в core_crypto. '
+    'Используйте платформенную реализацию из platform_android / '
+    'platform_linux / platform_web.',
+  );
 
   @override
-  Future<void> storeIdentity(UserId userId, IdentityBundle bundle) async {
-    throw UnimplementedError(
-      'NativeSecureKeyStore не реализован в core_crypto. '
-      'Используйте платформенную реализацию из platform_android / platform_linux.',
-    );
-  }
+  Future<Result<void, KeyStoreError>> storeIdentity(
+    UserId userId,
+    IdentityBundle bundle,
+  ) async =>
+      const Err(_notImplemented);
 
   @override
-  Future<IdentityBundle?> loadIdentity(UserId userId) async {
-    throw UnimplementedError('NativeSecureKeyStore не реализован в core_crypto.');
-  }
+  Future<Result<IdentityBundle, KeyStoreError>> loadIdentity(UserId userId) async =>
+      const Err(_notImplemented);
 
   @override
-  Future<void> deleteIdentity(UserId userId) async {
-    throw UnimplementedError('NativeSecureKeyStore не реализован в core_crypto.');
-  }
+  Future<Result<void, KeyStoreError>> deleteIdentity(UserId userId) async =>
+      const Err(_notImplemented);
 
   @override
-  Future<bool> hasIdentity(UserId userId) async {
-    throw UnimplementedError('NativeSecureKeyStore не реализован в core_crypto.');
-  }
-}
-
-/// Stub SecureKeyStore для Web.
-class WebPlatformSecureKeyStore implements SecureKeyStore {
-  WebPlatformSecureKeyStore();
-
-  @override
-  Future<void> storeIdentity(UserId userId, IdentityBundle bundle) async {
-    throw UnimplementedError(
-      'WebPlatformSecureKeyStore не реализован в core_crypto. '
-      'Используйте платформенную реализацию из platform_web.',
-    );
-  }
-
-  @override
-  Future<IdentityBundle?> loadIdentity(UserId userId) async {
-    throw UnimplementedError('WebPlatformSecureKeyStore не реализован в core_crypto.');
-  }
-
-  @override
-  Future<void> deleteIdentity(UserId userId) async {
-    throw UnimplementedError('WebPlatformSecureKeyStore не реализован в core_crypto.');
-  }
-
-  @override
-  Future<bool> hasIdentity(UserId userId) async {
-    throw UnimplementedError('WebPlatformSecureKeyStore не реализован в core_crypto.');
-  }
+  Future<Result<bool, KeyStoreError>> hasIdentity(UserId userId) async =>
+      const Err(_notImplemented);
 }

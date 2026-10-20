@@ -13,9 +13,11 @@
 
 ## Q3 — dhRatchetStep
 `DoubleRatchet.dhRatchetStep` бросает `UnimplementedError`. Примитивы (`X25519.sharedSecretKey`, `newKeyPairFromSeed`) доступны в 2.9.0, реализация возможна, но требует отдельного design-документа (Double Ratchet шаг). Отложено на следующую фазу.
-
 ## Q4 — Chrome-тестирование
-В этом окружении нет браузера Chrome/Chromium; spike-тесты прогонялись только на VM. Поведение на Chrome (включая `Xchacha20.poly1305Aead` через Web Crypto API, если такая дорога будет выбрана) требует проверки в CI с `dart test -p chrome`.
+
+Браузер Chrome/Chromium присутствует (`google-chrome-stable`, headless работает через `--dump-dom`). Однако `dart test -p chrome` не загружает тестовый суит: статичный файлраннер `package:test` отдаёт `dart.js` с MIME-типом `text/plain`, браузер блокирует выполнение (strict MIME checking), суит не стартует и тест рано обрывается по таймауту.
+
+Что проверено代わり: код `platform_web` компилируется в JS через `dart2js` (`dart test -p chrome` доходит до компиляции, ошибок типов нет). Логика IndexedDB + AES-GCM KEK не покрыта рантайм-тестом в этом окружении. Требуется донастройка файлового сервера тестового раннера или запуск на CI с корректными MIME-типами.
 
 ## Q5 — encryptedPrivateKey гарантии
 `IdentityBundle.encryptedPrivateKey` named "encrypted", но код не гарантирует шифрование; `MemorySecureKeyStore` хранит в открытом виде. Нужно ли добавлять обязательное шифрование на уровне core_crypto, или шифрование полностью platform-специфично — открыто.

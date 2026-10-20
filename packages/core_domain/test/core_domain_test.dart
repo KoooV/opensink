@@ -303,7 +303,9 @@ void main() {
     test('хранит и загружает идентичность', () async {
       final store = FakeSecureKeyStore();
       final userId = UserId('user-1');
-      expect(await store.hasIdentity(userId), isFalse);
+      final has = await store.hasIdentity(userId);
+      expect(has.isOk, isTrue);
+      expect((has as Ok<bool, KeyStoreError>).value, isFalse);
 
       await store.storeIdentity(
         userId,
@@ -314,13 +316,29 @@ void main() {
           createdAt: 1000,
         ),
       );
+      final stored = await store.storeIdentity(
+        userId,
+        const IdentityBundle(
+          userId: UserId('user-1'),
+          publicKey: 'abc',
+          encryptedPrivateKey: [1, 2, 3],
+          createdAt: 1000,
+        ),
+      );
+      expect(stored.isOk, isTrue);
 
-      expect(await store.hasIdentity(userId), isTrue);
+      final hasAfter = await store.hasIdentity(userId);
+      expect(hasAfter.isOk, isTrue);
+      expect((hasAfter as Ok<bool, KeyStoreError>).value, isTrue);
       final loaded = await store.loadIdentity(userId);
-      expect(loaded?.publicKey, 'abc');
+      expect(loaded.isOk, isTrue);
+      expect((loaded as Ok<IdentityBundle, KeyStoreError>).value.publicKey, 'abc');
 
-      await store.deleteIdentity(userId);
-      expect(await store.hasIdentity(userId), isFalse);
+      final deleted = await store.deleteIdentity(userId);
+      expect(deleted.isOk, isTrue);
+      final hasDeleted = await store.hasIdentity(userId);
+      expect(hasDeleted.isOk, isTrue);
+      expect((hasDeleted as Ok<bool, KeyStoreError>).value, isFalse);
     });
   });
 

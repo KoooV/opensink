@@ -43,29 +43,15 @@ class GroupHkdf {
   }
 }
 
-abstract class GroupKeyContext {
-  const GroupKeyContext();
-}
+enum GroupKeyContext {
+  signalingTopic('opensink/group/signaling-topic'),
+  signalingPayloadKey('opensink/group/signaling-payload-key'),
+  invitationKey('opensink/group/invitation-key');
 
-class SignalingTopicContext extends GroupKeyContext {
-  const SignalingTopicContext();
-  static final Uint8List info = Uint8List.fromList(
-    utf8.encode('opensink/group/signaling-topic'),
-  );
-}
+  const GroupKeyContext(this._info);
+  final String _info;
 
-class SignalingPayloadKeyContext extends GroupKeyContext {
-  const SignalingPayloadKeyContext();
-  static final Uint8List info = Uint8List.fromList(
-    utf8.encode('opensink/group/signaling-payload-key'),
-  );
-}
-
-class InvitationKeyContext extends GroupKeyContext {
-  const InvitationKeyContext();
-  static final Uint8List info = Uint8List.fromList(
-    utf8.encode('opensink/group/invitation-key'),
-  );
+  Uint8List get info => Uint8List.fromList(utf8.encode(_info));
 }
 
 String bytesToHex(List<int> bytes) {

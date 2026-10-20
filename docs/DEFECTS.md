@@ -8,12 +8,12 @@
 
 | id | Место | Гипотеза | Тест-доказательство | Статус |
 |----|-------|----------|---------------------|--------|
-| D-01 | `lib/src/aead.dart:10` | `XChaCha20Poly1305Aead` использует `AesGcm.with256bits()` (12-байтный nonce), хотя DESIGN.md требует XChaCha20-Poly1305 (24-байтный nonce). | spike-тест `spike/api_spike_test.dart`: `Xchacha20.poly1305Aead().nonceLength == 24`, `secretKeyLength == 32`, MAC 16 байт; в `aead.dart` хардкод `AesGcm.with256bits()`. | **подтверждена** |
+| D-01 | `lib/src/aead.dart:10` | `XChaCha20Poly1305Aead` использует `AesGcm.with256bits()` (12-байтный nonce), хотя DESIGN.md требует XChaCha20-Poly1305 (24-байтный nonce). | spike-тест `spike/api_spike_test.dart`: `Xchacha20.poly1305Aead().nonceLength == 24`, `secretKeyLength == 32`, MAC 16 байт; в `aead.dart` хардкод `AesGcm.with256bits()`. | **исправлено** — `lib/src/aead.dart` теперь использует `crypto_pkg.Xchacha20.poly1305Aead()` (nonce 24 байта, ключ 32 байта, MAC 16 байт), wire format `nonce(24) || ciphertext || mac(16)`, `generateAeadKey()` также на XChaCha20. Добавлены тестовые векторы из draft-arciszewski-xchacha-03 (пример #1) и тесты наroundtrip, порчу зон, неверный ключ/AAD, короткий вход, детерминизм при фиксированном nonce. |
 | D-02 | `lib/src/signer.dart:17-24` | `CryptoSigner.sign()` создаёт временную ключевую пару и подставляет её случайный `tempPublicKey` к реальному приватному в `SimpleKeyPairData`. | spike: `Ed25519().newKeyPairFromSeed(seed)` даёт парный открытый ключ; в `signer.dart` открытый ключ берётся от другой (временной) пары. | **исправлено** — `sign()` теперь использует `Ed25519().newKeyPairFromSeed(privateKeyBytes)`, 공개 и секретный ключ из одной пары. `verify()` ловит все `Exception`/`Error` и возвращает `false` на некорректный ввод (не-hex, неверная длина, пустая подпись, неверная длина ключа в PeerId). |
 | D-03 | `lib/src/identity.dart:78-113` | `recoverIdentityFromMnemonic()` вычисляет открытые ключи как тот же HKDF-вывод, что и приватные — они не соответствуют приватным ключам. | spike: Ed25519/X25519 `newKeyPairFromSeed` нужны для получения верной пары открытого ключа; в коде публичный ключ = HKDF-байты, а неderived из приватного. | **исправлено** — `recoverIdentityFromMnemonic()` теперь использует `Ed25519().newKeyPairFromSeed(edMaterial)` и `X25519().newKeyPairFromSeed(xMaterial)`, публичные ключи производятся из тех же seed, что и приватные. Добавлен binding: X25519 public key подписывается Ed25519 private key, метод `verifyBinding()`. |
-| D-04 | `lib/src/models/identity.dart` (core_domain) / `lib/src/key_store/memory_secure_key_store.dart` | `IdentityBundle.encryptedPrivateKey` может хранить нешифрованные данные — в коде нет обязательного шифрования перед записью; `MemorySecureKeyStore` хранит в открытом виде. | Код: `IdentityBundle.encryptedPrivateKey: List<int>` без гарантий шифрования; `MemorySecureKeyStore.storeIdentity` пишет как есть. | **подтверждена** (разрыв в гарантии) |
-| D-05 | `test/e2ee/x3dh_test.dart:11-27` | X3DH-тесты consist of `expect(true, isTrue)` (заглушки). | Прямой осмотр файла: все три теста — `expect(true, isTrue)` с комментариями TODO(verify). | **подтверждена** |
-| D-06 | `lib/src/e2ee/double_ratchet.dart:130` | `dhRatchetStep()` выбрасывает `UnimplementedError`. | Прямой осмотр: `throw UnimplementedError(...)`. | **подтверждена** |
+| D-04 | `lib/src/models/identity.dart` (core_domain) / `lib/src/key_store/memory_secure_key_store.dart` | `IdentityBundle.encryptedPrivateKey` может хранить нешифрованные данные — в коде нет обязательного шифрования перед записью; `MemorySecureKeyStore` хранит в открытом виде. | Код: `IdentityBundle.encryptedPrivateKey: List<int>` без гарантий шифрования; `MemorySecureKeyStore.storeIdentity` пишет как есть. | **закрыта как by design** — шифрование `encryptedPrivateKey` относится к платформенному слою (`platform_*`), в `core_crypto` нет мастер-ключа для шифрования. `MemorySecureKeyStore` хранит verbatim (подтверждено тестом `test/key_store/memory_secure_key_store_test.dart`). См. OPEN_QUESTIONS.md Q5. |
+| D-05 | `test/e2ee/x3dh_test.dart:11-27` | X3DH-тесты consist of `expect(true, isTrue)` (заглушки). | Прямой осмотр файла: все три теста — `expect(true, isTrue)` с комментариями TODO(verify). | **подтверждена** (остаётся для фазы 3) |
+| D-06 | `lib/src/e2ee/double_ratchet.dart:130` | `dhRatchetStep()` выбрасывает `UnimplementedError`. | Прямой осмотр: `throw UnimplementedError(...)`. | **подтверждена** (остаётся для фазы 3, требует design doc) |
 | D-07 | `lib/src/key_store/secure_key_store_web.dart` | Реализация SecureKeyStore для Web использует deprecated `dart:html`. | В `core_crypto` веб-заглушка только бросает `UnimplementedError`, `dart:html` не импортируется. Реальная реализация вынесена в `platform_web` (вне этого пакета). | **не подтверждена** для core_crypto |
 | D-08 | `lib/`, `test/` | В коде/тестах не-ASCII мусор в идентификаторах и комментариях вне русских комментариев. | `grep -P "[^\x00-\x7F]"` находит только русский текст в комментариях/сообщениях (допустимо по правилу: комментарии на русском). Идентификаторы на английском. | **не подтверждена** |
 
@@ -21,8 +21,8 @@
 
 | id | Место | Гипотеза | Тест-доказательство | Статус |
 |----|-------|----------|---------------------|--------|
-| D-09 | `lib/src/signer.dart:5` | Неиспользуемый импорт `hkdf.dart` в `signer.dart`. | В коде `signer.dart` нет ссылок на символы из `hkdf.dart`. | **подтверждена** (минорно) |
-| D-10 | `lib/src/hkdf.dart:50,57,64` | Классы `SignalingTopicContext`/`SignalingPayloadKeyContext`/`InvitationKeyContext` содержат только статические члены (`avoid_classes_with_only_static_members`, info-уровень analyze). | dart analyze: 3 info. | **подтверждена** (стиль, минорно) |
+| D-09 | `lib/src/signer.dart:5` | Неиспользуемый импорт `hkdf.dart` в `signer.dart`. | В коде `signer.dart` есть ссылка на `bytesToHex` из `hkdf.dart` (строка 22). Импорт используется. | **не подтверждена** — импорт `hkdf.dart` нужен для `bytesToHex`. |
+| D-10 | `lib/src/hkdf.dart:50,57,64` | Классы `SignalingTopicContext`/`SignalingPayloadKeyContext`/`InvitationKeyContext` содержат только статические члены (`avoid_classes_with_only_static_members`, info-уровень analyze). | dart analyze: 3 info. | **исправлено** — три класса заменены на `enum GroupKeyContext` с полем `info`; значения info не изменены (`opensink/group/signaling-topic`, `opensink/group/signaling-payload-key`, `opensink/group/invitation-key`); вызовы обновлены в `group_secret.dart`. `dart analyze lib/` чист.
 
 ## Статистика базовой линии (фаза 0)
 
@@ -32,6 +32,14 @@
 - `dart analyze`: 24 ошибки (все в `test/` — `unused_import`, `prefer_const_constructors`), 1 warning, 5 info; в `lib/` — 0 ошибок.
 - `dart test test/`: **53 пройдено, 0 провалено**.
 - `lib/` не изменён (git diff чист).
+
+## Статистика после фазы 2 (AEAD, GroupSecret, HKDF)
+
+- `dart test test/`: **91 пройдено, 0 провалено** (was 80 after fase 1)
+- `dart analyze lib/`: 0 ошибок, 2 info (pre-existing: `unnecessary_library_name`, `dangling_library_doc_comments`)
+- ДЕФЕКТЫ ИСПРАВЛЕНЫ: D-01 (AEAD XChaCha20), D-10 (статические классы → enum)
+- ДЕФЕКТЫ ЗАКРЫТЫ: D-04 (by design), D-09 (не подтверждена)
+- ОСТАЮТСЯ: D-05 (X3DH-заглушки), D-06 (dhRatchetStep)
 
 ## Решения
 
