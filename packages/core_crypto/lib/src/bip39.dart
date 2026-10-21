@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart' as crypto_pkg;
 import 'bip39_wordlist.dart';
+import 'crypto_provider.dart';
 
 /// BIP-39 mnemonic phrase utilities.
 ///
@@ -171,8 +172,8 @@ class Bip39 {
     final password = Uint8List.fromList(utf8.encode(mnemonic));
     final salt = Uint8List.fromList(utf8.encode('mnemonic$passphrase'));
 
-    final pbkdf2 = crypto_pkg.Pbkdf2(
-      macAlgorithm: crypto_pkg.Hmac.sha512(),
+    final pbkdf2 = CryptoProvider.instance.pbkdf2(
+      macAlgorithm: CryptoProvider.instance.hmac(CryptoProvider.instance.sha512),
       iterations: _pbkdf2Iterations,
       bits: _pbkdf2KeyBits,
     );

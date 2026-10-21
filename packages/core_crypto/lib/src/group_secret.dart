@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'hkdf.dart';
+import 'crypto_provider.dart';
 
 class GroupSecret {
   GroupSecret(this._secret);
@@ -9,8 +10,7 @@ class GroupSecret {
   final SecretKey _secret;
 
   static Future<GroupSecret> random() async {
-    final algorithm = AesGcm.with256bits();
-    final key = await algorithm.newSecretKey();
+    final key = await CryptoProvider.instance.aesGcm(secretKeyLength: 32).newSecretKey();
     return GroupSecret(key);
   }
 

@@ -5,6 +5,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:core_domain/core_domain.dart';
 import 'bip39.dart';
 import 'hkdf.dart';
+import 'crypto_provider.dart';
 
 /// Реализация [Identity] с парами ключей Ed25519 и X25519.
 ///
@@ -53,7 +54,7 @@ class CryptoIdentity extends Identity {
       return false;
     }
     try {
-      final algo = Ed25519();
+      final algo = CryptoProvider.instance.ed25519;
       final expectedPublicKey = SimplePublicKey(
         Uint8List.fromList((ed25519PublicKey as SimplePublicKey).bytes),
         type: KeyPairType.ed25519,
@@ -77,11 +78,8 @@ class CryptoIdentity extends Identity {
 }
 
 Future<CryptoIdentity> generateIdentity() async {
-  final ed25519 = Ed25519();
-  final x25519 = X25519();
-
-  final edKeyPair = await ed25519.newKeyPair();
-  final xKeyPair = await x25519.newKeyPair();
+  final edKeyPair = await CryptoProvider.instance.ed25519.newKeyPair();
+  final xKeyPair = await CryptoProvider.instance.x25519.newKeyPair();
 
   final edPublicKey = await edKeyPair.extractPublicKey();
   final xPublicKey = await xKeyPair.extractPublicKey();
@@ -90,7 +88,7 @@ Future<CryptoIdentity> generateIdentity() async {
   final xPrivateKeyBytes = await xKeyPair.extractPrivateKeyBytes();
 
   // Binding: подписываем открытый ключ X25519 закрытым ключом Ed25519.
-  final bindingSignature = await ed25519.sign(
+  final bindingSignature = await CryptoProvider.instance.ed25519.sign(
     xPublicKey.bytes,
     keyPair: edKeyPair,
   );
@@ -135,11 +133,8 @@ Future<CryptoIdentity> recoverIdentityFromMnemonic({
   // Восстанавливаем пары ключей из тех же seed, что и приватные (исправляет D-03).
   // Публичные ключи производятся из приватных через newKeyPairFromSeed — они
   // гарантированно соответствуют приватным ключам.
-  final edAlgo = Ed25519();
-  final xAlgo = X25519();
-
-  final edKeyPair = await edAlgo.newKeyPairFromSeed(edMaterial);
-  final xKeyPair = await xAlgo.newKeyPairFromSeed(xMaterial);
+  final edKeyPair = await CryptoProvider.instance.ed25519.newKeyPairFromSeed(edMaterial);
+  final xKeyPair = await CryptoProvider.instance.x25519.newKeyPairFromSeed(xMaterial);
 
   final edPublicKey = await edKeyPair.extractPublicKey();
   final xPublicKey = await xKeyPair.extractPublicKey();
@@ -148,7 +143,7 @@ Future<CryptoIdentity> recoverIdentityFromMnemonic({
   final xPrivateKeyBytes = await xKeyPair.extractPrivateKeyBytes();
 
   // Binding: подписываем открытый ключ X25519 закрытым ключом Ed25519.
-  final bindingSignature = await edAlgo.sign(
+  final bindingSignature = await CryptoProvider.instance.ed25519.sign(
     xPublicKey.bytes,
     keyPair: edKeyPair,
   );

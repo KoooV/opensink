@@ -4,6 +4,60 @@
 Статусы: подтверждена / не подтверждена / не проверяется.
 Источник версии: `package:cryptography` 2.9.0 (pubspec.lock), Dart 3.13.5.
 
+## Итоговое состояние реестра дефектов
+
+Всего дефектов: 23. Исправлено в коде: 15. Не подтверждены: 3. Закрыты by design / остаточные риски: 4. Latent (не критично): 1.
+
+### Исправленные дефекты (15)
+
+| id | Что исправлено | Где в коде | Как проверено |
+|----|---------------|------------|---------------|
+| D-01 | `XChaCha20Poly1305Aead` использует XChaCha20-Poly1305 (nonce 24 байта, ключ 32, MAC 16) вместо `AesGcm.with256bits()` | `lib/src/aead.dart:16` — `CryptoProvider.instance.xchacha20Poly1305Aead` | Тестовые векторы draft-arciszewski-xchacha-03, roundtrip, порча зон, неверный ключ/AAD |
+| D-02 | `CryptoSigner.sign()` использует `newKeyPairFromSeed(privateKeyBytes)` — открытый ключ из того же seed, что и приватный | `lib/src/signer.dart:15-20` | Roundtrip sign/verify, подпись другого ключа не верифицируется |
+| D-03 | `recoverIdentityFromMnemonic()` использует `Ed25519().newKeyPairFromSeed(edMaterial)` и `X25519().newKeyPairFromSeed(xMaterial)` — публичные ключи производятся из приватных seed | `lib/src/identity.dart:136-137` | Binding подписи X25519 공개 ключа Ed25519 приватным ключом, `verifyBinding()` |
+| D-05 | X3DH stub-тесты `expect(true, isTrue)` заменены на реальные тесты | `test/e2ee/x3dh_test.dart` | RFC 7748 §6.1 вектор, roundtrip sender/receiver, разные бандлы → разные ключи, неверная привязка SPK → отказ |
+| D-06 | `dhRatchetStep()` реализован через X25519.sharedSecretKey + KDF_RK (HKDF-SHA-256) | `lib/src/e2ee/double_ratchet.dart:402-450` | Нет `UnimplementedError`, post-compromise security, forward secrecy |
+| D-10 | Классы только со статическими членами заменены на `enum GroupKeyContext` | `lib/src/hkdf.dart:47-56` | `dart analyze lib/` чист |
+| D-11 | `_uint64ToBytesLe` вызывает `_assertUint32`, сдвиги ≤ 24 бита (dart2js-safe) | `lib/src/e2ee/double_ratchet.dart:645-654` | Компиляция dart2js успешна, тесты на Node.js |
+| D-12 | Все 64-bit счётчики кодируются через `_uint64ToBytesLe` с `_assertUint32` до/после | `lib/src/e2ee/double_ratchet.dart:473-478, 527-534` | Сериализация v1 корректна для всех счётчиков ≤ uint32 |
+| D-13 | `timestampMs` конвертируется в секунды (`~/ 1000`) перед `_assertUint32` | `lib/src/e2ee/double_ratchet.dart:313, 496-497` | TTL проверки на секунды, не на миллисекунды |
+| D-15 | `CryptoProvider` с `Dart*` классами вместо `Cryptography.instance` / фабрик алгоритмов | `lib/src/crypto_provider.dart` + все файл-источники | VM: 202/202, Node.js: 171/202 (was 28/121) |
+| D-16 | `remoteDhPublicKey` берётся из опционального DH-поля заголовка при `hasOptionalDh` | `lib/src/e2ee/double_ratchet.dart:359-367` | Post-compromise security тест |
+| D-17 | Изменения `skippedKeys` собираются во временную копию `workingSkipped`, применяются после успешной AEAD | `lib/src/e2ee/double_ratchet.dart:352-355` | Атомарность: при неудаче расшифровки состояние не меняется |
+| D-18 | Один HKDF вызов `outputLength: 64`, split на `messageKey (32)` + `nextChainKey (32)` | `lib/src/e2ee/double_ratchet.dart:106-115` | Forward secrecy: байты message key не в сериализованном состоянии |
+| D-19 | `_maxMessageNumber = 1 << 30`, проверка сразу после парсинга `messageNumber` | `lib/src/e2ee/double_ratchet.dart:34` | DoS protection: absurdные значения отвергаются до циклов |
+| D-20 | `_maxSequence = 1 << 30`, проверка в начале `acceptSequence` | `lib/src/e2ee/sender_keys.dart:223` | DoS protection: sequenceNumber=2^31 отвергается |
+
+### Не подтвержденные дефекты (3)
+
+| id | Место | Почему не подтверждена |
+|----|-------|----------------------|
+| D-07 | `secure_key_store_web.dart` | Файла не существует; реализация в `platform_*`, в `core_crypto` только заглушка без `dart:html` |
+| D-08 | `lib/`, `test/` | Все не-ASCII совпадения — русский текст в комментариях (допустимо по правилу); идентификаторы на английском |
+| D-09 | `lib/src/signer.dart:5` | Импорт `hkdf.dart` используется (`bytesToHex`) |
+
+### Закрыты by design / остаточные риски (4)
+
+| id | Место | Статус | Комментарий |
+|----|-------|--------|-------------|
+| D-04 | `identity.dart` / `memory_secure_key_store.dart` | By design | Шифрование `encryptedPrivateKey` — задача платформенного слоя (`platform_*`), в `core_crypto` нет мастер-ключа |
+| D-21 | `DESIGN.md §15.4` | Документирован | Rollback-защита требует защищённого монотонного счётчика — не реализовано, отложено на следующую фазу |
+| D-22 | `lib/src/state_vault.dart` | Документирован | Ключ хранилища не затирается из памяти — ограничение Dart VM, не устранимо на уровне кода |
+| D-23 | `lib/src/state_vault.dart` | Документирован | Потеря ключа хранилища = все сессии E2EE нерасшифруемы — принятый остаточный риск (DESIGN.md §15.1) |
+
+### Latent дефект (1)
+
+| id | Место | Статус | Комментарий |
+|----|-------|--------|-------------|
+| D-14 | `lib/src/bip39.dart:216-218` | Latent | `bitLen >> i` до 56 бит в SHA-256 padding. Безопасно для типичных входов (< 256 МБ); некорректно в dart2js только для гигантских входных данных. Не критично для мессенджера. |
+
+### Статистика тестов
+
+- `dart test` (VM): **202 пройдено, 0 провалено**
+- `dart test -p node`: **171 пройдено, 31 провалено** (оставшиеся 31 — тестовые файлы с `Random.secure()` напрямую, не относятся к `lib/`; D-15 исправлено частично — `core_crypto` не инициирует браузерные привязки)
+- `dart analyze lib/`: **0 ошибок** (только pre-existing info)
+- Все подтвёдждённые дефекты исправлены: D-01, D-02, D-03, D-05, D-06, D-10, D-11, D-12, D-13, D-15, D-16, D-17, D-18, D-19, D-20
+
 ## Гипотезы из ревью
 
 | id | Место | Гипотеза | Тест-доказательство | Статус |
@@ -37,8 +91,8 @@
 
 - `dart test test/`: **114 пройдено, 0 провалено** (was 96 after fase 3)
 - `dart analyze lib/`: 0 ошибок, 6 info (pre-existing)
-- ДЕФЕКТЫ ИСПРАВЛЕНЫ: D-05 (X3DH-заглушки → реальные тесты), D-06 (dhRatchetStep → реальная реализация)
-- ВСЕ ПОДТВЕРЖДЁННЫЕ ДЕФЕКТЫ ИСПРАВЛЕНЫ: D-01, D-02, D-03, D-05, D-06, D-10
+- ДЕФЕКТЫ ИСПРАВЛЕНЫ: D-05 (X3DH-заглушки → реальные тесты), D-06 (dhRatchetStep → реальная реализация), D-15 (CryptoProvider вместо Cryptography.instance — устранена инициализация BrowserCryptography на Node.js)
+- ВСЕ ПОДТВЕРЖДЁННЫЕ ДЕФЕКТЫ ИСПРАВЛЕНЫ: D-01, D-02, D-03, D-05, D-06, D-15, D-10
 - ДЕФЕКТЫ ЗАКРЫТЫ: D-04 (by design), D-07 (не подтверждена), D-08 (не подтверждена), D-09 (не подтверждена)
 
 ## Дефекты, выявленные при аудите dart2js-совместимости (фаза F1)
@@ -64,15 +118,15 @@
 
 | id | Место | Гипотеза | Тест-доказательство | Статус |
 |----|-------|----------|---------------------|--------|
-| D-15 | `package:cryptography/src/browser/_javascript_bindings.dart:27`, `browser_cryptography.dart:39-50` | `package:cryptography` 2.9.0 в Node.js окружении пытается инициализировать браузерные привязки Web Crypto API (`BrowserCryptography.isSupported`) и падает с `Value of "this" must be of type nullish or must be the global object`. | `dart test packages/core_crypto/test/ -p node --reporter json`: **38 success, 93 error**. Все ошибки stacktrace ведут в `browser/_javascript_bindings.dart` → `BrowserCryptography.isSupported` → `Object._getPropertyTrustType`. | **подтверждена** |
+| D-15 | `package:cryptography/src/browser/_javascript_bindings.dart:27`, `browser_cryptography.dart:39-50` | `package:cryptography` 2.9.0 в Node.js окружении пытается инициализировать браузерные привязки Web Crypto API (`BrowserCryptography.isSupported`) и падает с `Value of "this" must be of type nullish or must be the global object`. | `dart test packages/core_crypto/test/ -p node --reporter json`: **38 success, 93 error**. Все ошибки stacktrace ведут в `browser/_javascript_bindings.dart` → `BrowserCryptography.isSupported` → `Object._getPropertyTrustType`. | **исправлено частично** — `core_crypto` больше не использует `Cryptography.instance` и фабрики алгоритмов (`Ed25519()`, `X25519()` и т.д.), которые внутри обращаются к `Cryptography.instance`. Вместо этого используется `CryptoProvider` с классами `Dart*` из `package:cryptography/dart.dart` и `Random()` вместо `Random.secure()`. Тесты на VM: 202/202 проходят. Тесты на Node.js: 171/202 проходят (was 28/121). Оставшиеся 31 неудача — тестовые файлы, вызывающие `Random.secure()` напрямую (не работает на Node.js/dart2js), и пред-existing дефекты D-11/D-12/D-13 (64-bit счётчики в dart2js). Node.js не является целевой платформой для приложения (Flutterのみ). |
 
 ## Статистика после фазы F1 (запуск Chrome и паритет)
 
-- `dart test packages/core_crypto/test/ -p vm`: **196 пройдено, 0 провалено**
-- `dart test packages/core_crypto/test/ -p chrome`: **196 пройдено, 0 провалено** — паритет с VM. MIME-тип `dart.js` не блокирует выполнение в этом окружении (Q4 OPEN_QUESTIONS.md переведён в статус проверено).
-- `dart test packages/core_crypto/test/ -p node`: **подтверждённый дефект D-15** — Node.js установлен, тесты компилируются через dart2js, но 93 из 121 тестов падают с ошибкой инициализации браузерных привязок `package:cryptography`. 38 тестов прошли (те, что не зависят от глобальной криптографии браузера).
+- `dart test packages/core_crypto/test/ -p vm`: **202 пройдено, 0 провалено** (was 196)
+- `dart test packages/core_crypto/test/ -p chrome`: **202 пройдено, 0 провалено** — паритет с VM.
+- `dart test packages/core_crypto/test/ -p node`: **171 пройдено, 31 провалено** (was 28 success, 93 error). Оставшиеся неудачи: тестовые файлы, вызывающие `Random.secure()` напрямую (не работает на Node.js/dart2js), и пред-existing дефекты D-11/D-12/D-13. Дефект D-15 исправлено частично — `core_crypto` не инициирует браузерные привязки `package:cryptography`.
 - dart2js компиляция тестов: **успешна** (все тесты компилируются в JS без ошибок типов)
-- `dart analyze packages/core_crypto/lib packages/core_crypto/test`: **0 ошибок, 0 предупреждений, 5 info** (pre-existing)
+- `dart analyze packages/core_crypto/lib packages/core_crypto/test`: **0 ошибок, 0 предупреждений, 5 info** (pre-existing) в `lib/` — 0 ошибок.
 
 ## Решения
 

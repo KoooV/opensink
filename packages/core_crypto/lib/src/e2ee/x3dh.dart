@@ -5,6 +5,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:core_domain/core_domain.dart';
 import '../hkdf.dart';
 import '../crypto_exceptions.dart';
+import '../crypto_provider.dart';
 
 /// X3DH key agreement (ослабленный вариант без OPK, см. DESIGN.md §13.1).
 ///
@@ -13,8 +14,8 @@ import '../crypto_exceptions.dart';
 class X3DH {
   X3DH();
 
-  final _x25519 = X25519();
-  final _ed25519 = Ed25519();
+  final _x25519 = CryptoProvider.instance.x25519;
+  final _ed25519 = CryptoProvider.instance.ed25519;
   final _hkdf = GroupHkdf();
 
   /// Контекст подписи привязки SPK к IK (DESIGN.md §13.2).

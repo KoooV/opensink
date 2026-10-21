@@ -6,6 +6,7 @@ import 'package:core_domain/core_domain.dart';
 import '../aead.dart';
 import '../hkdf.dart';
 import '../crypto_exceptions.dart';
+import '../crypto_provider.dart';
 
 /// Sender Keys для групповых сообщений (DESIGN.md §13.4).
 ///
@@ -74,7 +75,7 @@ class SenderKey {
 
     // Подпись: подписываем ciphertext || header.
     final signInput = Uint8List.fromList([...ciphertext, ...header]);
-    final signature = await crypto_pkg.Ed25519().sign(
+    final signature = await CryptoProvider.instance.ed25519.sign(
       signInput,
       keyPair: signingKeyPair,
     );
@@ -120,7 +121,7 @@ class SenderKey {
         signature,
         publicKey: signingPublicKey,
       );
-      final valid = await crypto_pkg.Ed25519().verify(
+      final valid = await CryptoProvider.instance.ed25519.verify(
         signInput,
         signature: sig,
       );
@@ -162,7 +163,7 @@ class SenderKey {
     required String senderPeerId,
   }) async {
     final chainKey = await generateAeadKey();
-    final signingKeyPair = await crypto_pkg.Ed25519().newKeyPair();
+    final signingKeyPair = await CryptoProvider.instance.ed25519.newKeyPair();
     return SenderKey(
       chainKey: chainKey,
       signingKeyPair: signingKeyPair,

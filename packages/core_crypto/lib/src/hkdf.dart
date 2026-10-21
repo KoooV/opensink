@@ -2,12 +2,13 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart' as crypto_pkg;
+import 'crypto_provider.dart';
 
 /// HKDF key derivation (RFC 5869) поверх [package:cryptography] v2.9.0.
 class GroupHkdf {
   GroupHkdf();
 
-  final _hmac = crypto_pkg.Hmac.sha256();
+  final _hmac = CryptoProvider.instance.hmac(CryptoProvider.instance.sha256);
 
   Future<crypto_pkg.SecretKey> derive({
     required crypto_pkg.SecretKey secret,
@@ -15,7 +16,7 @@ class GroupHkdf {
     required Uint8List info,
     required int outputLength,
   }) async {
-    final algorithm = crypto_pkg.Hkdf(
+    final algorithm = CryptoProvider.instance.hkdf(
       hmac: _hmac,
       outputLength: outputLength,
     );

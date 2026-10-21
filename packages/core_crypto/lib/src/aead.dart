@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart' as crypto_pkg;
 import 'package:core_domain/core_domain.dart';
 import 'crypto_exceptions.dart';
+import 'crypto_provider.dart';
 
 /// AEAD-шифрование XChaCha20-Poly1305.
 ///
@@ -12,7 +13,7 @@ import 'crypto_exceptions.dart';
 class XChaCha20Poly1305Aead {
   XChaCha20Poly1305Aead();
 
-  final _algorithm = crypto_pkg.Xchacha20.poly1305Aead();
+  final _algorithm = CryptoProvider.instance.xchacha20Poly1305Aead;
 
   static const int _nonceLength = 24;
   static const int _macLength = 16;
@@ -88,6 +89,5 @@ class XChaCha20Poly1305Aead {
 }
 
 Future<crypto_pkg.SecretKey> generateAeadKey() async {
-  final algorithm = crypto_pkg.Xchacha20.poly1305Aead();
-  return await algorithm.newSecretKey();
+  return await CryptoProvider.instance.xchacha20Poly1305Aead.newSecretKey();
 }

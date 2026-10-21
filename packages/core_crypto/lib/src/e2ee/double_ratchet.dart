@@ -7,6 +7,7 @@ import 'package:core_domain/core_domain.dart';
 import '../aead.dart';
 import '../hkdf.dart';
 import '../crypto_exceptions.dart';
+import '../crypto_provider.dart';
 
 /// Double Ratchet (DESIGN.md §13.3).
 ///
@@ -34,7 +35,7 @@ static const int _maxMessageNumber = 1 << 30;
 
   final _aead = XChaCha20Poly1305Aead();
   final _hkdf = GroupHkdf();
-  final _x25519 = crypto_pkg.X25519();
+  final _x25519 = CryptoProvider.instance.x25519;
 
   final crypto_pkg.SecretKey rootKey;
   final crypto_pkg.SecretKey sendingChainKey;
