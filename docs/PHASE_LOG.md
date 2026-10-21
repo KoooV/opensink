@@ -549,3 +549,62 @@
 - `dart analyze packages/core_crypto/lib packages/core_crypto/test/state_vault_test.dart packages/core_domain/lib packages/core_domain/test/encrypted_state_store_test.dart`: 0 ошибок в новых файлах.
 - `melos run check:imports`: OK.
 - `grep expect(true, isTrue)`: 0 совпадений. `grep UnimplementedError` в lib/: 0 совпадений.
+
+---
+
+## Запись 13 — Фаза F6: синхронизация документации с кодом и финальная приёмка слоя 2
+
+### Что сделано
+
+1. **docs/DESIGN.md пересобран по коду** (не по памяти):
+   - Убрано утверждение о зависимости `bip39` — реализация inline в `packages/core_crypto/lib/src/bip39.dart` + `bip39_wordlist.dart`, внешний пакет не используется.
+   - Убрано утверждение «dhRatchetStep — заглушка (D-06)» — метод реализован в фазе F2 (`packages/core_crypto/lib/src/e2ee/double_ratchet.dart`).
+   - Добавлен раздел «Хранение состояний» (F5) — StateVault, конверт v1, AAD, ключ хранилища в SecureKeyStore, остаточный риск rollback.
+   - Добавлена модель угроз по платформам (F4A/F4B) — Android/Keystore, Linux/libsecret, Web/IndexedDB+Web Crypto.
+   - Добавлено решение по NFKD (F3) — явный отказ от не-ASCII парольной фразы (`ArgumentError`), Dart std lib без Unicode нормализации.
+   - Добавлена версия `package:cryptography` 2.9.0 из `pubspec.lock:163` (Verified API).
+   - Добавлены замеры VM vs Chrome (F1) — PBKDF2 ~33.6 ms / 181 ms cold, AEAD 1 МБ < 1 ms, Chrome рантайм не стартует (MIME-тип `dart.js`, Q4).
+   - Добавлен список отклонений от Signal — нет OPK, нет регистрации IK на сервере, собственный AAD/заголовок, собственные MAX_SKIP/TTL, ротация по триггеру слоя 8, собственная сериализация.
+
+2. **Раздел «Контракты для соседних слоёв» (docs/DESIGN.md §9):**
+   - Слой 3: подпись и AAD над байтами по сети без повторной сериализации; домен-разделение префиксом `opensink/<layer>/<message-type>/v1|`.
+   - Слой 8: триггеры ротации sender keys при изменении состава; раздача по личным E2E-каналам.
+   - Слои 5 и 7: replay (nonce + окно, дедуп по id) не в core_crypto — делегировано слоям 3/7/8.
+
+3. **tool/check_docs_drift.sh (новый)** — проверка: (a) пакеты в DESIGN.md vs pubspec.yaml workspace, (b) D-xx в DESIGN.md vs DEFECTS.md таблица, (c) Q-xx в OPEN_QUESTIONS.md vs TODO(verify) в коде. Все проверки проходят.
+
+4. **.github/workflows/ci.yml** — шаг `check_docs_drift.sh` добавлен в job `core_crypto-test`.
+
+5. **docs/LAYER2_ACCEPTANCE.md (новый)** — A1–A8 с командами, фрагментами вывода и статусами:
+   - A1 analyze: подтверждено (0 ошибок, 14 предупреждений pre-existing, 163 info)
+   - A2 test vm: подтверждено (196 passed, 0 failed)
+   - A3 test chrome: **не проверено** (инфраструктура MIME-типа, Q4)
+   - A4 check:imports: подтверждено
+   - A5 check:hygiene: требует ручной оценки (ложные срабатывания на векторы/комментарии)
+   - A6 expect(true: подтверждено (0 совпадений)
+   - A7 UnimplementedError: подтверждено (0 совпадений в lib/)
+   - A8 check:drift: подтверждено
+
+6. **docs/REVIEW_LIST.md (новый)** — файлы и диапазоны строк для ручного ревью: подпись и деривация ключей из мнемоники (signer.dart, identity.dart, bip39.dart), AEAD (aead.dart), X3DH (x3dh.dart), Double Ratchet (double_ratchet.dart), Sender Keys (sender_keys.dart), StateVault (state_vault.dart), платформенные хранилища (secure_key_store_android/live/web, secure_key_store.dart, fakes.dart).
+
+### Что изменено
+
+- Новые файлы: `docs/LAYER2_ACCEPTANCE.md`, `docs/REVIEW_LIST.md`, `tool/check_docs_drift.sh`.
+- Изменённые файлы: `docs/DESIGN.md`, `docs/PHASE_LOG.md` (эта запись), `.github/workflows/ci.yml`.
+
+### Что осталось
+
+- Q4 (Chrome-тестирование): инфраструктурная проблема с MIME-типом `dart.js`, не код.
+- Q2, Q7, Q8, Q9, Q10, Q11 — открыты.
+- check_text_hygiene ложные срабатывания требуют донастройки скрипта или подтверждения вручную.
+- docs/UI_UX.md удалён из рабочей копии (преду-existing, не関連 к фазе F6).
+
+### Результаты тестирования
+
+- `bash tool/check_docs_drift.sh`: **OK — критических расхождений не обнаружено**.
+- `dart test packages/core_crypto/test/ -p vm`: **196 пройдено, 0 провалено**.
+- `dart test packages/core_crypto/test/ -p chrome`: **не проверено** (Q4, MIME-тип `dart.js`).
+- `bash tool/check_core_imports.sh`: **OK**.
+- `bash tool/check_text_hygiene.sh`: найдены совпадения (требует ручной оценки).
+- `grep expect(true`: **0 совпадений**.
+- `grep UnimplementedError` в `lib/`: **0 совпадений**.

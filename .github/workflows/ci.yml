@@ -95,6 +95,9 @@ jobs:
       - name: check_text_hygiene.sh
         run: bash tool/check_text_hygiene.sh
 
+      - name: check_docs_drift.sh
+        run: bash tool/check_docs_drift.sh
+
   builds:
     needs: analyze-and-test
     runs-on: ubuntu-latest
