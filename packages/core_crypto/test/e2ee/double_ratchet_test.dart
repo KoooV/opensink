@@ -1425,6 +1425,161 @@ void main() {
       final data = Uint8List.fromList([99, 0, 0, 0, 0, 0, 0, 0, 0]);
       expect(() => DoubleRatchet.fromBytes(data), throwsA(isA<StateError>()));
     });
+
+    // --- uint32 boundary values (D-11…D-14: dart2js 32-bit int) ---
+
+    test('toBytes: counter = 0xFFFFFFFF accepted (uint32 max)', () async {
+      final sharedSecret = SecretKey(hexToUint8List(
+        '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
+      ));
+      final sessionKeys = await x3dhToSessionKeys(sharedSecret);
+
+      final state = DoubleRatchet(
+        rootKey: sessionKeys.rootKey,
+        sendingChainKey: sessionKeys.sendingChainKey,
+        receivingChainKey: sessionKeys.receivingChainKey,
+        sendingMessageCounter: 0xFFFFFFFF,
+        receivingMessageCounter: 0xFFFFFFFF,
+        previousChainLength: 0xFFFFFFFF,
+      );
+
+      final serialized = await state.toBytes();
+      expect(serialized, isNotEmpty);
+
+      final restored = DoubleRatchet.fromBytes(serialized);
+      expect(restored.sendingMessageCounter, 0xFFFFFFFF);
+      expect(restored.receivingMessageCounter, 0xFFFFFFFF);
+      expect(restored.previousChainLength, 0xFFFFFFFF);
+    });
+
+    test('toBytes: counter = 0x7FFFFFFF roundtrip preserved', () async {
+      final sharedSecret = SecretKey(hexToUint8List(
+        '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
+      ));
+      final sessionKeys = await x3dhToSessionKeys(sharedSecret);
+
+      const maxInt31 = 0x7FFFFFFF;
+      final state = DoubleRatchet(
+        rootKey: sessionKeys.rootKey,
+        sendingChainKey: sessionKeys.sendingChainKey,
+        receivingChainKey: sessionKeys.receivingChainKey,
+        sendingMessageCounter: maxInt31,
+      );
+
+      final serialized = await state.toBytes();
+      final restored = DoubleRatchet.fromBytes(serialized);
+      expect(restored.sendingMessageCounter, maxInt31);
+    });
+
+    test('toBytes: counter > uint32 max (2^32) → ArgumentError', () async {
+      final sharedSecret = SecretKey(hexToUint8List(
+        '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
+      ));
+      final sessionKeys = await x3dhToSessionKeys(sharedSecret);
+
+      final state = DoubleRatchet(
+        rootKey: sessionKeys.rootKey,
+        sendingChainKey: sessionKeys.sendingChainKey,
+        receivingChainKey: sessionKeys.receivingChainKey,
+        sendingMessageCounter: 1 << 32,
+      );
+
+      expect(
+        () async => await state.toBytes(),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('toBytes: negative counter → ArgumentError', () async {
+      final sharedSecret = SecretKey(hexToUint8List(
+        '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
+      ));
+      final sessionKeys = await x3dhToSessionKeys(sharedSecret);
+
+      final state = DoubleRatchet(
+        rootKey: sessionKeys.rootKey,
+        sendingChainKey: sessionKeys.sendingChainKey,
+        receivingChainKey: sessionKeys.receivingChainKey,
+        sendingMessageCounter: -1,
+      );
+
+      expect(
+        () async => await state.toBytes(),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('fromBytes: messageNumber = 2^31 in wire → DecryptionFailed', () async {
+      final sharedSecret = SecretKey(hexToUint8List(
+        '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
+      ));
+      final sessionKeys = await x3dhToSessionKeys(sharedSecret);
+
+      final alice = DoubleRatchet(
+        rootKey: sessionKeys.rootKey,
+        sendingChainKey: sessionKeys.sendingChainKey,
+        receivingChainKey: sessionKeys.receivingChainKey,
+      );
+      final bob = DoubleRatchet(
+        rootKey: sessionKeys.rootKey,
+        sendingChainKey: sessionKeys.receivingChainKey,
+        receivingChainKey: sessionKeys.sendingChainKey,
+      );
+
+      final encResult = await alice.encrypt(
+        plaintext: Uint8List.fromList('boundary-test'.codeUnits),
+      );
+      expect(encResult.isOk, isTrue);
+      final wire = Uint8List.fromList((encResult as Ok).value.wireFormat);
+
+      // Set messageNumber (offset 34-41) to 2^31: bytes [0,0,0,128,0,0,0,0].
+      final tampered = Uint8List.fromList(wire);
+      tampered[34] = 0x00;
+      tampered[35] = 0x00;
+      tampered[36] = 0x00;
+      tampered[37] = 0x80;
+      tampered[38] = 0x00;
+      tampered[39] = 0x00;
+      tampered[40] = 0x00;
+      tampered[41] = 0x00;
+
+      final result = await bob.decrypt(data: tampered);
+      expect(result.isErr, isTrue);
+    });
+
+    test('fromBytes: messageNumber = 2^25 roundtrip preserved (byte 3 nonzero)', () async {
+      // Reproduces D-12: values between 2^24 and 2^30 have byte 3 != 0.
+      // Old implementation ignored byte 3 → wrong decoded value.
+      final sharedSecret = SecretKey(hexToUint8List(
+        '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
+      ));
+      final sessionKeys = await x3dhToSessionKeys(sharedSecret);
+
+      const msgNum25 = 1 << 25; // 33554432, byte 3 = 2
+
+      final state = DoubleRatchet(
+        rootKey: sessionKeys.rootKey,
+        sendingChainKey: sessionKeys.sendingChainKey,
+        receivingChainKey: sessionKeys.receivingChainKey,
+        sendingMessageCounter: msgNum25,
+      );
+
+      final serialized = await state.toBytes();
+      final restored = DoubleRatchet.fromBytes(serialized);
+      expect(restored.sendingMessageCounter, msgNum25);
+
+      // Verify wire bytes: offset 34-41 should encode 2^25 LE.
+      // 2^25 = 0x02000000 → LE bytes: [0, 0, 0, 2, 0, 0, 0, 0].
+      // In serialized format, sendingCounter is at offset 1+32*3=97, 8 bytes.
+      expect(serialized[97], 0);
+      expect(serialized[98], 0);
+      expect(serialized[99], 0);
+      expect(serialized[100], 2);
+      expect(serialized[101], 0);
+      expect(serialized[102], 0);
+      expect(serialized[103], 0);
+      expect(serialized[104], 0);
+    });
   });
 
   group('DoubleRatchet F2: first X3DH message repeat', () {

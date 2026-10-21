@@ -469,6 +469,9 @@ static const int _maxMessageNumber = 1 << 30;
     buf.addAll(sendBytes);
     buf.addAll(recvBytes);
 
+    _assertUint32(sendingMessageCounter, 'sendingMessageCounter');
+    _assertUint32(receivingMessageCounter, 'receivingMessageCounter');
+    _assertUint32(previousChainLength, 'previousChainLength');
     buf.addAll(_uint64ToBytesLe(sendingMessageCounter));
     buf.addAll(_uint64ToBytesLe(receivingMessageCounter));
     buf.addAll(_uint64ToBytesLe(previousChainLength));
@@ -488,9 +491,12 @@ static const int _maxMessageNumber = 1 << 30;
 
     buf.addAll(_uint64ToBytesLe(skippedKeys.length));
     for (final entry in skippedKeys.entries) {
+      _assertUint32(entry.key, 'skippedKeys.messageNumber');
+      final timestampSec = entry.value.timestampMs ~/ 1000;
+      _assertUint32(timestampSec, 'skippedKeys.timestampMs');
       buf.addAll(_uint64ToBytesLe(entry.key));
       buf.addAll(entry.value.key);
-      buf.addAll(_uint64ToBytesLe(entry.value.timestampMs));
+      buf.addAll(_uint64ToBytesLe(timestampSec));
     }
 
     return Uint8List.fromList(buf);
@@ -518,10 +524,13 @@ static const int _maxMessageNumber = 1 << 30;
     offset += 32;
 
     final sendingCounter = _bytesLeToUint64(data.sublist(offset, offset + 8));
+    _assertUint32(sendingCounter, 'sendingCounter');
     offset += 8;
     final receivingCounter = _bytesLeToUint64(data.sublist(offset, offset + 8));
+    _assertUint32(receivingCounter, 'receivingCounter');
     offset += 8;
     final prevChainLength = _bytesLeToUint64(data.sublist(offset, offset + 8));
+    _assertUint32(prevChainLength, 'prevChainLength');
     offset += 8;
 
     final dhPrivBytes = Uint8List.fromList(data.sublist(offset, offset + 32));
@@ -532,19 +541,22 @@ static const int _maxMessageNumber = 1 << 30;
     offset += 32;
 
     final skippedCount = _bytesLeToUint64(data.sublist(offset, offset + 8)).toInt();
+    _assertUint32(skippedCount, 'skippedCount');
     offset += 8;
 
     final skippedKeys = LinkedHashMap<int, _SkippedKeyEntry>();
     for (var i = 0; i < skippedCount; i++) {
       final msgNum = _bytesLeToUint64(data.sublist(offset, offset + 8)).toInt();
+      _assertUint32(msgNum, 'msgNum');
       offset += 8;
       final keyBytes = Uint8List.fromList(data.sublist(offset, offset + 32));
       offset += 32;
-      final timestampMs = _bytesLeToUint64(data.sublist(offset, offset + 8));
+      final timestampSec = _bytesLeToUint64(data.sublist(offset, offset + 8));
+      _assertUint32(timestampSec, 'timestampMs');
       offset += 8;
       skippedKeys[msgNum] = _SkippedKeyEntry(
         key: keyBytes,
-        timestampMs: timestampMs,
+        timestampMs: timestampSec * 1000,
       );
     }
 
@@ -609,20 +621,44 @@ class DoubleRatchetResult {
 
 // -------------------------------------------------------------------------
 // Helpers для uint little-endian
+//
+// dart2js reprezent `int` как 32-bit signed. Сдвиги ≥ 25 бит дают
+// некорректные результаты. Все счётчики Double Ratchet ограничены
+// uint32 (0..0xFFFFFFFF); фактически messageNumber < 2^30
+// (_maxMessageNumber). 8-байтное wire-поле кодируется как uint32 в
+// младших 4 байтах LE, старшие 4 байта зарезервированы (0).
 // -------------------------------------------------------------------------
 
-Uint8List _uint64ToBytesLe(int value) {
-  final bytes = Uint8List(8);
-  for (var i = 0; i < 8; i++) {
-    bytes[i] = (value >> (8 * i)) & 0xFF;
+/// Максимально допустимое значение счётчика (uint32).
+const int _uint32Max = 0xFFFFFFFF;
+
+/// Проверяет, что [value] помещается в uint32. Иначе — [ArgumentError].
+void _assertUint32(int value, String name) {
+  if (value < 0 || value > _uint32Max) {
+    throw ArgumentError('$name выходит за пределы uint32: $value');
   }
+}
+
+/// Кодирует [value] (uint32) в 8 байт little-endian.
+/// dart2js-безопасно: сдвиги не превышают 24 бита, каждый результат маскируется & 0xFF.
+Uint8List _uint64ToBytesLe(int value) {
+  _assertUint32(value, 'value');
+  final bytes = Uint8List(8);
+  bytes[0] = value & 0xFF;
+  bytes[1] = (value >> 8) & 0xFF;
+  bytes[2] = (value >> 16) & 0xFF;
+  bytes[3] = (value >> 24) & 0xFF;
+  // bytes[4..7] = 0 — старшие 32 бита зарезервированы.
   return bytes;
 }
 
+/// Декодирует 8 байт little-endian в int (младшие 4 байта LE).
+/// dart2js представляет `int` как 32-bit signed:
+/// - Значения < 2^31 → положительный int (byte 3 << 24 безопасен).
+/// - Значения ≥ 2^31 → отрицательный int ( бит 31 devient sign bit),
+///   практически недостижимы, так как messageNumber ограничен
+///   _maxMessageNumber (2^30), а все прочие счётчики проходят
+///   валидацию [_assertUint32] при записи и чтении.
 int _bytesLeToUint64(Uint8List bytes) {
-  var result = 0;
-  for (var i = 0; i < 8; i++) {
-    result |= bytes[i] << (8 * i);
-  }
-  return result;
+  return bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24);
 }
