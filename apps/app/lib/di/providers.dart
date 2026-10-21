@@ -13,6 +13,8 @@ import 'package:core_domain/src/interfaces/fakes.dart'
         FakePeerLink;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'secure_key_store_platform.dart';
+
 /// DI-контейнер приложения.
 ///
 /// В продакшене провайдеры связываются с реальными реализациями
@@ -64,11 +66,7 @@ final groupStateProvider = Provider<IGroupState>((ref) {
 });
 
 final secureKeyStoreProvider = Provider<SecureKeyStore>((ref) {
-  throw StateError(
-    'SecureKeyStore не подключен. Реализация должна быть передана '
-    'платформенным пакетом (platform_android / platform_linux / platform_web) '
-    'через override провайдера. MemorySecureKeyStore доступен только в тестах.',
-  );
+  return createPlatformSecureKeyStore();
 });
 
 final screenCaptureSourceProvider = Provider<ScreenCaptureSource>((ref) {
