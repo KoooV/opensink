@@ -9,7 +9,7 @@ void main() {
   group('MemorySecureKeyStore', () {
     SecureKeyStore factory() => MemorySecureKeyStore();
 
-    secureKeyStoreContract(factory, label: ' (Memory)');
+    runSecureKeyStoreContract(factory, label: ' (Memory)');
 
     test('toString не раскрывает секреты хранилища', () async {
       final store = MemorySecureKeyStore();
@@ -19,7 +19,7 @@ void main() {
         IdentityBundle(
           userId: const UserId('u-secret'),
           publicKey: 'pk-secret',
-          encryptedPrivateKey: secret,
+          privateSeed: secret,
           createdAt: 1,
         ),
       );
@@ -30,18 +30,18 @@ void main() {
       expect(s, contains('MemorySecureKeyStore'));
     });
 
-    test('toString бандла не раскрывает encryptedPrivateKey', () {
+    test('toString бандла не раскрывает privateSeed', () {
       final secret = [10, 20, 30, 40];
       final bundle = IdentityBundle(
         userId: const UserId('u-b'),
         publicKey: 'pk-b',
-        encryptedPrivateKey: secret,
+        privateSeed: secret,
         createdAt: 2,
       );
       final s = bundle.toString();
       expect(s, isNot(contains('10, 20, 30, 40')));
       expect(s, isNot(contains(secret.toString())));
-      expect(s, contains('encryptedPrivateKeyLength=4'));
+      expect(s, contains('privateSeedLength=4'));
       expect(s, contains('userId=u-b'));
     });
 

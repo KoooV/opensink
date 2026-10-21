@@ -9,7 +9,6 @@ import 'package:core_domain/src/interfaces/fakes.dart'
         FakeEventStore,
         FakeSyncEngine,
         FakeGroupState,
-        FakeSecureKeyStore,
         FakeScreenCaptureSource,
         FakePeerLink;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -65,7 +64,11 @@ final groupStateProvider = Provider<IGroupState>((ref) {
 });
 
 final secureKeyStoreProvider = Provider<SecureKeyStore>((ref) {
-  return FakeSecureKeyStore();
+  throw StateError(
+    'SecureKeyStore не подключен. Реализация должна быть передана '
+    'платформенным пакетом (platform_android / platform_linux / platform_web) '
+    'через override провайдера. MemorySecureKeyStore доступен только в тестах.',
+  );
 });
 
 final screenCaptureSourceProvider = Provider<ScreenCaptureSource>((ref) {

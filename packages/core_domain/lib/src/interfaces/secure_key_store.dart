@@ -6,21 +6,54 @@ import 'package:meta/meta.dart';
 /// Доменная ошибка хранилища секретов.
 ///
 /// Все варианты — доменные ошибки: отсутствие ключа не является аварийной
-/// ситуацией, сбой инфраструктуры ([StoreError]) оборачивает инфраструктурное
-/// исключение и не раскрывает секретов в тексте ошибки.
+/// ситуацией, сбои инфраструктуры оборачиваются в типизированные ошибки и не
+/// раскрывают секретов в тексте ошибки.
 sealed class KeyStoreError {
   const KeyStoreError();
 }
 
-/// Ключ отсутствует в хранилище.
+/// Ключ отсутствует в хранилище (не является аварийной ситуацией).
 class IdentityNotFound extends KeyStoreError {
   const IdentityNotFound();
 }
 
-/// Сбой инфраструктурного хранилища (Keystore, libsecret, IndexedDB и т.п.).
-///
-/// [message] содержит понятное пользователю/оператору описание и инструкцию,
+/// Хранилище недоступно (например, Secret Service не запущен, Keystore
+/// недоступен). [message] содержит инструкцию для пользователя/оператора,
 /// но не секретный материал.
+class StoreUnavailable extends KeyStoreError {
+  const StoreUnavailable(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'StoreUnavailable($message)';
+}
+
+/// Данные в хранилище повреждены (неверный формат, несовместимая версия
+/// схемы, некорректный базовый64/JSON).
+class StoreCorrupted extends KeyStoreError {
+  const StoreCorrupted(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'StoreCorrupted($message)';
+}
+
+/// Доступ к хранилищу запрещен (биометрия, блокировка экрана, права).
+class StoreAccessDenied extends KeyStoreError {
+  const StoreAccessDenied(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'StoreAccessDenied($message)';
+}
+
+/// Общая инфраструктурная ошибка хранилища (неизвестная причина).
+///
+/// [message] содержит понятное описание и инструкцию, но не секретный
+/// материал.
 class StoreError extends KeyStoreError {
   const StoreError(this.message);
 
@@ -53,23 +86,29 @@ abstract class SecureKeyStore {
   Future<Result<bool, KeyStoreError>> hasIdentity(UserId userId);
 }
 
-/// Пакет для хранения в SecureKeyStore (секрет зашифрован ключом устройства).
+/// Пакет для хранения в SecureKeyStore.
+///
+/// [privateSeed] содержит приватный ключ (seed) пользователя. Он **не является
+/// самодостаточным шифртекстом**: в `core_crypto` нет мастер-ключа, поэтому
+/// `MemorySecureKeyStore` хранит поле verbatim. Защита обеспечивается
+/// **платформенным хранилищем** (flutter_secure_storage → Keystore/libsecret),
+/// которое шифрует данные при записи. Название поля отражает это: `privateSeed`,
+/// а не `encryptedPrivateKey`.
 @immutable
 class IdentityBundle {
   const IdentityBundle({
     required this.userId,
     required this.publicKey,
-    required this.encryptedPrivateKey,
+    required this.privateSeed,
     required this.createdAt,
   });
 
   final UserId userId;
   /// Hex Ed25519 public key.
   final String publicKey;
-  /// Приватный ключ (seed). Не является самодостаточным шифртекстом:
-  /// защита обеспечивается платформенным хранилищем (Keystore/libsecret),
-  /// а в `MemorySecureKeyStore` хранится verbatim.
-  final List<int> encryptedPrivateKey;
+  /// Приватный ключ (seed). Защита обеспечивается платформенным хранилищем,
+  /// а не шифрованием на уровне приложения.
+  final List<int> privateSeed;
   final int createdAt; // Unix ms
 
   @override
@@ -79,19 +118,19 @@ class IdentityBundle {
           runtimeType == other.runtimeType &&
           userId == other.userId &&
           publicKey == other.publicKey &&
-          const ListEquality<int>().equals(encryptedPrivateKey, other.encryptedPrivateKey) &&
+          const ListEquality<int>().equals(privateSeed, other.privateSeed) &&
           createdAt == other.createdAt;
 
   @override
   int get hashCode =>
       userId.hashCode ^
       publicKey.hashCode ^
-      const ListEquality<int>().hash(encryptedPrivateKey) ^
+      const ListEquality<int>().hash(privateSeed) ^
       createdAt.hashCode;
 
-  /// Безопасное представление для логов: не раскрывает [encryptedPrivateKey].
+  /// Безопасное представление для логов: не раскрывает [privateSeed].
   @override
   String toString() =>
       'IdentityBundle(userId=${userId.value}, publicKey=$publicKey, '
-      'encryptedPrivateKeyLength=${encryptedPrivateKey.length}, createdAt=$createdAt)';
+      'privateSeedLength=${privateSeed.length}, createdAt=$createdAt)';
 }

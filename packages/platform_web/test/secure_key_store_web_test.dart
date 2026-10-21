@@ -11,13 +11,13 @@ SecureKeyStore _webFactory() =>
 
 IdentityBundle _bundle({
   String publicKey = 'pk-web',
-  List<int>? privateKey,
+  List<int>? privateSeed,
   int createdAt = 1000,
 }) =>
     IdentityBundle(
       userId: const UserId('user-web'),
       publicKey: publicKey,
-      encryptedPrivateKey: privateKey ?? [1, 2, 3],
+      privateSeed: privateSeed ?? [1, 2, 3],
       createdAt: createdAt,
     );
 
@@ -55,11 +55,11 @@ void main() {
     });
 
     test('перезапись заменяет предыдущее значение', () async {
-      await store.storeIdentity(userId, _bundle(publicKey: 'pk-1', privateKey: [9]));
-      await store.storeIdentity(userId, _bundle(publicKey: 'pk-2', privateKey: [8]));
+      await store.storeIdentity(userId, _bundle(publicKey: 'pk-1', privateSeed: [9]));
+      await store.storeIdentity(userId, _bundle(publicKey: 'pk-2', privateSeed: [8]));
       expect(
         okValue(await store.loadIdentity(userId)),
-        equals(_bundle(publicKey: 'pk-2', privateKey: [8])),
+        equals(_bundle(publicKey: 'pk-2', privateSeed: [8])),
       );
     });
 
@@ -73,17 +73,17 @@ void main() {
       expect(err, isA<IdentityNotFound>());
     });
 
-    test('пустое encryptedPrivateKey допустимо', () async {
-      final empty = _bundle(privateKey: []);
+    test('пустое privateSeed допустимо', () async {
+      final empty = _bundle(privateSeed: []);
       await store.storeIdentity(userId, empty);
       final loaded = okValue(await store.loadIdentity(userId));
       expect(loaded, equals(empty));
-      expect(loaded.encryptedPrivateKey, isEmpty);
+      expect(loaded.privateSeed, isEmpty);
     });
 
     test('большое значение хранится и читается корректно', () async {
       final large = Uint8List(1024 * 1024)..fillRange(0, 1024 * 1024, 42);
-      final big = _bundle(privateKey: large);
+      final big = _bundle(privateSeed: large);
       await store.storeIdentity(userId, big);
       expect(okValue(await store.loadIdentity(userId)), equals(big));
     });

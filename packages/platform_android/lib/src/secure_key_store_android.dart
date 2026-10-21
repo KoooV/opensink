@@ -21,9 +21,57 @@ class NativeSecureKeyStoreImpl implements SecureKeyStore {
 
   final FlutterSecureStorage _storage;
 
-  static const _kPrefix = 'opensink_identity_';
+  /// Версия схемы сериализации IdentityBundle.
+  static const int _schemaVersion = 1;
+  static const _kPrefix = 'opensink_identity_v${_schemaVersion}_';
 
   String _key(UserId userId) => '${_kPrefix}${userId.value}';
+
+  Map<String, dynamic> _serialize(IdentityBundle bundle) => <String, dynamic>{
+        'userId': bundle.userId.value,
+        'publicKey': bundle.publicKey,
+        'privateSeed': base64Encode(bundle.privateSeed),
+        'createdAt': bundle.createdAt,
+        'schemaVersion': _schemaVersion,
+      };
+
+  IdentityBundle _deserialize(Map<String, dynamic> map) {
+    final version = map['schemaVersion'] as int?;
+    if (version == null || version != _schemaVersion) {
+      throw FormatException('Неподдерживаемая версия схемы: $version');
+    }
+    final seedBase64 = map['privateSeed'] as String?;
+    if (seedBase64 == null) {
+      throw FormatException('Отсутствует privateSeed в записи хранилища');
+    }
+    return IdentityBundle(
+      userId: UserId(map['userId'] as String),
+      publicKey: map['publicKey'] as String,
+      privateSeed: base64Decode(seedBase64),
+      createdAt: map['createdAt'] as int,
+    );
+  }
+
+  static KeyStoreError _mapError(Object e, StackTrace stack, String operation) {
+    final message = e.toString();
+    final lower = message.toLowerCase();
+    if (lower.contains('unavailable') || lower.contains('not available')) {
+      return StoreUnavailable(
+        'Хранилище Keystore недоступен при $operation: $message\n$stack',
+      );
+    }
+    if (lower.contains('access denied') || lower.contains('permission')) {
+      return StoreAccessDenied(
+        'Доступ к Keystore запрещен при $operation: $message\n$stack',
+      );
+    }
+    if (lower.contains('corrupt') || lower.contains('invalid') || lower.contains('format')) {
+      return StoreCorrupted(
+        'Данные в Keystore повреждены при $operation: $message\n$stack',
+      );
+    }
+    return StoreError('Не удалось $operation в Keystore: $message\n$stack');
+  }
 
   @override
   Future<Result<void, KeyStoreError>> storeIdentity(
@@ -33,16 +81,11 @@ class NativeSecureKeyStoreImpl implements SecureKeyStore {
     try {
       await _storage.write(
         key: _key(userId),
-        value: jsonEncode({
-          'userId': bundle.userId.value,
-          'publicKey': bundle.publicKey,
-          'encryptedPrivateKey': base64Encode(bundle.encryptedPrivateKey),
-          'createdAt': bundle.createdAt,
-        }),
+        value: jsonEncode(_serialize(bundle)),
       );
       return const Ok(null);
     } catch (e, stack) {
-      return Err(StoreError('Не удалось сохранить идентичность в Keystore: $e\n$stack'));
+      return Err(_mapError(e, stack, 'сохранение идентичности'));
     }
   }
 
@@ -54,16 +97,11 @@ class NativeSecureKeyStoreImpl implements SecureKeyStore {
         return const Err(IdentityNotFound());
       }
       final map = jsonDecode(json) as Map<String, dynamic>;
-      return Ok(
-        IdentityBundle(
-          userId: UserId(map['userId'] as String),
-          publicKey: map['publicKey'] as String,
-          encryptedPrivateKey: base64Decode(map['encryptedPrivateKey'] as String),
-          createdAt: map['createdAt'] as int,
-        ),
-      );
+      return Ok(_deserialize(map));
+    } on FormatException catch (e, stack) {
+      return Err(StoreCorrupted('Повреждённые данные в Keystore: $e\n$stack'));
     } catch (e, stack) {
-      return Err(StoreError('Не удалось загрузить идентичность из Keystore: $e\n$stack'));
+      return Err(_mapError(e, stack, 'загрузка идентичности'));
     }
   }
 
@@ -73,7 +111,7 @@ class NativeSecureKeyStoreImpl implements SecureKeyStore {
       await _storage.delete(key: _key(userId));
       return const Ok(null);
     } catch (e, stack) {
-      return Err(StoreError('Не удалось удалить идентичность из Keystore: $e\n$stack'));
+      return Err(_mapError(e, stack, 'удаление идентичности'));
     }
   }
 
@@ -83,7 +121,7 @@ class NativeSecureKeyStoreImpl implements SecureKeyStore {
       final value = await _storage.read(key: _key(userId));
       return Ok(value != null && value.isNotEmpty);
     } catch (e, stack) {
-      return Err(StoreError('Не удалось проверить наличие идентичности в Keystore: $e\n$stack'));
+      return Err(_mapError(e, stack, 'проверка наличия идентичности'));
     }
   }
 }

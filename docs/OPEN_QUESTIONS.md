@@ -64,3 +64,18 @@
 
 ## Q19 — core_sync: SyncEngine реализация поверх EventStore
 `// TODO(verify): SyncEngine реализация поверх EventStore.` (packages/core_sync/lib/core_sync.dart:3)
+
+## Q20 (F4A) — flutter_secure_storage версия с поддержкой Linux
+Минимальная версия flutter_secure_storage с рабочей поддержкой Linux (libsecret / secret-service). pubspec.lock фиксирует 9.2.4, но нужно подтвердить, что эта версия корректно собирается на Linux и опции платформ соответствуют README.
+
+## Q21 (F4A) — Способ мока flutter_secure_storage в тестах
+`FlutterSecureStorage` — конкретный класс, не интерфейс. В `platform_android/test/flutter_secure_key_store_test.dart` используется ручной мок через `implements FlutterSecureStorage`. Нужно проверить, что все публичные члены `FlutterSecureStorage` покрыты моком, иначе компиляция упадёт при обновлении версии плагина.
+
+## Q22 (F4A) — Android Auto Backup настройки для v9.2.4
+Точные настройки `AndroidManifest.xml` (android:allowBackup, android:fullBackupContent, исключение файлов хранилища из бэкапа) для flutter_secure_storage v9.2.4. behoviour при восстановлении на новом устройстве с недействительным ключом Keystore.
+
+## Q23 (F4A) — Linux integration_test под dbus-run-session
+Запуск Linux-тестов SecureKeyStore в CI с `dbus-run-session` и запущенным gnome-keyring. В текущем окружении не проверено.
+
+## Q24 (F4A) — Проверка зависимостей libsecret при инициализации Linux
+`LinuxSecureKeyStoreImpl.checkDependencies()` выполняет probe-запись в libsecret. Нужно подтвердить, что это достаточно для определения недоступности Secret Service и не создаёт побочных эффектов.

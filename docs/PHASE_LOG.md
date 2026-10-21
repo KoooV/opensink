@@ -382,5 +382,77 @@
 ### Результаты тестирования
 - `dart test packages/core_crypto/test/ -p vm`: **175 пройдено, 0 провалено** (was 148 after fase F2).
 - `dart test packages/core_crypto/test/ -p chrome -c dart2js`: **175 пройдено, 0 провалено** (Q4 решено).
+
+---
+
+## Запись 10 — Фаза F4A: SecureKeyStore, контракт и реализация для Android/Linux
+
+### Что сделано
+
+1. **Переименование `encryptedPrivateKey` → `privateSeed`** во всех пакетах и тестах:
+   - `packages/core_domain/lib/src/interfaces/secure_key_store.dart` — `IdentityBundle.privateSeed` вместо `encryptedPrivateKey`.
+   - `packages/core_crypto/lib/src/key_store/memory_secure_key_store.dart` — ссылки обновлены.
+   - `packages/platform_android/lib/src/secure_key_store_android.dart` — `privateSeed`, base64, схема v1.
+   - `packages/platform_linux/lib/src/secure_key_store_linux.dart` — `privateSeed`, base64, схема v1.
+   - `packages/platform_web/lib/src/secure_key_store_web.dart` — `privateSeed`, base64.
+   - Все тесты: `secure_key_store_contract.dart`, `memory_secure_key_store_test.dart`, `core_crypto_test.dart`, `core_domain_test.dart`, `secure_key_store_web_test.dart`.
+   - `docs/DEFECTS.md` D-04 уже закрыта как by design (защита на платформе), документация обновлена.
+
+2. **Расширение `KeyStoreError`** (core_domain):
+   - Новые варианты: `StoreUnavailable` (хранилище недоступно), `StoreCorrupted` (повреждённые данные / несовместимая версия), `StoreAccessDenied` (доступ запрещён).
+   - Существующие: `IdentityNotFound` (отсутствие ключа), `StoreError` (общая ошибка).
+
+3. **Удаление `SecureKeyStoreStub`** из `packages/core_crypto/lib/src/key_store/secure_key_store_platform.dart`. Класс удалён, экспорт убран из `core_crypto.dart`.
+
+4. **DI: `secureKeyStoreProvider` бросает при старте без override**:
+   - `apps/app/lib/di/providers.dart` — `secureKeyStoreProvider` теперь бросает `StateError('SecureKeyStore не подключен...')` вместо возврата `FakeSecureKeyStore`.
+   - `FakeSecureKeyStore` убран из импортов в `providers.dart` (остаётся в `core_domain/fakes.dart` для использования в тестах).
+   - `MemorySecureKeyStore` остаётся `@visibleForTesting`, только для тестов.
+
+5. **`runSecureKeyStoreContract(factory)`** в `packages/core_crypto/test/key_store/secure_key_store_contract.dart`:
+   - Переименована из `secureKeyStoreContract`, использует `privateSeed`.
+   - Покрывает: write/read, overwrite, delete, отсутствующий ключ, пустое значение, большое значение (1 МБ), неверное имя ключа.
+   - Типизированные ошибки: `IdentityNotFound`, `StoreUnavailable`, `StoreCorrupted`, `StoreAccessDenied`, `StoreError`.
+
+6. **Platform-реализации (Android, Linux)**:
+   - `privateSeed` хранится как base64 в JSON.
+   - Ключ хранилища: `opensink_identity_v1:<userId>` (префикс + версия схемы).
+   - `schemaVersion` проверяется при десериализации → `StoreCorrupted` при несовпадении.
+   - Маппинг исключений плагина в `KeyStoreError` (unavailable/accessDenied/corrupted/unknown).
+   - Linux: `checkDependencies()` проверяет libsecret при инициализации; `StoreUnavailable` с инструкцией, без отката на файл.
+   - Android: auto backup исключение файлов хранилища (см. MANUAL_QA.md), восстановление на новом устройстве с недействительным ключом Keystore → `StoreCorrupted`/`StoreUnavailable` без падения.
+   - StrongBox не обещан.
+
+7. **Тесты**:
+   - `packages/core_crypto/test/key_store/memory_secure_key_store_test.dart` — контракт + toString-секретность.
+   - `packages/platform_android/test/flutter_secure_key_store_test.dart` — контракт с замоканным `FlutterSecureStorage`, проверка base64, версии схемы, повреждённых данных.
+   - `packages/platform_web/test/secure_key_store_web_test.dart` — обновлён на `privateSeed`.
+
+8. **Документы**:
+   - `packages/core_crypto/DESIGN.md` §11 — защита обеспечивается платформенным хранилищем, не шифрованием на уровне приложения; формат записи v1.
+   - `docs/MANUAL_QA.md` — чек-лист Android (перезапуск, перезагрузка, бэкап/восстановление, смена экрана блокировки).
+   - `docs/OPEN_QUESTIONS.md` — добавлены Q20–Q24 (F4A).
+   - `docs/PHASE_LOG.md` — эта запись.
+
+### Что изменено
+
+- Новые файлы: `packages/platform_android/test/flutter_secure_key_store_test.dart`, `docs/MANUAL_QA.md`.
+- Изменённые: `packages/core_domain/lib/src/interfaces/secure_key_store.dart`, `packages/core_crypto/lib/core_crypto.dart`, `packages/core_crypto/lib/src/key_store/secure_key_store_platform.dart`, `packages/core_crypto/lib/src/key_store/memory_secure_key_store.dart`, `packages/core_crypto/test/key_store/secure_key_store_contract.dart`, `packages/core_crypto/test/key_store/memory_secure_key_store_test.dart`, `packages/core_crypto/test/core_crypto_test.dart`, `packages/core_domain/test/core_domain_test.dart`, `packages/platform_android/lib/src/secure_key_store_android.dart`, `packages/platform_linux/lib/src/secure_key_store_linux.dart`, `packages/platform_web/lib/src/secure_key_store_web.dart`, `packages/platform_web/test/secure_key_store_web_test.dart`, `apps/app/lib/di/providers.dart`, `packages/core_crypto/DESIGN.md`, `docs/OPEN_QUESTIONS.md`, `docs/DEFECTS.md` (список файлов), `docs/PHASE_LOG.md`.
+
+### Что осталось
+
+- Q2 (DI подключения platform-реализаций) — частично решён: провайдер бросает при старте, платформы переопределяют через override (override ещё не реализован в platform_android/platform_linux lib файлах — нужно подтвердить механизм).
+- Q4 (Chrome-тестирование) — не проверено в этом окружении.
+- Q20–Q24 — открыты (см. OPEN_QUESTIONS.md).
+
+### Результаты тестирования
+
+- Ожидается: `dart test packages/core_crypto/test/ -p vm` — все зелёные.
+- Ожидается: `dart test packages/platform_android/test/ -p vm` — все зелёные (требует Flutter SDK для компиляции).
+- Ожидается: `dart analyze packages/core_crypto/lib packages/core_crypto/test` — 0 ошибок.
+- Ожидается: `grep -rn "flutter\|dart:io\|dart:html\|package:web" packages/core_crypto/lib` — 0 совпадений.
+- Ожидается: `grep -rn "encryptedPrivateKey" packages/` — 0 совпадений.
+- Ожидается: `grep -rn "SecureKeyStoreStub" packages/core_crypto/` — 0 совпадений.
+
 - `dart analyze packages/core_crypto/lib packages/core_crypto/test`: **0 ошибок**, предупреждения только в novoтестовом коде (не блокируют), 15 info (pre-existing).
 - `melos run check:imports`: OK.

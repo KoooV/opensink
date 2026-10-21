@@ -312,7 +312,7 @@ void main() {
         const IdentityBundle(
           userId: UserId('user-1'),
           publicKey: 'abc',
-          encryptedPrivateKey: [1, 2, 3],
+          privateSeed: [1, 2, 3],
           createdAt: 1000,
         ),
       );
@@ -321,7 +321,7 @@ void main() {
         const IdentityBundle(
           userId: UserId('user-1'),
           publicKey: 'abc',
-          encryptedPrivateKey: [1, 2, 3],
+          privateSeed: [1, 2, 3],
           createdAt: 1000,
         ),
       );

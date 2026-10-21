@@ -103,7 +103,7 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
       final identityJson = jsonEncode({
         'userId': bundle.userId.value,
         'publicKey': bundle.publicKey,
-        'encryptedPrivateKey': base64Encode(bundle.encryptedPrivateKey),
+        'privateSeed': base64Encode(bundle.privateSeed),
         'createdAt': bundle.createdAt,
       });
       final plaintext = utf8.encode(identityJson);
@@ -159,8 +159,8 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
         IdentityBundle(
           userId: UserId(identityMap['userId'] as String),
           publicKey: identityMap['publicKey'] as String,
-          encryptedPrivateKey:
-              base64Decode(identityMap['encryptedPrivateKey'] as String),
+          privateSeed:
+              base64Decode(identityMap['privateSeed'] as String),
           createdAt: identityMap['createdAt'] as int,
         ),
       );

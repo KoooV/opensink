@@ -63,7 +63,7 @@ void main() {
         const IdentityBundle(
           userId: UserId('u-1'),
           publicKey: 'pk-hex',
-          encryptedPrivateKey: [1, 2],
+          privateSeed: [1, 2],
           createdAt: 5,
         ),
       );
