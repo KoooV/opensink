@@ -68,8 +68,8 @@
 
 ## Статистика после фазы F1 (запуск Chrome и паритет)
 
-- `dart test packages/core_crypto/test/ -p vm`: **120 пройдено, 0 провалено**
-- `dart test packages/core_crypto/test/ -p chrome`: **не проверено** — Chrome есть (`/usr/bin/google-chrome-stable`), `CHROME_EXECUTABLE` задан, но тестовый раннер `package:test` не может отдать `dart.js` с MIME-типом `application/javascript` (отдаёт `text/plain`), Chrome блокирует выполнение (strict MIME checking). Инфраструктурная проблема (Q4 OPEN_QUESTIONS.md), не код.
+- `dart test packages/core_crypto/test/ -p vm`: **196 пройдено, 0 провалено**
+- `dart test packages/core_crypto/test/ -p chrome`: **196 пройдено, 0 провалено** — паритет с VM. MIME-тип `dart.js` не блокирует выполнение в этом окружении (Q4 OPEN_QUESTIONS.md переведён в статус проверено).
 - `dart test packages/core_crypto/test/ -p node`: **подтверждённый дефект D-15** — Node.js установлен, тесты компилируются через dart2js, но 93 из 121 тестов падают с ошибкой инициализации браузерных привязок `package:cryptography`. 38 тестов прошли (те, что не зависят от глобальной криптографии браузера).
 - dart2js компиляция тестов: **успешна** (все тесты компилируются в JS без ошибок типов)
 - `dart analyze packages/core_crypto/lib packages/core_crypto/test`: **0 ошибок, 0 предупреждений, 5 info** (pre-existing)

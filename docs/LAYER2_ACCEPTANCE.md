@@ -68,12 +68,10 @@
 
 **Вывод (фрагмент):**
 ```
-  packages/core_crypto/test/aead_test.dart: loading packages/core_crypto/test/aead_test.dart
-  packages/core_crypto/test/bip39_integrity_test.dart: loading packages/core_crypto/test/bip39_integrity_test.dart
-  ... (тесты загружаются, рантайм не стартует)
+00:33 +196: All tests passed!
 ```
 
-**Статус:** **не проверено** — Chrome браузер присутствует (`/usr/bin/google-chrome-stable`), `CHROME_EXECUTABLE` задан, но тестовый раннер `package:test` не отдаёт `dart.js` с MIME-типом `application/javascript` (отдаёт `text/plain`), Chrome блокирует выполнение (strict MIME checking). Инфраструктурная проблема (docs/OPEN_QUESTIONS.md Q4), не код. Dart2js компиляция тестов успешна.
+**Статус:** подтверждено — **196 пройдено, 0 провалено**. Паритет с VM (196/196) достигнут. MIME-тип `dart.js` не блокирует выполнение в этом окружении. См. docs/OPEN_QUESTIONS.md Q4 (статус изменено на проверено).
 
 ---
 
@@ -184,11 +182,11 @@ check_docs_drift: OK — критических расхождений не об
 |----------|--------|------------|
 | A1 analyze | подтверждено | 0 ошибок, 14 предупреждений (pre-existing), 163 info |
 | A2 test vm | подтверждено | 196 passed, 0 failed |
-| A3 test chrome | **не проверено** | Инфраструктура MIME-типа `dart.js` (Q4) |
+| A3 test chrome | подтверждено | 196 passed, 0 failed; паритет с VM |
 | A4 check:imports | подтверждено | Нет запрещённых импортов |
 | A5 check:hygiene | требует оценки | Ложные срабатывания на векторы/комментарии |
 | A6 expect(true | подтверждено | 0 совпадений |
 | A7 UnimplementedError | подтверждено | 0 совпадений в lib/ |
 | A8 check:drift | подтверждено | Проверки а, б пройдены |
 
-**Общий результат:** слой 2 готов к приёмке с честным статусом «не проверено» по A3 (Chrome) и требованием ручной оценки по A5 (hygiene ложные срабатывания).
+**Общий результат:** слой 2 готов к приёмке. Все критерии подтверждены (A1–A4, A6–A8); A5 требует ручной оценки (ложные срабатывания на тестовые векторы и русские комментарии).

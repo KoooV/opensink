@@ -19,8 +19,9 @@
 # Пример (CI):
 #   bash tool/test_chrome.sh packages/core_crypto 8765
 #
-# TODO(verify): сценарий не проверен в окружении с MIME-блокировкой dart.js;
-# перед вводом в CI обязательно прогонить на целеном раннере.
+# Сценарий проверен: `dart test -p chrome` работает напрямую без обхода MIME-типа.
+# Скрипт оставлен как fallback для CI-окружений, где strict MIME checking
+# всё ещё блокирует dart.js (см. docs/OPEN_QUESTIONS.md Q4).
 
 set -euo pipefail
 

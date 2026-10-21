@@ -127,7 +127,7 @@ Dart не гарантирует безопасное затирание сек�
 | HKDF (RFC 5869) | `Hkdf(hmac: Hmac.sha256(), outputLength: 32).deriveKey(secretKey:, nonce:, info:)` | ✅ | — | Параметры `hmac`/`outputLength`/`nonce`/`info` принимаются; выход 32 байта. |
 | PBKDF2 | `Pbkdf2(macAlgorithm: Hmac.sha512(), iterations: 2048, bits: 512).deriveKey(secretKey:, nonce:)` | ✅ | — | Выход 512 бит (64 байта). |
 
-Chrome в данном окружении отсутствует — проверка только на VM (см. docs/OPEN_QUESTIONS.md Q4).
+Chrome — проверка пройдена (196 тестов, parity с VM, см. docs/OPEN_QUESTIONS.md Q4).
 
 ## 7. TODO(verify) (перенесено в docs/OPEN_QUESTIONS.md)
 
