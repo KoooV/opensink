@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
@@ -190,7 +189,7 @@ void main() {
     test('verifyBinding возвращает false при отсутствии подписи', () async {
       final identity = CryptoIdentity(
         peerId: PeerId(Uint8List.fromList(List<int>.filled(32, 0))),
-        userId: UserId('test'),
+        userId: const UserId('test'),
         ed25519PublicKey: SimplePublicKey(
           Uint8List.fromList(List<int>.filled(32, 0)),
           type: KeyPairType.ed25519,
@@ -277,7 +276,7 @@ void main() {
     });
 
     test('нормализует пробелы и регистр', () {
-      final withExtraSpaces = '  $_bip39Mnemonic12  ';
+      const withExtraSpaces = '  $_bip39Mnemonic12  ';
       final mixedCase = _bip39Mnemonic12.toUpperCase();
 
       // isValidMnemonic trim'ит и split'ит по \s+, поэтому лишние пробелы ок.

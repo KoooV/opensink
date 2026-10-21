@@ -17,7 +17,50 @@
 
 Браузер Chrome/Chromium присутствует (`google-chrome-stable`, headless работает через `--dump-dom`). Однако `dart test -p chrome` не загружает тестовый суит: статичный файлраннер `package:test` отдаёт `dart.js` с MIME-типом `text/plain`, браузер блокирует выполнение (strict MIME checking), суит не стартует и тест рано обрывается по таймауту.
 
-Что проверено代わり: код `platform_web` компилируется в JS через `dart2js` (`dart test -p chrome` доходит до компиляции, ошибок типов нет). Логика IndexedDB + AES-GCM KEK не покрыта рантайм-тестом в этом окружении. Требуется донастройка файлового сервера тестового раннера или запуск на CI с корректными MIME-типами.
+Что проверено вместо: код `platform_web` компилируется в JS через `dart2js` (`dart test -p chrome` доходит до компиляции, ошибок типов нет). Логика IndexedDB + AES-GCM KEK не покрыта рантайм-тестом в этом окружении. Требуется донастройка файлового сервера тестового раннера или запуск на CI с корректными MIME-типами.
 
 ## Q5 — encryptedPrivateKey гарантии
 `IdentityBundle.encryptedPrivateKey` named "encrypted", но код не гарантирует шифрование; `MemorySecureKeyStore` хранит в открытом виде. Нужно ли добавлять обязательное шифрование на уровне core_crypto, или шифрование полностью platform-специфично — открыто.
+
+## Q6 — SimpleKeyPairData с X25519 — ЗАКРЫТО
+
+`x3dh.dart` `receiver()` использует `SimpleKeyPairData(..., type: KeyPairType.x25519)` для воссоздания пары из приватных байт. Подтверждено работой тестов X3DH roundtrip и RFC 7748 §6.1. Миграция на cryptography v3.x не требуется.
+
+## Q7 — MAX_SKIP и TTL пропущенных ключей Double Ratchet
+Значение лимита пропущенных ключей (предложено 100) и TTL (предложено 24 ч) не обоснованы источником. Нужно зафиксировать после анализа угроз replay/DoS.
+
+## Q8 — Контекст подписи SPK binding
+Точный формат кодирования контекста `"opensink/x3dh/spk-binding/v1"` + SPK public key (raw байты или с префиксом) не зафиксирован.
+
+## Q9 — Формат заголовка и AAD Double Ratchet
+Версия 1 заголовка и состав AAD предложены в DESIGN §13.3, но не сверены с требованиями слоя 3 (Envelope).
+
+## Q10 — Триггер ротации signed prekey без сервера
+Интервал TTL (предложено 7 дней), grace period и механизм распространения новой SPK без сервера — открыто (слой 8 диктует триггер).
+
+## Q11 — Контракт сериализации состояния Double Ratchet
+`toBytes`/`fromBytes` версии 1 предложены в DESIGN §13.3, но делегированы слою 3. Нужно подтвердить, что core_crypto должен предоставлять этот контракт.
+
+## Q12 — core_group: GroupState, права доступа, валидация подписей событий
+`// TODO(verify): GroupState, права доступа, валидация подписей событий.` (packages/core_group/lib/core_group.dart:3)
+
+## Q13 — core_media: MediaTopology реализация, звонки и демонстрация экрана
+`// TODO(verify): MediaTopology реализация, звонки и демонстрация экрана.` (packages/core_media/lib/core_media.dart:3)
+
+## Q14 — core_peer: flutter_webrtc реализация PeerLink / Transport
+`// TODO(verify): flutter_webrtc реализация PeerLink / Transport.` (packages/core_peer/lib/core_peer.dart:3)
+
+## Q15 — core_protocol: protobuf схемы и конвертеры envelopes
+`// TODO(verify): protobuf схемы и конвертеры envelopes.` (packages/core_protocol/lib/core_protocol.dart:3)
+
+## Q16 — core_relay: Relay реализация маршрутизации через участников группы
+`// TODO(verify): Relay реализация маршрутизации через участников группы.` (packages/core_relay/lib/core_relay.dart:3)
+
+## Q17 — core_signaling: Nostr, трекеры, LAN, QR реализации SignalingChannel
+`// TODO(verify): Nostr, трекеры, LAN, QR реализации SignalingChannel.` (packages/core_signaling/lib/core_signaling.dart:3)
+
+## Q18 — core_storage: drift схема и реализация EventStore
+`// TODO(verify): drift схема и реализация EventStore.` (packages/core_storage/lib/core_storage.dart:3)
+
+## Q19 — core_sync: SyncEngine реализация поверх EventStore
+`// TODO(verify): SyncEngine реализация поверх EventStore.` (packages/core_sync/lib/core_sync.dart:3)

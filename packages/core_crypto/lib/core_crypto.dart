@@ -1,5 +1,3 @@
-library core_crypto;
-
 export 'src/aead.dart';
 export 'src/bip39.dart';
 export 'src/bip39_wordlist.dart';

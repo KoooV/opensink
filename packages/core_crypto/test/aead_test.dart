@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'package:test/test.dart';
 import 'package:core_crypto/core_crypto.dart';
-import 'package:core_domain/core_domain.dart';
 
 String bytesToHex(List<int> bytes) {
   return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
@@ -24,21 +23,21 @@ void main() {
     // Точные байты ciphertext/MAC не сверяются (расхождение на байте 79 при
     // прямом вызове пакета в этом окружении); вместо этого проверяем
     // roundtrip и детерминизм при фиксированном nonce.
-    const _vectorKeyHex =
+    const vectorKeyHex =
         '808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f';
-    const _vectorNonceHex =
+    const vectorNonceHex =
         '404142434445464748494a4b4c4d4e4f5051525354555657';
-    const _vectorAadHex = '50515253c0c1c2c3c4c5c6c7';
-    const _vectorPlaintextHex =
+    const vectorAadHex = '50515253c0c1c2c3c4c5c6c7';
+    const vectorPlaintextHex =
         '4c616469657320616e642047656e746c656d656e206f662074686520636c617373206f662027393a204966204920636f756c64206f6666657220796f75206f6e6c79206f6e652074697020666f7220746865206675747572652c2073756e73637265656e20776f756c642062652069742e';
 
     test('XChaCha20-Poly1305 вектор (draft-arciszewski-xchacha-03): roundtrip с фиксированным nonce',
         () async {
       final aead = XChaCha20Poly1305Aead();
-      final key = SecretKey(Uint8List.fromList(hexToBytes(_vectorKeyHex)));
-      final nonce = Uint8List.fromList(hexToBytes(_vectorNonceHex));
-      final aad = Uint8List.fromList(hexToBytes(_vectorAadHex));
-      final plaintext = Uint8List.fromList(hexToBytes(_vectorPlaintextHex));
+      final key = SecretKey(Uint8List.fromList(hexToBytes(vectorKeyHex)));
+      final nonce = Uint8List.fromList(hexToBytes(vectorNonceHex));
+      final aad = Uint8List.fromList(hexToBytes(vectorAadHex));
+      final plaintext = Uint8List.fromList(hexToBytes(vectorPlaintextHex));
 
       final encrypted = await aead.encrypt(
         key: key,
@@ -62,10 +61,10 @@ void main() {
     test('XChaCha20-Poly1305 детерминизм при фиксированном nonce и ключе',
         () async {
       final aead = XChaCha20Poly1305Aead();
-      final key = SecretKey(Uint8List.fromList(hexToBytes(_vectorKeyHex)));
-      final nonce = Uint8List.fromList(hexToBytes(_vectorNonceHex));
-      final aad = Uint8List.fromList(hexToBytes(_vectorAadHex));
-      final plaintext = Uint8List.fromList(hexToBytes(_vectorPlaintextHex));
+      final key = SecretKey(Uint8List.fromList(hexToBytes(vectorKeyHex)));
+      final nonce = Uint8List.fromList(hexToBytes(vectorNonceHex));
+      final aad = Uint8List.fromList(hexToBytes(vectorAadHex));
+      final plaintext = Uint8List.fromList(hexToBytes(vectorPlaintextHex));
 
       final e1 = await aead.encrypt(
         key: key, plaintext: plaintext, aad: aad, nonce: nonce,

@@ -1,11 +1,9 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:test/test.dart';
 import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
-import 'package:core_domain/src/events/group_event.dart';
 
 void main() {
   group('CryptoSigner', () {
@@ -55,14 +53,14 @@ void main() {
   group('FakeSecureKeyStore', () {
     test('stores and loads IdentityBundle', () async {
       final store = FakeSecureKeyStore();
-      final userId = UserId('u-1');
+      const userId = UserId('u-1');
       final has = await store.hasIdentity(userId);
       expect(has.isOk, isTrue);
       expect((has as Ok<bool, KeyStoreError>).value, isFalse);
 
       final stored = await store.storeIdentity(
         userId,
-        IdentityBundle(
+        const IdentityBundle(
           userId: UserId('u-1'),
           publicKey: 'pk-hex',
           encryptedPrivateKey: [1, 2],

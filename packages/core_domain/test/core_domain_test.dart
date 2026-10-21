@@ -88,7 +88,7 @@ void main() {
       );
     });
 
-    test('GroupCreated без初始ных участников — ошибка', () {
+    test('GroupCreated без начальных участников — ошибка', () {
       final event = GroupCreated(
         id: EventId('evt-1'),
         groupId: GroupId('g'),

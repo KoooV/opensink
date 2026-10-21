@@ -79,6 +79,7 @@ melos:
   scripts:
     analyze: dart analyze
     test: dart test
+    check:imports: bash tool/check_core_imports.sh
 
   # To add assets to your application, add an assets section, like this:
   # assets:

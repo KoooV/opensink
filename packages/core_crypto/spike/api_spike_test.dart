@@ -30,7 +30,6 @@ void main() {
       final algo = Ed25519();
       final seed = List<int>.filled(32, 0x21);
       final kp = await algo.newKeyPairFromSeed(seed);
-      final pub = await kp.extractPublicKey();
 
       final data = Uint8List.fromList([1, 2, 3, 4, 5]);
       final sig = await algo.sign(data, keyPair: kp);

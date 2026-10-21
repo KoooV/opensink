@@ -96,7 +96,7 @@ void main() {
       final data = Uint8List.fromList([1, 2, 3]);
 
       final signature = await signer.sign(data);
-      final extended = signature + 'ff'; // 65 bytes
+      final extended = '${signature}ff'; // 65 bytes
 
       final valid = await signer.verify(data, extended, identity.peerId);
       expect(valid, isFalse);
