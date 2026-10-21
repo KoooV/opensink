@@ -1,0 +1,29 @@
+# Таймауты тестов для core_crypto (фаза F1).
+# Измерения на VM (Dart 3.13.5):
+#   PBKDF2 (2048 iters, SHA-512, 512 bit): ~181 ms (холодный старт)
+#   AEAD encrypt 1 МБ: < 1 ms
+#   1000 x AEAD encrypt малого текста: < 1 ms
+#   Полный прогон 120 тестов: ~4 сек
+#
+# Таймауты заданы с запасом x10–x30 от измеренных значений,
+# чтобы выдерживать замедление в CI и на Chrome (Web Crypto API,
+# dart2js-компиляция, холодный запуск браузера).
+
+timeout: "60000ms"
+
+# Тесты с PBKDF2 (BIP-39 seed, 2048 итерации) — могут быть медленнее в CI.
+test "packages/core_crypto/test/identity_test.dart":
+  timeout: "120000ms"
+
+test "packages/core_crypto/test/aead_test.dart":
+  # 1 МБ шифрование + 1000 итераций.
+  timeout: "60000ms"
+
+test "packages/core_crypto/test/e2ee/double_ratchet_test.dart":
+  # 150 сообщений в тесте skip > MAX_SKIP.
+  timeout: "120000ms"
+
+# Chrome-раннер требует дополнительного времени на dart2js-компиляцию
+# и запуск браузера.
+platform chrome:
+  timeout: "120000ms"

@@ -44,6 +44,57 @@ jobs:
           done
           echo "OK: no core_* package imports dart:io/dart:html"
 
+  core_crypto-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Cache pub
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.HOME }}/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Pub get core_crypto
+        working-directory: packages/core_crypto
+        run: dart pub get
+
+      - name: Test core_crypto on VM
+        working-directory: packages/core_crypto
+        run: dart test -p vm --reporter json > /tmp/core_crypto_vm_report.json 2>&1 || true
+
+      - name: Test core_crypto on Chrome
+        working-directory: packages/core_crypto
+        run: |
+          # chrome доступен на ubuntu-latest runner; путь задаём явно, чтобы dart test
+          # нашёл браузер без reliance на PATH. Если в целевом окружении статический
+          # файраннер package:test отдаёт dart.js с text/plain (strict MIME blocking),
+          # заменить этот шаг на запуск через tool/test_chrome.sh (собственный HTTP-сервер
+          # с корректными MIME-типами: .js → application/javascript).
+          export CHROME_EXECUTABLE=/usr/bin/google-chrome-stable
+          dart test -p chrome --reporter json > /tmp/core_crypto_chrome_report.json 2>&1
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: core_crypto-test-reports
+          path: /tmp/core_crypto_*_report.json
+
+      - name: check_core_imports.sh
+        run: bash tool/check_core_imports.sh
+
+      - name: check_text_hygiene.sh
+        run: bash tool/check_text_hygiene.sh
+
   builds:
     needs: analyze-and-test
     runs-on: ubuntu-latest
