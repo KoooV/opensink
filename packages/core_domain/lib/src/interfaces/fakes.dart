@@ -1,15 +1,11 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:collection/collection.dart';
-import 'package:meta/meta.dart';
-
 import '../result.dart';
 
 /// In-memory fake реализации всех интерфейсов core_domain для тестов.
 
 import '../models/identifiers.dart';
-import '../models/identity.dart';
 import '../interfaces/signaling_channel.dart';
 import '../interfaces/signer.dart';
 import '../interfaces/peer_link.dart';

@@ -1,5 +1,4 @@
 import 'dart:typed_data';
-import 'package:collection/collection.dart';
 import 'package:meta/meta.dart';
 
 /// Идентификатор узла в сети OpenSink — открытый ключ Ed25519.
@@ -17,13 +16,21 @@ class PeerId {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is PeerId && runtimeType == other.runtimeType &&
-          const ListEquality<Uint8List>().equals([publicKey], [other.publicKey]);
+          _bytesEquals(publicKey, other.publicKey);
 
   @override
-    int get hashCode => const ListEquality<Uint8List>().hash([publicKey]);
+  int get hashCode => Object.hashAll(publicKey);
 
   @override
   String toString() => 'PeerId(${publicKey.toList().take(8).join('')}...)';
+}
+
+bool _bytesEquals(Uint8List a, Uint8List b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 /// Идентификатор группы.

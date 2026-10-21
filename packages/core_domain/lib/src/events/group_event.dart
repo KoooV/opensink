@@ -9,17 +9,19 @@ sealed class GroupEvent {
     required this.groupId,
     required this.authorId,
     required this.timestamp,
-    required this.signature,
   });
 
   final EventId id;
   final GroupId groupId;
   final UserId authorId;
   final int timestamp; // Unix ms
-  final String signature; // hex Ed25519 подписи над каноническим JSON события
 
   /// Каноническое представление события для подписи / верификации.
   /// Должно быть детерминированным (одинаковое на всех узлах).
+  ///
+  /// ⚠ Подпись события носится только на уровне [Envelope] (бинарный
+  /// конверт). Доменное событие не подписывается отдельно — доверие
+  /// estabeleceтся подписью конверта, а не полем внутри события.
   Map<String, Object?> toCanonicalMap();
 
   /// Проверка базовых инвариантов события (не зависит от подписи).
@@ -32,7 +34,7 @@ class GroupCreated extends GroupEvent {
     required super.groupId,
     required super.authorId,
     required super.timestamp,
-    required super.signature,
+
     required this.name,
     required this.ownerId,
     required this.initialMembers,
@@ -72,7 +74,7 @@ class MemberAdded extends GroupEvent {
     required super.groupId,
     required super.authorId,
     required super.timestamp,
-    required super.signature,
+
     required this.userId,
   });
 
@@ -98,7 +100,7 @@ class MemberRemoved extends GroupEvent {
     required super.groupId,
     required super.authorId,
     required super.timestamp,
-    required super.signature,
+
     required this.userId,
   });
 
@@ -124,7 +126,7 @@ class ChannelCreated extends GroupEvent {
     required super.groupId,
     required super.authorId,
     required super.timestamp,
-    required super.signature,
+
     required this.channelId,
     required this.name,
     required this.type,
@@ -161,7 +163,7 @@ class ChannelDeleted extends GroupEvent {
     required super.groupId,
     required super.authorId,
     required super.timestamp,
-    required super.signature,
+
     required this.channelId,
   });
 
@@ -187,7 +189,7 @@ class GroupRenamed extends GroupEvent {
     required super.groupId,
     required super.authorId,
     required super.timestamp,
-    required super.signature,
+
     required this.name,
   });
 
@@ -218,7 +220,7 @@ class OwnerTransferred extends GroupEvent {
     required super.groupId,
     required super.authorId,
     required super.timestamp,
-    required super.signature,
+
     required this.newOwnerId,
   });
 
@@ -243,10 +245,12 @@ sealed class GroupEventError {
   const GroupEventError();
 }
 
+/// Имя группы/канала пустое.
 class EmptyName extends GroupEventError {
   const EmptyName();
 }
 
+/// При создании группы нет начальных участников.
 class NoInitialMembers extends GroupEventError {
   const NoInitialMembers();
 }

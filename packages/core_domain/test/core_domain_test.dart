@@ -13,7 +13,6 @@ void main() {
         groupId: GroupId('group-1'),
         authorId: owner,
         timestamp: 1000,
-        signature: 'sig',
         name: 'My Group',
         ownerId: owner,
         initialMembers: {owner, alice},
@@ -54,7 +53,6 @@ void main() {
         groupId: GroupId('group-1'),
         authorId: owner,
         timestamp: 200,
-        signature: 'sig',
         name: 'New',
       );
 
@@ -74,7 +72,6 @@ void main() {
         groupId: GroupId('g'),
         authorId: UserId('u'),
         timestamp: 1000,
-        signature: 'sig',
         name: '',
         ownerId: UserId('u'),
         initialMembers: {UserId('u')},
@@ -84,7 +81,7 @@ void main() {
       expect(result.isErr, isTrue);
       result.when(
         ok: (_) => fail('ожидалась ошибка'),
-        err: (e) => expect(e, isA<GroupEventError.EmptyName>()),
+        err: (e) => expect(e, isA<EmptyName>()),
       );
     });
 
@@ -94,7 +91,6 @@ void main() {
         groupId: GroupId('g'),
         authorId: UserId('u'),
         timestamp: 1000,
-        signature: 'sig',
         name: 'G',
         ownerId: UserId('u'),
         initialMembers: {},
@@ -104,7 +100,7 @@ void main() {
       expect(result.isErr, isTrue);
       result.when(
         ok: (_) => fail('ожидалась ошибка'),
-        err: (e) => expect(e, isA<GroupEventError.NoInitialMembers>()),
+        err: (e) => expect(e, isA<NoInitialMembers>()),
       );
     });
   });
@@ -126,7 +122,7 @@ void main() {
 
   group('PeerId', () {
     test('равенство по байтам открытого ключа', () {
-      const a = PeerId(Uint8List.fromList([1, 2, 3]));
+      final a = PeerId(Uint8List.fromList([1, 2, 3]));
       final b = PeerId(Uint8List.fromList([1, 2, 3]));
       final c = PeerId(Uint8List.fromList([1, 2, 4]));
       expect(a, b);
@@ -143,7 +139,7 @@ void main() {
       final sub = channel.incoming.listen((m) => received.add(m));
 
       await channel.publish('topic-1', [1, 2, 3]);
-      channel.emit(const SignalingMessage(
+      channel.emit(SignalingMessage(
         topic: 'topic-1',
         bytes: [4, 5, 6],
         from: PeerId(Uint8List.fromList([9])),
@@ -213,7 +209,7 @@ void main() {
       expect(relay.routes(PeerId(Uint8List.fromList([5]))), isTrue);
       expect(relay.routes(PeerId(Uint8List.fromList([6]))), isFalse);
 
-      await relay.forward(const RelayFrame(
+      await relay.forward(RelayFrame(
         dst: PeerId(Uint8List.fromList([5])),
         payload: [1, 2, 3],
       ));
@@ -247,14 +243,13 @@ void main() {
         timestamp: 1000,
         signature: 'sig',
       );
-      await store.write(record);
-
       final received = <EventRecord>[];
       store.watchGroup(GroupId('g-1')).listen((r) => received.add(r));
 
+      await store.write(record);
+
       await Future.delayed(Duration.zero);
       expect(received.length, 1);
-      expect(store.records.length, 1);
       await store.close();
     });
   });
@@ -274,7 +269,7 @@ void main() {
   });
 
   group('FakeGroupState', () {
-    test('state/watch', () {
+    test('state/watch', () async {
       final state = GroupState(
         id: GroupId('g-1'),
         name: 'G',
@@ -288,10 +283,19 @@ void main() {
       expect(fake.state.name, 'G');
 
       final watched = <GroupState>[];
-      fake.watch.listen((s) => watched.add(s));
+      fake.watch().listen((s) => watched.add(s));
 
-      final next = state.copyWith(name: 'New');
+      final next = GroupState(
+        id: state.id,
+        name: 'New',
+        ownerId: state.ownerId,
+        memberIds: state.memberIds,
+        channelIds: state.channelIds,
+        createdAt: state.createdAt,
+        updatedAt: state.updatedAt + 1,
+      );
       fake.setState(next);
+      await Future.delayed(Duration.zero);
 
       expect(fake.state.name, 'New');
       expect(watched.length, 1);

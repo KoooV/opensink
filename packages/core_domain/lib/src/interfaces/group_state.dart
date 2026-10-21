@@ -21,6 +21,26 @@ class GroupState {
   final Set<ChannelId> channelIds;
   final int createdAt; // Unix ms
   final int updatedAt; // Unix ms
+
+  GroupState copyWith({
+    GroupId? id,
+    String? name,
+    UserId? ownerId,
+    Set<UserId>? memberIds,
+    Set<ChannelId>? channelIds,
+    int? createdAt,
+    int? updatedAt,
+  }) {
+    return GroupState(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      ownerId: ownerId ?? this.ownerId,
+      memberIds: memberIds ?? this.memberIds,
+      channelIds: channelIds ?? this.channelIds,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
 }
 
 /// Абстракция над состоянием группы (чтение и подписка на изменения).
