@@ -8,6 +8,9 @@ class MessageType {
 
   final int value;
 
+  /// Тип известен текущей версией протокола.
+  bool get isKnown => value >= 1 && value <= 10;
+
   static const unknown = MessageType._(0);
   static const chatEvent = MessageType._(1);
   static const groupEvent = MessageType._(2);

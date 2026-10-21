@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:test/test.dart';
+import 'package:core_domain/core_domain.dart' hide GroupEvent, RelayFrame;
 import 'package:core_protocol/core_protocol.dart';
 
 final _sender = Uint8List.fromList([1, 2, 3]);
@@ -14,6 +15,7 @@ Envelope _makeEnvelope({
   int hlc = 1000,
   Uint8List? payload,
   Uint8List? signature,
+  Map<int, Uint8List>? unknownFields,
 }) {
   return Envelope(
     version: version,
@@ -22,10 +24,11 @@ Envelope _makeEnvelope({
     hlc: hlc,
     payload: payload ?? Uint8List(0),
     signature: signature ?? Uint8List(0),
-  );
-}
+      unknownFields: unknownFields ?? const {},
+    );
+  }
 
-void main() {
+  void main() {
   group('Envelope roundtrip (all message types)', () {
     test('ChatEvent', () {
       final message = ChatEvent(
@@ -217,4 +220,80 @@ void main() {
       expect(_codec.decode(Uint8List(0)).isErr, isTrue);
     });
   });
+
+  group('signature zone and unknown fields', () {
+    test('signatureData does not cover unknown fields', () {
+      final base = _makeEnvelope(
+        sender: _sender,
+        payload: Uint8List.fromList([10, 11]),
+      );
+      final withUnknown = _makeEnvelope(
+        sender: _sender,
+        payload: Uint8List.fromList([10, 11]),
+        unknownFields: {100: Uint8List.fromList([1, 2, 3])},
+      );
+      // Подписываемые данные идентичны независимо от неизвестных полей.
+      expect(base.signatureData(), withUnknown.signatureData());
+    });
+
+    test('unknown field can be injected after signing and signature still verifies', () async {
+      final sender = PeerId(Uint8List.fromList([1, 2, 3]));
+      final envelope = Envelope(
+        version: 1,
+        type: MessageType.chatEvent,
+        sender: Uint8List.fromList([1, 2, 3]),
+        hlc: 1,
+        payload: Uint8List.fromList([9, 9]),
+        signature: Uint8List(0),
+      );
+      final signer = FakeSignerProtocol(sender);
+      final signed = (await ProtocolCodec().sign(envelope, signer, senderPeerId: sender)).unwrap();
+      // Инъекция неизвестного поля после подписи.
+      final injected = signed.copyWith(
+        unknownFields: {200: Uint8List.fromList([0xDE, 0xAD])},
+      );
+      final verified = await ProtocolCodec().verify(injected, signer, sender);
+      expect(verified.isOk, isTrue);
+      expect(verified.unwrap(), isTrue);
+    });
+
+    test('isProcessable true for current version, false for future', () {
+      expect(Envelope(version: 1, type: MessageType.chatEvent, sender: _sender, hlc: 1, payload: Uint8List(0), signature: Uint8List(0)).isProcessable, isTrue);
+      expect(Envelope(version: 999, type: MessageType.chatEvent, sender: _sender, hlc: 1, payload: Uint8List(0), signature: Uint8List(0)).isProcessable, isFalse);
+    });
+  });
+}
+
+// Вспомогательный фейковый签署ватель для тестов зоны подписи.
+class FakeSignerProtocol implements Signer {
+  FakeSignerProtocol(this.peerId);
+
+  final PeerId peerId;
+
+  @override
+  Future<String> sign(Uint8List data) async => _hexProtocol(data);
+
+  @override
+  Future<bool> verify(Uint8List data, String signatureHex, PeerId p) async {
+    return signatureHex == _hexProtocol(data) && _bytesProtocol(p.publicKey, peerId.publicKey);
+  }
+}
+
+String _hexProtocol(Uint8List bytes) {
+  const chars = '0123456789abcdef';
+  final buf = StringBuffer();
+  for (final b in bytes) {
+    buf.write(chars[(b >> 4) & 0xF]);
+    buf.write(chars[b & 0xF]);
+  }
+  return buf.toString();
+}
+
+bool _bytesProtocol(Uint8List? a, Uint8List? b) {
+  if (a == null || b == null) return a == b;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }

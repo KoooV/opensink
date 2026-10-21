@@ -56,6 +56,17 @@ class UnknownVersion extends ProtocolError {
   String _toString() => 'UnknownVersion($version)';
 }
 
+/// Версия конверта выше maxSupportedVersion: декодируема структура,
+/// но семантическая обработка заблокирована (forward-only).
+class UnsupportedFutureVersion extends ProtocolError {
+  const UnsupportedFutureVersion(this.version);
+
+  final int version;
+
+  @override
+  String _toString() => 'UnsupportedFutureVersion($version)';
+}
+
 /// Тип сообщения не recognised (для информации; не фатально — пересылается).
 class UnknownMessageType extends ProtocolError {
   const UnknownMessageType(this.type);

@@ -301,4 +301,74 @@ void main() {
       expect(result.unwrapErr(), isA<UnknownMessageType>());
     });
   });
+
+  group('version policy (min / max supported)', () {
+    test('decode accepts future version structurally (forward compatibility)', () {
+      final writer = ProtoWriter();
+      writer.writeVarintField(1, 999); // future version
+      writer.writeVarintField(2, 1); // chatEvent
+      writer.writeBytesField(3, Uint8List.fromList([1]));
+      writer.writeVarintField(4, 1);
+      writer.writeBytesField(5, Uint8List.fromList([2]));
+      final result = codec.decode(writer.finish());
+      expect(result.isOk, isTrue);
+      expect(result.unwrap().version, 999);
+      expect(result.unwrap().isProcessable, isFalse);
+    });
+
+    test('decode rejects version below minSupportedVersion', () {
+      final writer = ProtoWriter();
+      writer.writeVarintField(1, 0);
+      writer.writeVarintField(2, 1);
+      writer.writeBytesField(3, Uint8List.fromList([1]));
+      writer.writeVarintField(4, 1);
+      writer.writeBytesField(5, Uint8List.fromList([2]));
+      final result = codec.decode(writer.finish());
+      expect(result.isErr, isTrue);
+      expect(result.unwrapErr(), isA<UnknownVersion>());
+    });
+
+    test('encode accepts future version (relay re-encode allowed)', () {
+      final envelope = Envelope(
+        version: 999,
+        type: MessageType.chatEvent,
+        sender: Uint8List.fromList([1]),
+        hlc: 1,
+        payload: Uint8List.fromList([2]),
+        signature: Uint8List(0),
+      );
+      final encoded = codec.encode(envelope);
+      expect(encoded.isOk, isTrue);
+    });
+
+    test('decodePayload fails closed on future version', () {
+      final envelope = Envelope(
+        version: 999,
+        type: MessageType.chatEvent,
+        sender: Uint8List.fromList([1]),
+        hlc: 1,
+        payload: Uint8List.fromList([1]),
+        signature: Uint8List(0),
+      );
+      final result = codec.decodePayload(envelope);
+      expect(result.isErr, isTrue);
+      expect(result.unwrapErr(), isA<UnsupportedFutureVersion>());
+    });
+
+    test('decodePayload OK on current version', () {
+      final payload = ChatEvent(
+        id: 'x', groupId: 'g', channelId: 'c', authorId: 'a', timestamp: 1,
+      ).toBytes();
+      final envelope = Envelope(
+        version: 1,
+        type: MessageType.chatEvent,
+        sender: Uint8List.fromList([1]),
+        hlc: 1,
+        payload: payload,
+        signature: Uint8List(0),
+      );
+      final result = codec.decodePayload(envelope);
+      expect(result.isOk, isTrue);
+    });
+  });
 }

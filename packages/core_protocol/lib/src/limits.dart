@@ -19,6 +19,11 @@ class ProtocolLimits {
   /// семантическую обработку ([Envelope.isProcessable] == false).
   static const int maxSupportedVersion = currentVersion;
 
+  /// Правило релиза: при каждом выпуске новой версии протокола
+  /// [maxSupportedVersion] поднимается до [currentVersion].
+  /// Устаревшие узлы (vN) будут traktовать конверты v(N+1) как
+  /// forward-only до ручного обновления порога.
+
   /// Максимальный размер одного энвелопа (фрейма) в байтах.
   static const int maxFrameSize = 1024 * 1024; // 1 MiB
 

@@ -975,6 +975,9 @@ class CallControlType {
 
   static const unknown = CallControlType._(0);
   static const offer = CallControlType._(1);
+
+  /// Тип известен текущей версией протокола.
+  bool get isKnown => value >= 1 && value <= 4;
   static const answer = CallControlType._(2);
   static const iceCandidate = CallControlType._(3);
   static const hangup = CallControlType._(4);

@@ -287,7 +287,15 @@ class ProtocolCodec {
   /// Извлекает внутреннее сообщение конверта по его типу.
   ///
   /// Никогда не бросает исключение — битый payload возвращается как [Err].
+  ///
+  /// Конверты с версией выше [ProtocolLimits.maxSupportedVersion]
+  /// отклоняются с [UnsupportedFutureVersion]: такие конверты можно
+  /// пересылать релеем ([Envelope.fromBytes] / [Envelope.toBytes]),
+  /// но не интерпретировать локально (fail-closed).
   Result<Object, ProtocolError> decodePayload(Envelope envelope) {
+    if (!envelope.isProcessable) {
+      return Err(UnsupportedFutureVersion(envelope.version));
+    }
     if (envelope.payload.length > ProtocolLimits.maxPayloadSize) {
       return Err(SizeLimitExceeded(
           envelope.payload.length, ProtocolLimits.maxPayloadSize));
