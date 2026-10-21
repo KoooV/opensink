@@ -220,28 +220,42 @@ PBKDF2-HMAC-SHA-512 (2048 итераций, 512 бит) на VM: ~33.6 ms на �
 При несовместимой версии схемы → `StoreCorrupted`. При повреждённых данных → `StoreCorrupted`.
 
 
-### 12. Web-реализация (platform_web, фаза 3)
+### 12. Web-реализация (platform_web, фаза 3/4B)
 
-Переписана на `package:web` (v0.5.1) + `dart:js_interop`; `dart:html` удалён.
+Переписана на `package:web` (v0.5.1) + `dart:js_interop`; `dart:html` не используется.
 
-Дизайн:
+#### 12.1 Дизайн
+
 - При инициализации открывается IndexedDB (база `opensink_keystore`, хранилища `keys` и `identities`).
-- KEK — AES-GCM-256 `CryptoKey` с `extractable: false`,usage `wrapKey | unwrapKey`, генерируется один раз и хранится в IndexedDB как объект `CryptoKey` (структурное клонирование; сырой ключ не появляется в дампе в aberto).
-- При `storeIdentity`: `IdentityBundle` сериализуется в JSON, шифруется AES-GCM (случайный IV) с помощью KEK, пара `{iv, ciphertext}` сохраняется в `identities`.
-- При `loadIdentity`: читается `{iv, ciphertext}`, расшифровывается KEK, десериализуется.
+- **KEK** — AES-GCM-256 `CryptoKey` с `extractable: false`, usages `encrypt`/`decrypt`, создаётся один раз через `SubtleCrypto.generateKey` и хранится в IndexedDB как объект `CryptoKey` (структурное клонирование; сырой ключ KEK не попадает в дамп в aberto).
+- **Гонка вкладок (критично):** `getOrCreateKek` выполняется в **одной** `readwrite` транзакции: сначала `get(_kekKey)`, при отсутствии — `add(kek, _kekKey)`. Если `add` отвергается с `ConstraintError` (другая вкладка создала KEK первыми) — повторный `get` в той же транзакции и использование чужого ключа. Без этого две вкладки создадут разные KEK и первая потеряет доступ к своим данным.
+- **AAD:** при шифровании/расшифровке `IdentityBundle` дополнительные аутентифицируемые данные = имя ключа (`identity_<userId>`), закодированное как UTF-8. Это предотвращает подмену зашифрованного blob под другим именем ключа (атаку подмены контейнера).
+- При `storeIdentity`: `IdentityBundle` → JSON → случайный 96-битный IV → AES-GCM-encrypt с KEK + AAD → `{version, iv, ciphertext}` в `identities`.
+- При `loadIdentity`: читается `{version, iv, ciphertext}` → AES-GCM-decrypt с KEK + AAD → JSON → `IdentityBundle`. При неверном MAC/формате → `StoreCorrupted`.
 - При `deleteIdentity`: запись удаляется из `identities`.
-- При `hasIdentity`: проверка наличия записи.
+- При `hasIdentity`: проверка наличия записи в `identities`.
+- **Метод `requestPersistentStorage()`:** обёртка над `navigator.storage.persist()`; возвращает `Result<bool, KeyStoreError>`. Слой 14 вызывает его при необходимости гарантировать персистентность.
 
-Честная оценка ограничений (см. таблицу угроз §2):
-- Защищает от чтения дампа IndexedDB (KEK не извлекается).
-- Не защищает от XSS: злоумышленник с выполнением JS может использовать KEK через Web Crypto API.
-- Неизвлекаемость самого identity-ключа (Ed25519/X25519 приватных ключей) на web недостижима, так как подпись выполняется в Dart (package:cryptography) над расшифрованным в памяти ключом.
-- Персистентность не гарантирована без `storage.persist()`.
+#### 12.2 Модель угроз (Web)
 
-TODO(verify):
-- Точные сигнатуры `SubtleCrypto.generateKey`/`encrypt`/`decrypt` и конвертация `JSPromise`→`Future`, `JSArrayBuffer`→`Uint8List` в `package:web` 0.5.1 (по факту сверены с исходниками пакета).
-- Работа `package:cryptography` Pbkdf2 на вебе (для опции Б).
-- Работа IndexedDB + `storage.persist()` в тестовом Chrome.
+| Угроза | Защита | Остаточный риск |
+|--------|--------|-----------------|
+| Чтение дампа IndexedDB (файлы браузера) | KEK — `CryptoKey` с `extractable: false`, сырой ключ не экспортируется; данные зашифрованы AES-GCM | Отсутствует (при условии, что Web Crypto API не скомпрометирован) |
+| Подмена blob под другим именем ключа | AAD = имя ключа; при расшифровке с чужым AAD → `InvalidAccessError` → `StoreCorrupted` | Отсутствует |
+| Порча IV / ciphertext | AEAD MAC проверяется при расшифровке → `StoreCorrupted` | Отсутствует |
+| XSS (выполнение чужого JS в контексте страницы) | — | **Не защищено**: JS может вызвать `subtle.decrypt` тем же KEK и получить seed. Защита — только CSP, санитизация, изоляция. |
+| Приватный режим / отключённое IndexedDB | `StoreUnavailable` с понятным текстом | Данные не сохраняются между сессиями |
+| Квота IndexedDB превышена | `QuotaExceededError` → `StoreUnavailable` | Запись отклоняется |
+| Нет безопасного контекста (не HTTPS/localhost) | `crypto.subtle` undefined → `StoreUnavailable` | Функциональность хранилища недоступна |
+| Извлечение seed из памяти Dart после расшифровки | — | **Не защищено**: Dart не гарантирует затирание `Uint8List` (GC может копировать); seed живёт в памяти до GC |
+
+#### 12.3 TODO(verify)
+
+- Точные сигнатуры `SubtleCrypto.generateKey`/`encrypt`/`decrypt` и конвертация `JSPromise`→`Future`, `JSArrayBuffer`→`Uint8List` в `package:web` 0.5.1 (сверены с исходниками пакета).
+- Поддержка `AesGcmParams.additionalData` в целевых браузерах (Chrome, Firefox, Safari, WebView Android).
+- Работа IndexedDB + `storage.persist()` в тестовом Chrome (рантайм-тест не стартует из-за инфраструктуры MIME-типа `dart.js`, см. docs/OPEN_QUESTIONS.md Q4).
+- Сборка `dart2js` и `dart2wasm` — не проверена в этом окружении.
+- Работа `package:cryptography` Pbkdf2 на вебе (для опции Б — KEK из passphrase).
 
 ---
 

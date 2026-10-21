@@ -456,3 +456,49 @@
 
 - `dart analyze packages/core_crypto/lib packages/core_crypto/test`: **0 ошибок**, предупреждения только в novoтестовом коде (не блокируют), 15 info (pre-existing).
 - `melos run check:imports`: OK.
+
+---
+
+## Запись 11 — Фаза F4B: Web SecureKeyStore на package:web + dart:js_interop
+
+### Что сделано
+
+1. **DESIGN.md §12** — полностью переработан:
+   - KEK: AES-GCM-256 `CryptoKey` с `extractable: false`, usages `encrypt`/`decrypt`, создаётся через `SubtleCrypto.generateKey`, хранится в IndexedDB как `CryptoKey`.
+   - **Гонка вкладок:** `getOrCreateKek` выполняется в одной `readwrite` транзакции (`add`, при `ConstraintError` — перечитать), две вкладки не создают разные KEK.
+   - **AAD:** имя ключа (`identity_<userId>`) в качестве zusätzlichen аутентифицируемых данных при шифровании/расшифровке — защита от подмены blob под другим именем.
+   - **Модель угроз Web:** таблица угроз с оценкой защиты (дамп IndexedDB — защищён, XSS — не защищён, приватный режим/квота/без HTTPS — `StoreUnavailable`, seed в памяти — не затирается).
+   - `TODO(verify)`: целевые браузеры, `dart2js`/`dart2wasm`, `storage.persist()`, `package:cryptography` Pbkdf2 на вебе.
+
+2. **packages/platform_web/lib/src/secure_key_store_web.dart** — переписана:
+   - `package:web` (v0.5.1) + `dart:js_interop`, **нет `dart:html`**.
+   - `getOrCreateKek` в одной `readwrite` транзакции с защитой от гонки вкладок.
+   - AAD = имя ключа при `AesGcmParams.additionalData`.
+   - Типизированные ошибки: `StoreUnavailable` (нет `crypto.subtle`, IndexedDB недоступна), `StoreCorrupted` (неверный MAC, неверный JSON/base64, версия схемы), `StoreError` (другие).
+   - Метод `requestPersistentStorage()` (обёртка над `navigator.storage.persist()`).
+   - Обёртка IndexedDB на `Completer` над `IDBRequest` колбэках.
+
+3. **packages/platform_web/test/secure_key_store_web_test.dart** — тесты:
+   - `runSecureKeyStoreContract` (общий контракт).
+   - Конкурентный `getOrCreateKek`: два экземпляра с одной БД → один KEK, перекрестное чтение работает.
+   - Подмена blob под другим именем → `StoreCorrupted`.
+   - Порча IV → `StoreCorrupted`.
+   - Переоткрытие хранилища (новый экземпляр с тем же `dbName`) читает прежние данные.
+
+4. **docs/PHASE_LOG.md** — эта запись.
+
+### Что изменено
+- Новые файлы: нет.
+- Изменённые: `packages/core_crypto/DESIGN.md` (§12), `packages/platform_web/lib/src/secure_key_store_web.dart`, `packages/platform_web/test/secure_key_store_web_test.dart`, `docs/PHASE_LOG.md` (эта запись).
+
+### Что осталось
+- Q4 (Chrome-тестирование): рантайм не стартует из-за MIME-типа `dart.js` (`text/plain` vs `application/javascript`) — инфраструктурная проблема, не код. Код компилируется через `dart2js` без ошибок.
+- Q2 (DI platform-реализаций), Q7, Q8, Q9, Q10, Q11 — открыты.
+- Сборка `dart2js`/`dart2wasm` — `TODO(verify)`, не проверена в этом окружении.
+
+### Результаты тестирования
+- `dart analyze packages/platform_web/lib packages/platform_web/test`: **0 ошибок, 0 предупреждений** (info только про js_interop — пред-existing).
+- `grep dart:html|package:web packages/core_crypto/lib`: **не найдено**.
+- `grep dart:html packages/platform_web/lib`: **не найдено**.
+- `dart test packages/platform_web/test/ -p chrome`: компиляция через `dart2js` успешна, рантайм не стартует (Q4, инфраструктура).
+- `dart test packages/core_crypto/test/ -p vm`: **176 пройдено, 0 провалено** (без изменений, регрессии нет).
