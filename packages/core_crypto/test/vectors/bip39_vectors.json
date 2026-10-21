@@ -1,0 +1,40 @@
+{
+  "description": "Тестовые векторы BIP-39 (英語, passphrase \"TREZOR\").\nИсточник: сгенерировано реализацией этого пакета (Bip39.entropyToMnemonic + Bip39.mnemonicToSeed с PBKDF2-HMAC-SHA512, 2048 итераций, соль \"mnemonic\" + passphrase).\nМнемоника для 128-битного нулевого энтропии совпадает с официальным BIP-39 вектором (abandon...about).\nОстальные векторы требуют независимой сверки с официальным источником (см. TODO(verify) в bip39_integrity_test.dart).\nПоля: entropyBits, entropyHex, mnemonic, passphrase, seedHex (512 бит).",
+  "vectors": [
+    {
+      "entropyBits": 128,
+      "entropyHex": "00000000000000000000000000000000",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "TREZOR",
+      "seedHex": "c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04"
+    },
+    {
+      "entropyBits": 160,
+      "entropyHex": "0000000000000000000000000000000000000000",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon address",
+      "passphrase": "TREZOR",
+      "seedHex": "fa08713f46bf5cb48728ceb70e3aae1bc53c5cb7b4e29c5610261d1cbb7be3bed4d805256fec515754d2be35974fc5da678168e9d9bb0cb70948026923b0def3"
+    },
+    {
+      "entropyBits": 192,
+      "entropyHex": "000000000000000000000000000000000000000000000000",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon agent",
+      "passphrase": "TREZOR",
+      "seedHex": "035895f2f481b1b0f01fcf8c289c794660b289981a78f8106447707fdd9666ca06da5a9a565181599b79f53b844d8a71dd9f439c52a3d7b3e8a79c906ac845fa"
+    },
+    {
+      "entropyBits": 224,
+      "entropyHex": "00000000000000000000000000000000000000000000000000000000",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon admit",
+      "passphrase": "TREZOR",
+      "seedHex": "e7dadc189d2e8d07ac278d9ec98a1d2d327e4a6b7df494c00cbf2cbf2d3543dac7000fc72d4ada8d9997dc8db388ff22c6d79f604a7455f2df5534a28eee04c6"
+    },
+    {
+      "entropyBits": 256,
+      "entropyHex": "0000000000000000000000000000000000000000000000000000000000000000",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+      "passphrase": "TREZOR",
+      "seedHex": "bda85446c68413707090a52022edd26a1c9462295029f2e60cd7c4f2bbd3097170af7a4d73245cafa9c3cca8d561a7c3de6f5d4a10be8ed2a5e608d68f92fcc8"
+    }
+  ]
+}

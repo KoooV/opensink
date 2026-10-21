@@ -24,6 +24,9 @@
 
 set -euo pipefail
 
+DART="${FLUTTER_ROOT:+$FLUTTER_ROOT/bin/dart}"
+DART="${DART:-$(command -v dart || echo dart)}"
+
 if [[ $# -lt 1 ]]; then
   echo "Usage: $0 <package_dir> [port]" >&2
   exit 64
@@ -47,37 +50,27 @@ if [[ -z "$TEST_FILES" ]]; then
   exit 0
 fi
 
-echo "[test_chrome] compile tests to JS (dart2js) ..." >&2
+echo "[test_chrome] compile tests to JS (dart compile js) ..." >&2
 for f in $TEST_FILES; do
   out="$TMPDIR/$(basename "${f%.dart}").js"
-  dart2js -O2 -o "$out" "$f" >/dev/null 2>&1 || {
-    echo "[test_chrome] dart2js failed for $f" >&2
+  "$DART" compile js -O2 -o "$out" "$f" >/dev/null 2>&1 || {
+    echo "[test_chrome] dart compile js failed for $f" >&2
     exit 1
   }
 done
 
-# dart.js — runtime библиотека dart2js; кладём рядом с тестами.
-DART_JS="$(dart --help >/dev/null 2>&1; dart2js --help >/dev/null 2>&1 && echo ok)"
-DART_SDK_DIR="$(dirname "$(dirname "$(which dart)")")"
-DART_JS_SRC="$DART_SDK_DIR/lib/_internal/js_runtime/lib/dart.js"
-if [[ ! -f "$DART_JS_SRC" ]]; then
-  # fallback: поиск в кэше pub / SDK
-  DART_JS_SRC="$(find "$DART_SDK_DIR" -name 'dart.js' 2>/dev/null | head -1 || true)"
-fi
-if [[ -z "${DART_JS_SRC:-}" || ! -f "$DART_JS_SRC" ]]; then
-  echo "[test_chrome] could not locate dart.js in Dart SDK" >&2
-  exit 1
-fi
-cp "$DART_JS_SRC" "$TMPDIR/dart.js"
+# dart.js не требуется в Dart 3.x: скомпилированный через
+# `dart compile js` код самодостаточен (встроен runtime и хуки dartPrint/
+# dartMainRunner). Отдельный файл dart.js в Flutter SDK отсутствует.
+DART_JS_SRC=""
 
-# Минимальный HTML-раннер: загружает dart.js, затем скомпилированный тест,
+# Минимальный HTML-раннер: загружает скомпилированные тесты,
 # результат записывает в window.__testResults (читается через CDP).
 cat > "$TMPDIR/runner.html" <<EOF
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>OpenSink Chrome Test Runner</title></head>
 <body>
-<script src="dart.js"></script>
 <script>
 (function(){
   var results = {passed:0, failed:0, errors:[]};

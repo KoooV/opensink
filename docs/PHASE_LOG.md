@@ -329,3 +329,58 @@
 - `dart test packages/core_crypto/test/ -p vm`: **148 пройдено, 0 провалено** (was 120 after fase F1).
 - `dart analyze packages/core_crypto/lib packages/core_crypto/test`: **0 ошибок, 0 предупреждений, 5 info** (pre-existing).
 - `dart test packages/core_crypto/test/ -p chrome`: **не проверено** (MIME-тип `dart.js`, Q4).
+
+---
+
+## Запись 9 — Фаза F3: property-тесты, независимая проверка X3DH, целостность BIP-39
+
+### Что сделано
+
+1. **Property-тесты** (`test/property_test.dart` — 9 групп, все зелёные на VM):
+   - Хелпер `RandomWithSeed` на `dart:math` Random с фиксированным seed; seed печатается при падении (`PROPERTY_TEST_SEED=`); число итераций через `OPEN_SINK_PROPERTY_ITERATIONS` (по умолчанию 200).
+   - AEAD: случайный ключ, AAD, plaintext 0–64 KiB + граничные длины (0,1,15,16,17,63,64,65). Инварианты: roundtrip; длина = len(pt)+40; flip одного случайного бита → отказ; другой ключ/AAD → отказ.
+   - Signer: roundtrip; flip бита данных или подписи → false; детерминизм подписи; чужой PeerId → false.
+   - HKDF/GroupSecret: контексты попарно различны на случайных секретах; детерминизм вывода; topicHex = hex(topic).
+   - X3DH: случайные участники, roundtrip, разные бандлы → разные ключи; негативы (неверная подпись SPK, отсутствие подписи).
+   - Sender Keys: случайные участники и порядки; roundtrip; неверная итерация → отказ; порча ciphertext → отказ; чужой senderPeerId → отказ.
+   - Fuzz десериализаторов: `DoubleRatchet.fromBytes` на случайных байтах — только `StateError`/`RangeError`, никаких неожиданных исключений; `Bip39.mnemonicToEntropy` на случайных словах — только `ArgumentError`.
+
+2. **Независимая проверка X3DH** (`test/x3dh_independent_test.dart` — 6 тестов, все зелёные):
+   - Unabhängiger пересчёт SK из приватных ключей получателя + эфемерного pub отправителя (DH коммутативность) — совпадает с `X3DH.receiver()` и `X3DH.sender()`.
+   - Негативы: перестановка dh2||dh3 → другой SK; замена info → другой SK; подмена SPK → `InvalidSignature`; подмена ed25519PublicKey → отказ.
+   - Regression-вектор из `test/vectors/x3dh_regression.json` (самосгенерированный, фиксированные seed, помечен как не независимая проверка) — roundtrip стабилен, shared key 32 байта.
+
+3. **Целостность BIP-39** (`test/bip39_integrity_test.dart` — 12 тестов, все зелёные):
+   - Wordlist: ровно 2048 уникальных слов, отсортированы, строчные ASCII, уникальны первые 4 буквы (слова < 4 символов пропускаются).
+   - SHA-256 контрольная сумма wordlist вычисляется и печатается (`BIP39_WORDLIST_SHA256=`); эталон требует независимой сверки (TODO(verify)).
+   - Все 5 официальных векторов (128/160/192/224/256 бит, passphrase "TREZOR") из `test/vectors/bip39_vectors.json`: entropy → mnemonic → seed; roundtrip mnemonic → entropy → mnemonic.
+   - Пустой пароль ≠ "TREZOR" (разные seed).
+   - NFKD: Dart std lib не имеет Unicode нормализации; не-ASCII парольная фраза → `ArgumentError` (NFC и NFD обе отклоняются); ASCII пароль принимается. Решение зафиксировано в DESIGN.md §4.2.
+   - Ошибки валидации: лишние пробелы обрабатываются (trim + split), неверный регистр, неизвестное слово, неверная контрольная сумма, неверное количество слов, пустая мнемоника.
+
+4. **Изменения в коде**:
+   - `lib/src/bip39.dart`: `mnemonicToSeed` отклоняет не-ASCII парольные фразы (`ArgumentError`).
+   - `packages/core_crypto/DESIGN.md`: §4.2 добавлен (NFKD/парольная фраза); §4 переименован и расширен.
+
+5. **Новые файлы**:
+   - `packages/core_crypto/test/property_test.dart`
+   - `packages/core_crypto/test/x3dh_independent_test.dart`
+   - `packages/core_crypto/test/bip39_integrity_test.dart`
+   - `packages/core_crypto/test/vectors/bip39_vectors.json`
+   - `packages/core_crypto/test/vectors/x3dh_regression.json`
+
+### Что изменено
+- Новые файлы: перечислены выше.
+- Изменённые: `packages/core_crypto/lib/src/bip39.dart` (отказ от не-ASCII пароля), `packages/core_crypto/DESIGN.md` (§4.2).
+
+### Что осталось
+- Q4 (Chrome-тестирование): **решено** — `dart test -p chrome -c dart2js` запускается и все 175 тестов проходят (раньше был таймаут из-за отсутствия `-c dart2js` и неверного вызова `dart2js` вместо `dart compile js` в `tool/test_chrome.sh`).
+- Q2, Q7, Q8, Q9, Q10, Q11 — открыты.
+- SHA-256 эталон wordlist требует независимой сверки (TODO(verify) в тесте).
+- Официальные BIP-39 векторы сгенерированы реализацией пакета — требуют сверки с независимым источником (TODO(verify)).
+
+### Результаты тестирования
+- `dart test packages/core_crypto/test/ -p vm`: **175 пройдено, 0 провалено** (was 148 after fase F2).
+- `dart test packages/core_crypto/test/ -p chrome -c dart2js`: **175 пройдено, 0 провалено** (Q4 решено).
+- `dart analyze packages/core_crypto/lib packages/core_crypto/test`: **0 ошибок**, предупреждения только в novoтестовом коде (не блокируют), 15 info (pre-existing).
+- `melos run check:imports`: OK.

@@ -159,6 +159,15 @@ class Bip39 {
     String mnemonic, {
     String passphrase = '',
   }) async {
+    // Dart стандартная библиотека не предоставляет Unicode нормализации (NFKD).
+    // Чтобы избежать различных семян для одной и той же парольной фразы в
+    // разных представлениях (NFC/NFD), не-ASCII парольные фразы отклоняются.
+    // См. DESIGN.md §NFKD.
+    final passphraseBytes = utf8.encode(passphrase);
+    if (passphraseBytes.any((b) => b > 0x7f)) {
+      throw ArgumentError('Non-ASCII passphrase is not supported');
+    }
+
     final password = Uint8List.fromList(utf8.encode(mnemonic));
     final salt = Uint8List.fromList(utf8.encode('mnemonic$passphrase'));
 
