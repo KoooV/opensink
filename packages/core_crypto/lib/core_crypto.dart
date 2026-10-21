@@ -12,3 +12,4 @@ export 'src/e2ee/sender_keys.dart';
 export 'src/e2ee/x3dh.dart';
 
 export 'src/key_store/memory_secure_key_store.dart';
+export 'src/state_vault.dart';

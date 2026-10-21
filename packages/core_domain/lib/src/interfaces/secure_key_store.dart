@@ -84,6 +84,18 @@ abstract class SecureKeyStore {
 
   /// Проверяет наличие идентичности.
   Future<Result<bool, KeyStoreError>> hasIdentity(UserId userId);
+
+  /// Сохраняет произвольные байты ключа по [keyId] (например, ключ
+  /// StateVault). Секреты не раскрываются в сообщениях ошибок.
+  Future<Result<void, KeyStoreError>> storeKey(String keyId, List<int> bytes);
+
+  /// Загружает байты ключа по [keyId].
+  ///
+  /// Возвращает `Err(IdentityNotFound)`, если ключ отсутствует.
+  Future<Result<List<int>, KeyStoreError>> loadKey(String keyId);
+
+  /// Удаляет ключ по [keyId].
+  Future<Result<void, KeyStoreError>> deleteKey(String keyId);
 }
 
 /// Пакет для хранения в SecureKeyStore.

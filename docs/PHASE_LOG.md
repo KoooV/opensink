@@ -502,3 +502,50 @@
 - `grep dart:html packages/platform_web/lib`: **не найдено**.
 - `dart test packages/platform_web/test/ -p chrome`: компиляция через `dart2js` успешна, рантайм не стартует (Q4, инфраструктура).
 - `dart test packages/core_crypto/test/ -p vm`: **176 пройдено, 0 провалено** (без изменений, регрессии нет).
+
+---
+
+## Запись 12 — Фаза F5: защита сериализованных состояний E2EE при хранении
+
+### Что сделано
+
+1. **StateVault** (`packages/core_crypto/lib/src/state_vault.dart`):
+   - `seal(Uint8List plaintext, StateVaultContext context) -> Future<VaultResult<SealedState>>`
+   - `open(SealedState sealed, StateVaultContext context) -> Future<VaultResult<Uint8List>>`
+   - AEAD: XChaCha20-Poly1305 (nonce 24, ключ 32, MAC 16) из `aead.dart` фазы 2.
+   - Ключ хранилища: независимый случайный 256-битный ключ, создаётся при первом `seal` и хранится в `SecureKeyStore` (не выводится из identity seed). Потеря ключа → сессии E2EE устанавливаются заново.
+   - Конверт версии 1: `version(1) || kind(1) || stateIdLen(2 LE) || stateId || nonce(24) || ciphertext || mac(16)`.
+   - AAD = `utf8("opensink/state/v1") || kind(1) || stateIdLen(2 LE) || stateId(stateIdLen) || context.formatVersion(1)`.
+   - `open()` проверяет заголовок конверта (version, kind, stateId) перед расшифровкой — обнаруживает порчу байтов заголовка.
+   - `toString()` конверта не раскрывает секретов.
+   - Все ошибки через `VaultResult<T>` (sealed classes), нет исключений.
+
+2. **EncryptedStateStore** (`packages/core_domain/lib/src/interfaces/encrypted_state_store.dart`):
+   - `load(String id) -> Future<Result<Uint8List, EncryptedStateStoreError>>`
+   - `save(String id, Uint8List sealed) -> Future<Result<void, EncryptedStateStoreError>>`
+   - Контракт транзакционности: состояние ratchet и принятое событие сохраняются в одной транзакции хранилища. Реализация в core_storage — вне фазы.
+
+3. **SecureKeyStore:** добавлены `storeKey`/`loadKey`/`deleteKey` для хранения ключа StateVault. Реализовано в `FakeSecureKeyStore`, `MemorySecureKeyStore`, и всех трёх platform_* реализациях.
+
+4. **Design doc:** раздел 15 «Хранение состояний E2EE при покое» в `packages/core_crypto/DESIGN.md` — конверт, AAD, ключ хранилища, контракт транзакционности, остаточный риск rollback.
+
+5. **Тесты:**
+   - `packages/core_crypto/test/state_vault_test.dart` — 20 тестов: roundtrip, разные seal → разные шифртексты, негативы (kind/stateId/formatVersion), порча каждой зоны конверта, отсутствие ключей цепочки в sealed-выводе, toString без секретов, два хранилища с разными ключами не могут открывать конверты друг друга, восстановление DoubleRatchet и SenderKeyState через open.
+   - `packages/core_domain/test/encrypted_state_store_test.dart` — 7 тестов: контракт save/load, отсутствующее состояние, перезапись, toString без секретов, storeKey/loadKey/deleteKey через FakeSecureKeyStore.
+
+### Что изменено
+- Новые файлы: `packages/core_crypto/lib/src/state_vault.dart`, `packages/core_crypto/test/state_vault_test.dart`, `packages/core_domain/lib/src/interfaces/encrypted_state_store.dart`, `packages/core_domain/test/encrypted_state_store_test.dart`.
+- Изменённые: `packages/core_crypto/lib/core_crypto.dart`, `packages/core_crypto/lib/src/key_store/memory_secure_key_store.dart`, `packages/core_domain/lib/core_domain.dart`, `packages/core_domain/lib/src/interfaces/fakes.dart`, `packages/core_domain/lib/src/interfaces/secure_key_store.dart`, `packages/platform_android/lib/src/secure_key_store_android.dart`, `packages/platform_linux/lib/src/secure_key_store_linux.dart`, `packages/platform_web/lib/src/secure_key_store_web.dart`, `packages/core_crypto/DESIGN.md` (раздел 15), `docs/PHASE_LOG.md` (эта запись).
+
+### Что осталось
+- Q4 (Chrome-тестирование): рантайм не стартует из-за MIME-типа `dart.js` — инфраструктурная проблема. Тесты компилируются через `dart2js`.
+- Rollback protection: монотонный счётчик не реализован в этой фазе, остаточный риск задокументирован (DESIGN.md §15.4).
+- EncryptedStateStore реализация в core_storage — вне фазы.
+
+### Результаты тестирования
+- `dart test packages/core_crypto/test/ -p vm`: **196 пройдено, 0 провалено** (was 176 after F4B).
+- `dart test packages/core_domain/test/encrypted_state_store_test.dart -p vm`: **7 пройдено, 0 провалено**.
+- `dart test packages/core_crypto/test/ -p chrome -c dart2js`: не запустился по инфраструктуре (Q4), компиляция успешна.
+- `dart analyze packages/core_crypto/lib packages/core_crypto/test/state_vault_test.dart packages/core_domain/lib packages/core_domain/test/encrypted_state_store_test.dart`: 0 ошибок в новых файлах.
+- `melos run check:imports`: OK.
+- `grep expect(true, isTrue)`: 0 совпадений. `grep UnimplementedError` в lib/: 0 совпадений.

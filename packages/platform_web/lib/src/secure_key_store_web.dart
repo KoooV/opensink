@@ -37,6 +37,7 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
 
   static const _kekStore = 'keys';
   static const _identitiesStore = 'identities';
+  static const _stateKeysStore = 'state_keys';
   static const _kekKey = 'opensink_kek';
   static const _schemaVersion = 1;
 
@@ -74,6 +75,9 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
       }
       if (!db.objectStoreNames.contains(_identitiesStore)) {
         db.createObjectStore(_identitiesStore);
+      }
+      if (!db.objectStoreNames.contains(_stateKeysStore)) {
+        db.createObjectStore(_stateKeysStore);
       }
     }).toJS;
     request.onsuccess = ((Event _) {
@@ -371,6 +375,92 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
       return Err(
         StoreError(
           'Не удалось проверить наличие идентичности в IndexedDB: $e',
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<Result<void, KeyStoreError>> storeKey(
+    String keyId,
+    List<int> bytes,
+  ) async {
+    try {
+      await _put(
+        _stateKeysStore,
+        keyId.toJS,
+        base64Encode(bytes).toJS,
+      );
+      return Ok(null);
+    } on StoreUnavailable catch (e) {
+      return Err(e);
+    } on DOMException catch (e) {
+      return Err(
+        StoreError(
+          'Ошибка IndexedDB при сохранении ключа состояния: ${e.message}',
+        ),
+      );
+    } catch (e) {
+      return Err(
+        StoreError(
+          'Не удалось сохранить ключ состояния в IndexedDB: $e',
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<Result<List<int>, KeyStoreError>> loadKey(String keyId) async {
+    try {
+      final value = await _get(_stateKeysStore, keyId.toJS);
+      if (value == null) {
+        return const Err(IdentityNotFound());
+      }
+      final b64 = value as String;
+      return Ok(base64Decode(b64));
+    } on FormatException catch (e) {
+      return Err(StoreCorrupted('Неверный base64 в ключе состояния: $e'));
+    } on StoreUnavailable catch (e) {
+      return Err(e);
+    } on DOMException catch (e) {
+      return Err(
+        StoreError(
+          'Ошибка IndexedDB при загрузке ключа состояния: ${e.message}',
+        ),
+      );
+    } catch (e) {
+      return Err(
+        StoreError(
+          'Не удалось загрузить ключ состояния из IndexedDB: $e',
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<Result<void, KeyStoreError>> deleteKey(String keyId) async {
+    try {
+      final db = await _database;
+      final stores = JSArray<JSString>()..add(_stateKeysStore.toJS);
+      final tx = db.transaction(stores, 'readwrite');
+      final store = tx.objectStore(_stateKeysStore);
+      await _futureFromRequest(
+        store.delete(keyId.toJS),
+        (_) => null,
+      );
+      return Ok(null);
+    } on StoreUnavailable catch (e) {
+      return Err(e);
+    } on DOMException catch (e) {
+      return Err(
+        StoreError(
+          'Ошибка IndexedDB при удалении ключа состояния: ${e.message}',
+        ),
+      );
+    } catch (e) {
+      return Err(
+        StoreError(
+          'Не удалось удалить ключ состояния из IndexedDB: $e',
         ),
       );
     }

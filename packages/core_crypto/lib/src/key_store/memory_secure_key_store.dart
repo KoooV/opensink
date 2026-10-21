@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:core_domain/core_domain.dart';
 import 'package:meta/meta.dart';
 
@@ -13,6 +15,7 @@ class MemorySecureKeyStore implements SecureKeyStore {
   MemorySecureKeyStore();
 
   final _store = <String, IdentityBundle>{};
+  final _keys = <String, Uint8List>{};
 
   @override
   Future<Result<void, KeyStoreError>> storeIdentity(
@@ -43,6 +46,30 @@ class MemorySecureKeyStore implements SecureKeyStore {
   @override
   Future<Result<bool, KeyStoreError>> hasIdentity(UserId userId) async =>
       Ok(_store.containsKey(userId.value));
+
+  @override
+  Future<Result<void, KeyStoreError>> storeKey(
+    String keyId,
+    List<int> bytes,
+  ) async {
+    _keys[keyId] = Uint8List.fromList(bytes);
+    return const Ok(null);
+  }
+
+  @override
+  Future<Result<List<int>, KeyStoreError>> loadKey(String keyId) async {
+    final bytes = _keys[keyId];
+    if (bytes == null) {
+      return const Err(IdentityNotFound());
+    }
+    return Ok(Uint8List.fromList(bytes));
+  }
+
+  @override
+  Future<Result<void, KeyStoreError>> deleteKey(String keyId) async {
+    _keys.remove(keyId);
+    return const Ok(null);
+  }
 
   @override
   String toString() => 'MemorySecureKeyStore(${_store.length} записей)';

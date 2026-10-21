@@ -24,8 +24,10 @@ class NativeSecureKeyStoreImpl implements SecureKeyStore {
   /// Версия схемы сериализации IdentityBundle.
   static const int _schemaVersion = 1;
   static const _kPrefix = 'opensink_identity_v${_schemaVersion}_';
+  static const _kStateKeyPrefix = 'opensink_state_key_';
 
   String _key(UserId userId) => '${_kPrefix}${userId.value}';
+  String _stateKey(String keyId) => '${_kStateKeyPrefix}$keyId';
 
   Map<String, dynamic> _serialize(IdentityBundle bundle) => <String, dynamic>{
         'userId': bundle.userId.value,
@@ -122,6 +124,47 @@ class NativeSecureKeyStoreImpl implements SecureKeyStore {
       return Ok(value != null && value.isNotEmpty);
     } catch (e, stack) {
       return Err(_mapError(e, stack, 'проверка наличия идентичности'));
+    }
+  }
+
+  @override
+  Future<Result<void, KeyStoreError>> storeKey(
+    String keyId,
+    List<int> bytes,
+  ) async {
+    try {
+      await _storage.write(
+        key: _stateKey(keyId),
+        value: base64Encode(bytes),
+      );
+      return const Ok(null);
+    } catch (e, stack) {
+      return Err(_mapError(e, stack, 'сохранение ключа состояния'));
+    }
+  }
+
+  @override
+  Future<Result<List<int>, KeyStoreError>> loadKey(String keyId) async {
+    try {
+      final value = await _storage.read(key: _stateKey(keyId));
+      if (value == null) {
+        return const Err(IdentityNotFound());
+      }
+      return Ok(base64Decode(value));
+    } on FormatException catch (e, stack) {
+      return Err(StoreCorrupted('Повреждённые данные ключа состояния: $e\n$stack'));
+    } catch (e, stack) {
+      return Err(_mapError(e, stack, 'загрузка ключа состояния'));
+    }
+  }
+
+  @override
+  Future<Result<void, KeyStoreError>> deleteKey(String keyId) async {
+    try {
+      await _storage.delete(key: _stateKey(keyId));
+      return const Ok(null);
+    } catch (e, stack) {
+      return Err(_mapError(e, stack, 'удаление ключа состояния'));
     }
   }
 }

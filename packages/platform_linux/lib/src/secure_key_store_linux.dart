@@ -168,4 +168,47 @@ class LinuxSecureKeyStoreImpl implements SecureKeyStore {
       return Err(_mapError(e, stack, 'проверка наличия идентичности'));
     }
   }
+
+  @override
+  Future<Result<void, KeyStoreError>> storeKey(
+    String keyId,
+    List<int> bytes,
+  ) async {
+    try {
+      await _storage.write(
+        key: _stateKey(keyId),
+        value: base64Encode(bytes),
+      );
+      return const Ok(null);
+    } catch (e, stack) {
+      return Err(_mapError(e, stack, 'сохранение ключа состояния'));
+    }
+  }
+
+  @override
+  Future<Result<List<int>, KeyStoreError>> loadKey(String keyId) async {
+    try {
+      final value = await _storage.read(key: _stateKey(keyId));
+      if (value == null) {
+        return const Err(IdentityNotFound());
+      }
+      return Ok(base64Decode(value));
+    } on FormatException catch (e, stack) {
+      return Err(
+        StoreCorrupted('Повреждённые данные ключа состояния: $e\n$stack'),
+      );
+    } catch (e, stack) {
+      return Err(_mapError(e, stack, 'загрузка ключа состояния'));
+    }
+  }
+
+  @override
+  Future<Result<void, KeyStoreError>> deleteKey(String keyId) async {
+    try {
+      await _storage.delete(key: _stateKey(keyId));
+      return const Ok(null);
+    } catch (e, stack) {
+      return Err(_mapError(e, stack, 'удаление ключа состояния'));
+    }
+  }
 }
