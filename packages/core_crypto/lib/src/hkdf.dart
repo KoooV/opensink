@@ -1,0 +1,67 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:cryptography/cryptography.dart' as crypto_pkg;
+import 'crypto_provider.dart';
+
+/// HKDF key derivation (RFC 5869) поверх [package:cryptography] v2.9.0.
+class GroupHkdf {
+  GroupHkdf();
+
+  final _hmac = CryptoProvider.instance.hmac(CryptoProvider.instance.sha256);
+
+  Future<crypto_pkg.SecretKey> derive({
+    required crypto_pkg.SecretKey secret,
+    required Uint8List salt,
+    required Uint8List info,
+    required int outputLength,
+  }) async {
+    final algorithm = CryptoProvider.instance.hkdf(
+      hmac: _hmac,
+      outputLength: outputLength,
+    );
+    final derived = await algorithm.deriveKey(
+      secretKey: secret,
+      nonce: salt,
+      info: info,
+    );
+    return derived;
+  }
+
+  Future<Uint8List> deriveBytes({
+    required crypto_pkg.SecretKey secret,
+    required Uint8List salt,
+    required Uint8List info,
+    required int length,
+  }) async {
+    final key = await derive(
+      secret: secret,
+      salt: salt,
+      info: info,
+      outputLength: length,
+    );
+    return Uint8List.fromList(await key.extractBytes());
+  }
+}
+
+enum GroupKeyContext {
+  signalingTopic('opensink/group/signaling-topic'),
+  signalingPayloadKey('opensink/group/signaling-payload-key'),
+  invitationKey('opensink/group/invitation-key');
+
+  const GroupKeyContext(this._info);
+  final String _info;
+
+  Uint8List get info => Uint8List.fromList(utf8.encode(_info));
+}
+
+String bytesToHex(List<int> bytes) {
+  return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
+}
+
+List<int> hexToBytes(String hex) {
+  return List<int>.generate(
+    hex.length ~/ 2,
+    (i) => int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16),
+  );
+}

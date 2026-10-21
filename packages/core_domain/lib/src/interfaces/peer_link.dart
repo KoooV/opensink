@@ -1,4 +1,5 @@
 import '../models/identifiers.dart';
+import 'package:meta/meta.dart';
 
 /// Входящие данные по peer-ссылке.
 @immutable

@@ -1,3 +1,7 @@
+import 'dart:typed_data';
+import 'package:collection/collection.dart';
+import 'package:meta/meta.dart';
+
 /// Идентификатор узла в сети OpenSink — открытый ключ Ed25519.
 ///
 /// PeerId не несёт семантики пользователя (UserId), а идентифицирует сетевой
@@ -13,10 +17,10 @@ class PeerId {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is PeerId && runtimeType == other.runtimeType &&
-          const ListEquality<Uint8List, int>().equals(publicKey, other.publicKey);
+          const ListEquality<Uint8List>().equals([publicKey], [other.publicKey]);
 
   @override
-  int get hashCode => const ListEquality<Uint8List, int>().hash(publicKey);
+    int get hashCode => const ListEquality<Uint8List>().hash([publicKey]);
 
   @override
   String toString() => 'PeerId(${publicKey.toList().take(8).join('')}...)';
@@ -77,4 +81,42 @@ class UserId {
 
   @override
   String toString() => 'UserId($value)';
+}
+
+/// Идентификатор события.
+@immutable
+class EventId {
+  const EventId(this.value);
+
+  final String value;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EventId && runtimeType == other.runtimeType && value == other.value;
+
+  @override
+  int get hashCode => value.hashCode;
+
+  @override
+  String toString() => 'EventId($value)';
+}
+
+/// Идентификатор сообщения.
+@immutable
+class MessageId {
+  const MessageId(this.value);
+
+  final String value;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MessageId && runtimeType == other.runtimeType && value == other.value;
+
+  @override
+  int get hashCode => value.hashCode;
+
+  @override
+  String toString() => 'MessageId($value)';
 }

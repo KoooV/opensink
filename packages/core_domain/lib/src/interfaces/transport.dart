@@ -1,10 +1,11 @@
 import '../models/identifiers.dart';
 import 'peer_link.dart';
+import 'package:meta/meta.dart';
 
 /// Событие транспортного уровня.
 @immutable
 class PeerLinkEvent {
-  const PeerLinkEvent._(this.type, this.peerId, [this.error]);
+  const PeerLinkEvent(this.type, this.peerId, [this.error]);
 
   final String type; // 'connected' | 'disconnected' | 'error' | 'stats'
   final PeerId? peerId;

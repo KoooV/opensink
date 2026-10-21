@@ -1,21 +1,26 @@
-import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:cryptography/cryptography.dart';
 import 'package:core_domain/core_domain.dart';
+import 'hkdf.dart';
+import 'crypto_provider.dart';
 
-/// Stateless Ed25519 подписчик / верификатор.
-///
-/// Реализует доменную [Signer]. Закрытый ключ хранится внутри экземпляра и не
-/// попадает в логи.
 class CryptoSigner implements Signer {
-  const CryptoSigner(this.privateKey);
+  CryptoSigner(this.privateKey);
 
   final SecretKey privateKey;
 
   @override
   Future<String> sign(Uint8List data) async {
-    final algorithm = Ed25519();
-    final signature = await algorithm.sign(data, privateKey: privateKey);
-    return signature.hex;
+    final algorithm = CryptoProvider.instance.ed25519;
+    final privateKeyBytes = await privateKey.extractBytes();
+
+    // Восстанавливаем ключевую пару из того же seed, что и приватный ключ,
+    // чтобы открытый ключ был производным от приватного (D-02).
+    final keyPair = await algorithm.newKeyPairFromSeed(privateKeyBytes);
+
+    final signature = await algorithm.sign(data, keyPair: keyPair);
+    return bytesToHex(signature.bytes);
   }
 
   @override
@@ -24,26 +29,26 @@ class CryptoSigner implements Signer {
     String signatureHex,
     PeerId peerId,
   ) async {
-    // TODO(verify): уточнить API десеализации подписи из hex в package:cryptography v3.
-    final algorithm = Ed25519();
-    final publicKey = await algorithm.publicKeyFromBytes(peerId.publicKey);
-    final signature = Ed25519Signature.fromHex(signatureHex);
-    return await algorithm.verify(data, signature: signature, publicKey: publicKey);
-  }
+    // Любое некорректное входящее значение (не-hex, неверная длина,
+    // пустая подпись, неверная длина ключа в PeerId) должно вернуть false,
+    // а не бросить исключение.
+    try {
+      final algorithm = CryptoProvider.instance.ed25519;
+      final signatureBytes = hexToBytes(signatureHex);
 
-  /// Подписывает груповое событие по его каноническому JSON-представлению.
-  Future<String> signEvent(GroupEvent event) async {
-    final canonical = const JsonEncoder().convert(event.toCanonicalMap());
-    return sign(Uint8List.fromList(utf8.encode(canonical)));
-  }
+      final expectedPublicKey = SimplePublicKey(
+        Uint8List.fromList(peerId.publicKey),
+        type: KeyPairType.ed25519,
+      );
 
-  /// Верифицирует подпись групового события.
-  Future<bool> verifyEvent(GroupEvent event) async {
-    final canonical = const JsonEncoder().convert(event.toCanonicalMap());
-    return await verify(
-      Uint8List.fromList(utf8.encode(canonical)),
-      event.signature,
-      PeerId(Uint8List.fromList(event.authorId.value.codeUnits)), // TODO(verify): authorId -> PeerId mapping
-    );
+      final signature = Signature(
+        signatureBytes,
+        publicKey: expectedPublicKey,
+      );
+
+      return await algorithm.verify(data, signature: signature);
+    } catch (_) {
+      return false;
+    }
   }
 }

@@ -1,4 +1,5 @@
 import '../models/identifiers.dart';
+import '../result.dart';
 
 /// Все события, влияющие на состояние группы.
 /// Состояние группы — чистая функция от множества этих событий.
@@ -56,12 +57,12 @@ class GroupCreated extends GroupEvent {
   @override
   Result<void, GroupEventError> validateInvariants() {
     if (name.isEmpty) {
-      return const Err(GroupEventError.emptyName);
+      return Err(emptyName);
     }
     if (initialMembers.isEmpty) {
-      return const Err(GroupEventError.noInitialMembers);
+      return Err(noInitialMembers);
     }
-    return const Ok(null);
+    return Ok(null);
   }
 }
 
@@ -88,7 +89,7 @@ class MemberAdded extends GroupEvent {
       };
 
   @override
-  Result<void, GroupEventError> validateInvariants() => const Ok(null);
+  Result<void, GroupEventError> validateInvariants() => Ok(null);
 }
 
 class MemberRemoved extends GroupEvent {
@@ -114,7 +115,7 @@ class MemberRemoved extends GroupEvent {
       };
 
   @override
-  Result<void, GroupEventError> validateInvariants() => const Ok(null);
+  Result<void, GroupEventError> validateInvariants() => Ok(null);
 }
 
 class ChannelCreated extends GroupEvent {
@@ -148,9 +149,9 @@ class ChannelCreated extends GroupEvent {
   @override
   Result<void, GroupEventError> validateInvariants() {
     if (name.isEmpty) {
-      return const Err(GroupEventError.emptyName);
+      return Err(emptyName);
     }
-    return const Ok(null);
+    return Ok(null);
   }
 }
 
@@ -177,7 +178,7 @@ class ChannelDeleted extends GroupEvent {
       };
 
   @override
-  Result<void, GroupEventError> validateInvariants() => const Ok(null);
+  Result<void, GroupEventError> validateInvariants() => Ok(null);
 }
 
 class GroupRenamed extends GroupEvent {
@@ -205,9 +206,9 @@ class GroupRenamed extends GroupEvent {
   @override
   Result<void, GroupEventError> validateInvariants() {
     if (name.isEmpty) {
-      return const Err(GroupEventError.emptyName);
+      return Err(emptyName);
     }
-    return const Ok(null);
+    return Ok(null);
   }
 }
 
@@ -234,18 +235,20 @@ class OwnerTransferred extends GroupEvent {
       };
 
   @override
-  Result<void, GroupEventError> validateInvariants() => const Ok(null);
+  Result<void, GroupEventError> validateInvariants() => Ok(null);
 }
 
 /// Ошибки валидации групповых событий.
 sealed class GroupEventError {
   const GroupEventError();
-  class EmptyName extends GroupEventError {
-    const EmptyName();
-  }
-  class NoInitialMembers extends GroupEventError {
-    const NoInitialMembers();
-  }
+}
+
+class EmptyName extends GroupEventError {
+  const EmptyName();
+}
+
+class NoInitialMembers extends GroupEventError {
+  const NoInitialMembers();
 }
 
 const GroupEventError emptyName = EmptyName();

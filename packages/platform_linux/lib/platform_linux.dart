@@ -1,3 +1,3 @@
 library platform_linux;
 
-// TODO(verify): Linux SecureKeyStore (libsecret), ScreenCaptureSource (PipeWire/wlr).
+export 'src/secure_key_store_linux.dart';

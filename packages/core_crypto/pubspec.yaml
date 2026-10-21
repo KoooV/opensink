@@ -1,7 +1,9 @@
 name: core_crypto
-description: "OpenSink cryptography: identity, Ed25519 signing, key store interface."
+description: "OpenSink cryptography: identity, Ed25519 signing, key store interface, AEAD, E2EE."
 version: 0.1.0
 publish_to: 'none'
+
+resolution: workspace
 
 environment:
   sdk: ^3.13.5
@@ -9,7 +11,8 @@ environment:
 dependencies:
   core_domain:
     path: ../core_domain
-  cryptography: ^3.1.1
+  cryptography: ^2.9.0
+  meta: ^1.15.0
 
 dev_dependencies:
   test: ^1.26.0

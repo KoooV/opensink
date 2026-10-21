@@ -1,5 +1,19 @@
 import 'package:core_domain/core_domain.dart';
+import 'package:core_domain/src/interfaces/fakes.dart'
+    show
+        FakeSignalingChannel,
+        FakeSigner,
+        FakeTransport,
+        FakeRelay,
+        FakeMediaTopology,
+        FakeEventStore,
+        FakeSyncEngine,
+        FakeGroupState,
+        FakeScreenCaptureSource,
+        FakePeerLink;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'secure_key_store_platform.dart';
 
 /// DI-контейнер приложения.
 ///
@@ -52,25 +66,13 @@ final groupStateProvider = Provider<IGroupState>((ref) {
 });
 
 final secureKeyStoreProvider = Provider<SecureKeyStore>((ref) {
-  return FakeSecureKeyStore();
+  return createPlatformSecureKeyStore();
 });
 
 final screenCaptureSourceProvider = Provider<ScreenCaptureSource>((ref) {
   return FakeScreenCaptureSource();
 });
 
-// Удобный реэкспорт fakes под neutrальным именем, чтобы не тащить
+
+// Удобный реэкспорт fakes под нейтральным именем, чтобы не тащить
 // core_domain/src/interfaces/fakes.dart в UI напрямую.
-export 'package:core_domain/src/interfaces/fakes.dart'
-    show
-        FakeSignalingChannel,
-        FakeSigner,
-        FakeTransport,
-        FakeRelay,
-        FakeMediaTopology,
-        FakeEventStore,
-        FakeSyncEngine,
-        FakeGroupState,
-        FakeSecureKeyStore,
-        FakeScreenCaptureSource,
-        FakePeerLink;

@@ -1,7 +1,8 @@
 name: platform_web
-description: "OpenSink Web platform layer."
+description: "OpenSink Web platform implementation (Web Crypto API + IndexedDB)."
 version: 0.1.0
 publish_to: 'none'
+resolution: workspace
 
 environment:
   sdk: ^3.13.5
@@ -11,6 +12,7 @@ dependencies:
     path: ../core_domain
   core_crypto:
     path: ../core_crypto
+  web: ^0.5.1
 
 dev_dependencies:
   test: ^1.26.0

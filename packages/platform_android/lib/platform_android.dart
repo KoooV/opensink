@@ -1,3 +1,3 @@
 library platform_android;
 
-// TODO(verify): Android SecureKeyStore, ScreenCaptureSource, LAN discovery.
+export 'src/secure_key_store_android.dart';

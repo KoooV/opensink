@@ -1,4 +1,5 @@
 import '../models/identifiers.dart';
+import 'package:meta/meta.dart';
 
 /// Сообщение сигнализации (WebRTC offer / answer / ICE-кандидат / hangup).
 @immutable

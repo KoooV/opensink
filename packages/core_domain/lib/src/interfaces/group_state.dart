@@ -1,4 +1,5 @@
 import '../models/identifiers.dart';
+import 'package:meta/meta.dart';
 
 /// Состояние группы — чистая функция от множества подписанных событий.
 @immutable

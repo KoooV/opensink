@@ -45,6 +45,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  melos: ^8.9.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -56,6 +57,29 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+# Melos workspace configuration
+workspace:
+  - packages/core_domain
+  - packages/core_crypto
+  - packages/core_protocol
+  - packages/core_storage
+  - packages/core_signaling
+  - packages/core_peer
+  - packages/core_sync
+  - packages/core_group
+  - packages/core_relay
+  - packages/core_media
+  - packages/platform_android
+  - packages/platform_linux
+  - packages/platform_web
+  - apps/app
+
+melos:
+  scripts:
+    analyze: dart analyze
+    test: dart test
+    check:imports: bash tool/check_core_imports.sh
 
   # To add assets to your application, add an assets section, like this:
   # assets:

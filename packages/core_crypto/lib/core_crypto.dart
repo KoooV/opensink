@@ -1,6 +1,15 @@
-library core_crypto;
-
+export 'src/aead.dart';
+export 'src/bip39.dart';
+export 'src/bip39_wordlist.dart';
+export 'src/crypto_exceptions.dart';
+export 'src/group_secret.dart';
+export 'src/hkdf.dart';
 export 'src/identity.dart';
 export 'src/signer.dart';
-// SecureKeyStore и IdentityBundle живут в core_domain; core_crypto не дублирует
-// контракт, а использует его через package:core_domain.
+
+export 'src/e2ee/double_ratchet.dart';
+export 'src/e2ee/sender_keys.dart';
+export 'src/e2ee/x3dh.dart';
+
+export 'src/key_store/memory_secure_key_store.dart';
+export 'src/state_vault.dart';

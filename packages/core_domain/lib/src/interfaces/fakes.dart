@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:collection/collection.dart';
+import 'package:meta/meta.dart';
+
+import '../result.dart';
 
 /// In-memory fake реализации всех интерфейсов core_domain для тестов.
-library core_domain.fakes;
 
 import '../models/identifiers.dart';
 import '../models/identity.dart';
@@ -152,13 +156,13 @@ class FakeTransport implements Transport {
   Future<PeerLink> connect(PeerId peerId) async {
     final link = FakePeerLink(peerId);
     _links[peerId] = link;
-    _eventsController.add(const PeerLinkEvent._('connected', peerId));
+    _eventsController.add(PeerLinkEvent('connected', peerId));
     return link;
   }
 
   @override
   Future<void> send(PeerId dst, List<int> bytes) async {
-    _sent.add(const PeerLinkEvent._('send', dst));
+    _sent.add(PeerLinkEvent('send', dst));
   }
 
   @override
@@ -290,7 +294,7 @@ class FakeGroupState implements IGroupState {
   GroupState get state => _state;
 
   @override
-  Stream<GroupState> get watch => _controller.stream;
+  Stream<GroupState> watch() => _controller.stream;
 
   void setState(GroupState next) {
     _state = next;
@@ -307,20 +311,59 @@ class FakeGroupState implements IGroupState {
 
 class FakeSecureKeyStore implements SecureKeyStore {
   final _store = <UserId, IdentityBundle>{};
+  final _keys = <String, Uint8List>{};
 
   @override
-  Future<void> storeIdentity(UserId userId, IdentityBundle bundle) async {
+  Future<Result<void, KeyStoreError>> storeIdentity(
+    UserId userId,
+    IdentityBundle bundle,
+  ) async {
     _store[userId] = bundle;
+    return const Ok(null);
   }
 
   @override
-  Future<IdentityBundle?> loadIdentity(UserId userId) async => _store[userId];
+  Future<Result<IdentityBundle, KeyStoreError>> loadIdentity(UserId userId) async {
+    final bundle = _store[userId];
+    if (bundle == null) {
+      return const Err(IdentityNotFound());
+    }
+    return Ok(bundle);
+  }
 
   @override
-  Future<void> deleteIdentity(UserId userId) async => _store.remove(userId);
+  Future<Result<void, KeyStoreError>> deleteIdentity(UserId userId) async {
+    _store.remove(userId);
+    return const Ok(null);
+  }
 
   @override
-  Future<bool> hasIdentity(UserId userId) async => _store.containsKey(userId);
+  Future<Result<bool, KeyStoreError>> hasIdentity(UserId userId) async =>
+      Ok(_store.containsKey(userId));
+
+  @override
+  Future<Result<void, KeyStoreError>> storeKey(
+    String keyId,
+    List<int> bytes,
+  ) async {
+    _keys[keyId] = Uint8List.fromList(bytes);
+    return const Ok(null);
+  }
+
+  @override
+  Future<Result<List<int>, KeyStoreError>> loadKey(String keyId) async {
+    final bytes = _keys[keyId];
+    if (bytes == null) {
+      return const Err(IdentityNotFound());
+    }
+    return Ok(Uint8List.fromList(bytes));
+  }
+
+  @override
+  Future<Result<void, KeyStoreError>> deleteKey(String keyId) async {
+    _keys.remove(keyId);
+    return const Ok(null);
+  }
 }
 
 // ---------------------------------------------------------------------------

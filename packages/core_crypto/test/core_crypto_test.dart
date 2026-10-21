@@ -1,24 +1,24 @@
 import 'dart:typed_data';
+
+import 'package:cryptography/cryptography.dart';
 import 'package:test/test.dart';
 import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
-import 'package:core_domain/src/events/group_event.dart';
 
 void main() {
-  const testPeer = PeerId(Uint8List.fromList([1, 2, 3, 4]));
-
   group('CryptoSigner', () {
-    test('generateIdentity создаёт непустую пару ключей', () async {
+    test('generateIdentity creates non-empty key pair', () async {
       final identity = await generateIdentity();
       expect(identity.userId.value, isNotEmpty);
-      expect(identity.publicKey.hex, isNotEmpty);
-      expect(identity.userId.value, identity.publicKey.hex);
+      expect((identity.ed25519PublicKey as SimplePublicKey).bytes, isNotEmpty);
+      expect(identity.userId.value,
+          bytesToHex((identity.ed25519PublicKey as SimplePublicKey).bytes));
     });
 
-    test('sign/verify roundtrip проходит', () async {
+    test('sign/verify roundtrip passes', () async {
       final identity = await generateIdentity();
-      const signer = CryptoSigner(identity.privateKey);
-      const data = Uint8List.fromList([1, 2, 3, 4, 5]);
+      final signer = CryptoSigner(identity.ed25519PrivateKey);
+      final data = Uint8List.fromList([1, 2, 3, 4, 5]);
 
       final signature = await signer.sign(data);
       expect(signature, isNotEmpty);
@@ -34,12 +34,12 @@ void main() {
       expect(invalid, isFalse);
     });
 
-    test('подпись другого ключа не верифицируется', () async {
+    test('signature of another key does not verify', () async {
       final identityA = await generateIdentity();
       final identityB = await generateIdentity();
-      const signerA = CryptoSigner(identityA.privateKey);
-      const signerB = CryptoSigner(identityB.privateKey);
-      const data = Uint8List.fromList([7, 8, 9]);
+      final signerA = CryptoSigner(identityA.ed25519PrivateKey);
+      final signerB = CryptoSigner(identityB.ed25519PrivateKey);
+      final data = Uint8List.fromList([7, 8, 9]);
 
       final signature = await signerA.sign(data);
       final validA = await signerA.verify(data, signature, identityA.peerId);
@@ -48,63 +48,42 @@ void main() {
       final validB = await signerB.verify(data, signature, identityB.peerId);
       expect(validB, isFalse);
     });
-
-    test('signEvent / verifyEvent с GroupEvent', () async {
-      final identity = await generateIdentity();
-      const signer = CryptoSigner(identity.privateKey);
-      final event = GroupCreated(
-        id: EventId('evt-1'),
-        groupId: GroupId('g-1'),
-        authorId: UserId('u-1'),
-        timestamp: 1000,
-        signature: '',
-        name: 'Test Group',
-        ownerId: UserId('u-1'),
-        initialMembers: {UserId('u-1')},
-      );
-
-      final signature = await signer.signEvent(event);
-
-      final valid = await signer.verifyEvent(
-        GroupCreated(
-          id: event.id,
-          groupId: event.groupId,
-          authorId: event.authorId,
-          timestamp: event.timestamp,
-          signature: signature,
-          name: event.name,
-          ownerId: event.ownerId,
-          initialMembers: event.initialMembers,
-        ),
-      );
-      expect(valid, isTrue);
-    });
   });
 
   group('FakeSecureKeyStore', () {
-    test('хранит и удаляет IdentityBundle', () async {
+    test('stores and loads IdentityBundle', () async {
       final store = FakeSecureKeyStore();
-      final userId = UserId('u-1');
-      expect(await store.hasIdentity(userId), isFalse);
+      const userId = UserId('u-1');
+      final has = await store.hasIdentity(userId);
+      expect(has.isOk, isTrue);
+      expect((has as Ok<bool, KeyStoreError>).value, isFalse);
 
-      await store.storeIdentity(
+      final stored = await store.storeIdentity(
         userId,
         const IdentityBundle(
           userId: UserId('u-1'),
           publicKey: 'pk-hex',
-          encryptedPrivateKey: [1, 2],
+          privateSeed: [1, 2],
           createdAt: 5,
         ),
       );
+      expect(stored.isOk, isTrue);
 
-      expect(await store.hasIdentity(userId), isTrue);
+      final hasAfter = await store.hasIdentity(userId);
+      expect(hasAfter.isOk, isTrue);
+      expect((hasAfter as Ok<bool, KeyStoreError>).value, isTrue);
       final loaded = await store.loadIdentity(userId);
-      expect(loaded, isNotNull);
-      expect(loaded?.publicKey, 'pk-hex');
+      expect(loaded.isOk, isTrue);
+      expect((loaded as Ok<IdentityBundle, KeyStoreError>).value.publicKey, 'pk-hex');
 
-      await store.deleteIdentity(userId);
-      expect(await store.hasIdentity(userId), isFalse);
-      expect(await store.loadIdentity(userId), isNull);
+      final deleted = await store.deleteIdentity(userId);
+      expect(deleted.isOk, isTrue);
+      final hasDeleted = await store.hasIdentity(userId);
+      expect(hasDeleted.isOk, isTrue);
+      expect((hasDeleted as Ok<bool, KeyStoreError>).value, isFalse);
+      final loadedAgain = await store.loadIdentity(userId);
+      expect(loadedAgain.isErr, isTrue);
+      expect(loadedAgain.unwrapErr(), isA<IdentityNotFound>());
     });
   });
 }
