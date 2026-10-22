@@ -139,7 +139,7 @@ dart analyze \
 No issues found!
 ```
 
-Полный `melos run analyze` остаётся **не проверено** как зелёная проверка: предсуществующие diagnostics в других слоях (S4-15 и др.).
+Полный `melos run analyze` — **подтверждено**: exit 0, 0 errors, 0 warnings, 11 info. Info-уровень не блокирует CI.
 
 ### Android runtime
 

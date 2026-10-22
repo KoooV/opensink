@@ -1290,3 +1290,30 @@ Runtime-версия в собранных Android/Linux приложениях 
 - `melos analyze` как блокирующий CI-гейт — после починки pre-existing diagnostics других слоёв.
 
 Этап F4.6 завершён. Остановка до ревью.
+
+---
+
+## Запись 29 — Этап F4.7: зелёный workspace analyze
+
+### Решения
+
+1. Полный `melos run analyze` приведён к exit 0: 0 errors, 0 warnings, 11 info.
+2. Основная часть исправлений — механические (`dart fix --apply`): const-конструкторы/декларации, unused imports, unnecessary lambdas/this, library names. После автофикса вручную восстановлены `LinkedHashMap` в `DoubleRatchet` и заменены невидимые comment references на code spans.
+3. Исправлен реальный дефект S4-24: `apps/app/pubspec.yaml` ссылался на `../packages/...` вместо `../../packages/...`.
+4. Удалены неиспользуемые переменные/фикстуры, которые анализатор пометил после автофикса; тесты не ослаблялись, поведение проверок сохранено.
+5. `melos run analyze` остаётся блокирующим шагом CI (уже присутствует в workflow); теперь он зелёный.
+
+### Результаты проверок
+
+- `melos run analyze` — **exit 0**, 0 errors, 0 warnings, 11 info.
+- `core_crypto`: 202/202; `core_protocol`: 64/64; `core_domain`: 25/25; `core_storage`: 69/69; `core_sync`: 6/6.
+- `platform_linux`: 7/7; `platform_web` Chrome/dart2js: 18/18.
+- `check_text_hygiene.sh` — OK; `check_core_imports.sh` — OK; `check_docs_drift.sh` — OK.
+
+### Что осталось
+
+- 11 info-уровневых диагностик (JS interop private types, dangling docs, static-only classes) не блокируют analyze; разобрать при следующей очистке.
+- S4-12 остаётся ручным QA.
+- Push не выполнялся.
+
+Этап F4.7 завершён. Остановка до ревью.
