@@ -28,7 +28,7 @@ class DoubleRatchet {
 /// Длина фиксированной части заголовка (без опционального DH-ключа).
 static const int _fixedHeaderLength = 50; // 1+1+32+8+8
 
-/// Протокольный максимум номера сообщения. Защита от DoS: absurdные
+/// Протокольный максимум номера сообщения. Защита от DoS: абсурдные
 /// значения (например 2^31) отвергаются до цикла пропуска ключей и без
 /// аллокаций в цикле.
 static const int _maxMessageNumber = 1 << 30;
@@ -200,7 +200,7 @@ static const int _maxMessageNumber = 1 << 30;
     final ephemeralPkBytes = Uint8List.fromList(data.sublist(2, 34));
     final messageNumber = _bytesLeToUint64(data.sublist(34, 42));
 
-    // DoS: absurdный номер сообщения отвергается до любой аллокации в цикле.
+    // DoS: абсурдный номер сообщения отвергается до любой аллокации в цикле.
     if (messageNumber > _maxMessageNumber) {
       return const Err(DecryptionFailed());
     }

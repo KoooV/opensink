@@ -72,7 +72,7 @@ class ProtocolCodec {
       return Err(SizeLimitExceeded(
           envelope.payload.length, ProtocolLimits.maxPayloadSize));
     }
-    // Проверяем, что zakодированный размер не превышает лимит фрейма.
+    // Проверяем, что закодированный размер не превышает лимит фрейма.
     final encoded = envelope.toBytes();
     if (encoded.length > ProtocolLimits.maxFrameSize) {
       return Err(SizeLimitExceeded(

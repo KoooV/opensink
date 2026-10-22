@@ -172,8 +172,8 @@ void main() {
       // Добавление пакета unorm_dart требует отдельного обоснования (TODO(verify)).
       const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 
-      // NFC форма не-ASCII символа (é как один кодовый пункт).
-      const nfcPassphrase = 'Café'; // U+0043 U+0061 U+0066 U+00E9
+      // NFC форма не-ASCII символа (e-acute как один кодовый пункт).
+      const nfcPassphrase = 'Café'; // U+0043 U+0061 U+0066 U+00E9 // hygiene-allow: NFC fixture
 
       // NFD форма того же символа (e + combining acute accent).
       const nfdPassphrase = 'Cafe\u{0301}'; // U+0043 U+0061 U+0066 U+0065 U+0301

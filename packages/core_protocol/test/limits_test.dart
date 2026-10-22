@@ -9,7 +9,7 @@ void main() {
     final codec = ProtocolCodec();
 
     test('payload above maxPayloadSize is rejected on decode', () {
-      // Собираем сырой конверт минуя encode, чтобы проверить именноdecode-чек.
+      // Собираем сырой конверт минуя encode, чтобы проверить именно decode-чек.
       final writer = ProtoWriter();
       writer.writeVarintField(1, 1);
       writer.writeVarintField(2, 1);

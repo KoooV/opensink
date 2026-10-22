@@ -21,7 +21,7 @@ String bytesToHex(List<int> bytes) {
   return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
 }
 
-/// Unabhängige (вне класса X3DH) пересчёт общего секрета по формуле X3DH:
+/// Независимый (вне класса X3DH) пересчёт общего секрета по формуле X3DH:
 ///
 ///   dh2 = X25519(ephemeral_priv, IK_recipient_pub)
 ///   dh3 = X25519(ephemeral_priv, SPK_recipient_pub)
@@ -78,7 +78,7 @@ void main() {
       expect(senderResult.isOk, isTrue);
       final senderShared = (senderResult as Ok<X3DHSenderResult, CryptoError>).value;
 
-      // Unabhängiger пересчёт с позиции Алисы: её приватные IK/SPK + эфемерный pub Bob.
+      // Независимый пересчёт с позиции Алисы: её приватные IK/SPK + эфемерный pub Bob.
       // DH(Alice_IK_priv, Bob_Ephemeral_pub) == DH(Bob_Ephemeral_priv, Alice_IK_pub) — коммутативность.
       final aliceIkPrivBytes = await aliceBundle.identityPrivateKey.extractBytes();
       final aliceSpkPrivBytes = await aliceBundle.signedPrekeyPrivateKey.extractBytes();
@@ -139,7 +139,7 @@ void main() {
       expect(senderResult.isOk, isTrue);
       final normalBytes = await senderResult.unwrap().sharedKey.extractBytes();
 
-      // Unabhängiger пересчёт с переставленным порядком: dh3 || dh2.
+      // Независимый пересчёт с переставленным порядком: dh3 || dh2.
       final aliceIkPrivBytes = await aliceBundle.identityPrivateKey.extractBytes();
       final aliceSpkPrivBytes = await aliceBundle.signedPrekeyPrivateKey.extractBytes();
 

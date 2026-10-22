@@ -1,5 +1,5 @@
 {
-  "description": "Тестовые векторы BIP-39 (英語, passphrase \"TREZOR\").\nИсточник: сгенерировано реализацией этого пакета (Bip39.entropyToMnemonic + Bip39.mnemonicToSeed с PBKDF2-HMAC-SHA512, 2048 итераций, соль \"mnemonic\" + passphrase).\nМнемоника для 128-битного нулевого энтропии совпадает с официальным BIP-39 вектором (abandon...about).\nОстальные векторы требуют независимой сверки с официальным источником (см. TODO(verify) в bip39_integrity_test.dart).\nПоля: entropyBits, entropyHex, mnemonic, passphrase, seedHex (512 бит).",
+  "description": "Тестовые векторы BIP-39 (английский, passphrase \"TREZOR\"). Источник: сгенерировано реализацией этого пакета (Bip39.entropyToMnemonic + Bip39.mnemonicToSeed с PBKDF2-HMAC-SHA512, 2048 итераций, соль \"mnemonic\" + passphrase). Мнемоника для 128-битного нулевого энтропии совпадает с официальным BIP-39 вектором (abandon...about). Остальные векторы требуют независимой сверки с официальным источником (см. TODO(verify) в bip39_integrity_test.dart). Поля: entropyBits, entropyHex, mnemonic, passphrase, seedHex (512 бит).",
   "vectors": [
     {
       "entropyBits": 128,

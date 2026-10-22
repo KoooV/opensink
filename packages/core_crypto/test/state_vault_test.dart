@@ -318,7 +318,7 @@ void main() {
         sendingChainKey: receivingChainKey,
         receivingChainKey: sendingChainKey,
       );
-      // Bob использует своё состояние доratchet; для расшифровки первого сообщения
+      // Bob использует своё состояние до ratchet-шага; для расшифровки первого сообщения
       // нужно состояние Bob до первого сообщения. Используем исходное bob.
       final bobDecrypt = await bob.decrypt(data: wire);
       expect(bobDecrypt.isOk, isTrue);
