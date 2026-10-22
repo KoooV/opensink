@@ -1,4 +1,4 @@
-# REVIEW_LIST.md — файлы и диапазоны для ручного ревью (слой 2)
+# REVIEW_LIST.md — файлы и диапазоны для ручного ревью (слои 2 и 4)
 
 Каждая запись: файл:диапазон, что проверять, критерий прохождения.
 
@@ -10,7 +10,7 @@
 |------|----------|---------------|
 | `packages/core_crypto/lib/src/bip39.dart` | 1–296 | Встроенный wordlist 2048 слов, SHA-256 на чистом Dart, PBKDF2-HMAC-SHA-512 (2048 итераций, соль `"mnemonic" + passphrase`), отказ от не-ASCII passphrase (`ArgumentError`), `mnemonicToEntropy` / `entropyToMnemonic` валидация checksum. |
 | `packages/core_crypto/lib/src/identity.dart` | 1–173 | `recoverIdentityFromMnemonic()` использует `Ed25519().newKeyPairFromSeed(edMaterial)` и `X25519().newKeyPairFromSeed(xMaterial)` (публичные ключи из тех же seed, что и приватные — исправление D-03), `verifyBinding()` — подпись X25519 public key Ed25519 private key, `toString()` не раскрывает секреты. |
-| `packages/core_crypto/lib/src/signer.dart` | 1–53 | `sign()` использует пару из однойパары (исправление D-02), `verify()` ловит все `Exception`/`Error` → `false` на некорректный ввод, нет временной ключевой пары с подменой public key. |
+| `packages/core_crypto/lib/src/signer.dart` | 1–53 | `sign()` использует пару из одной пары (исправление D-02), `verify()` ловит все `Exception`/`Error` → `false` на некорректный ввод, нет временной ключевой пары с подменой public key. |
 
 ---
 
@@ -29,7 +29,7 @@
 |------|----------|---------------|
 | `packages/core_crypto/lib/src/e2ee/x3dh.dart` | 1–268 | Ослабленный вариант без OPK, контекст подписи `"opensink/x3dh/spk-binding/v1|" + spkBytes`, `sender()` возвращает `CryptoResult` с `Err(InvalidSignature)` при неверной привязке, `receiver()` с локальным бандлом, `ed25519PublicKey` в бандле. |
 | `packages/core_crypto/test/e2ee/x3dh_test.dart` | все | RFC 7748 §6.1 вектор, roundtrip sender/receiver, разные бандлы → разные ключи, неверная подпись SPK → отказ, отсутствие подписи → отказ, без OPK. |
-| `packages/core_crypto/test/x3dh_independent_test.dart` | все | Unabhängiger пересчёт SK, коммутативность DH, негативы (перестановка dh2||dh3, замена info, подмена SPK, подмена ed25519PublicKey). |
+| `packages/core_crypto/test/x3dh_independent_test.dart` | все | Независимый пересчёт SK, коммутативность DH, негативы (перестановка dh2||dh3, замена info, подмена SPK, подмена ed25519PublicKey). |
 
 ---
 
@@ -38,7 +38,7 @@
 | Файл | Диапазон | Что проверять |
 |------|----------|---------------|
 | `packages/core_crypto/lib/src/e2ee/double_ratchet.dart` | 1–628 | `dhRatchetStep()` реализован (не UnimplementedError — исправление D-06), KDF_RK (HKDF-SHA-256, salt=prev rootKey, info=`"opensink/double-ratchet/root-key"`), KDF_CK один вызов HKDF outputLength 64 → split messageKey/nextChainKey (исправление D-18), `remoteDhPublicKey` из опционального поля при `hasOptionalDh` (исправление D-16), атомарность `skippedKeys` (исправление D-17), `_maxMessageNumber = 1 << 30` (исправление D-19), `maxSkip = 100` FIFO + TTL 24ч, header v1 формат, `toBytes`/`fromBytes` версии 1. |
-| `packages/core_crypto/test/e2ee/double_ratchet_test.dart` | все | Ping-pong, out-of-order, потерянное сообщение, MAX_SKIP превышение, replay, порча шифртекста/заголовка, dhRatchetStep ключи меняются, сериализация v1, неизвестная версия → ошибка, toString秘密ность, атомарность (toBytes идентичен после неудачного decrypt), DoS на огромные messageNumber, forward secrecy (message key не в serialize), post-compromise. |
+| `packages/core_crypto/test/e2ee/double_ratchet_test.dart` | все | Ping-pong, out-of-order, потерянное сообщение, MAX_SKIP превышение, replay, порча шифртекста/заголовка, dhRatchetStep ключи меняются, сериализация v1, неизвестная версия → ошибка, отсутствие секретов в toString, атомарность (toBytes идентичен после неудачного decrypt), DoS на огромные messageNumber, forward secrecy (message key не в serialize), post-compromise. |
 
 ---
 
@@ -68,7 +68,7 @@
 | `packages/core_crypto/lib/src/key_store/memory_secure_key_store.dart` | все | `@visibleForTesting`, хранит verbatim (по D-04 by design), `loadIdentity` отсутствие → `Err(IdentityNotFound)`, `toString()` не раскрывает `privateSeed`. |
 | `packages/platform_android/lib/src/secure_key_store_android.dart` | 1–170 | flutter_secure_storage → Keystore (v9.2.4), `privateSeed` как base64 в JSON, ключ `opensink_identity_v1:<userId>`, `schemaVersion` проверка → `StoreCorrupted`, маппинг исключений плагина в `KeyStoreError`, авто-бэкап исключение файлов. |
 | `packages/platform_linux/lib/src/secure_key_store_linux.dart` | 1–214 | flutter_secure_storage → libsecret/secret-service, `checkDependencies()` probe-запись, `StoreUnavailable` при отсутствии Secret Service без отката на файл в открытом виде. |
-| `packages/platform_web/lib/src/secure_key_store_web.dart` | 1–508 | `package:web` (v0.5.1) + `dart:js_interop`, **нет `dart:html`**, KEK: AES-GCM-256 `CryptoKey` `extractable: false` в IndexedDB, гонка вкладок в одной `readwrite` транзакции, AAD = имя ключа, `requestPersistentStorage()`, ошибки: `StoreUnavailable` / `StoreCorrupted` / `StoreError`. |
+| `packages/platform_web/lib/src/secure_key_store_web.dart` | 1–520 | `package:web` (v0.5.1) + `dart:js_interop`, **нет `dart:html`**, алгоритмы Web Crypto получают явный `name: "AES-GCM"`, KEK: AES-GCM-256 `CryptoKey` `extractable: false` в IndexedDB, гонка вкладок в одной `readwrite` транзакции, AAD = имя ключа, `requestPersistentStorage()`, ошибки: `StoreUnavailable` / `StoreCorrupted` / `StoreError`. |
 | `packages/core_domain/lib/src/interfaces/fakes.dart` | все | `FakeSecureKeyStore` реализует Result-контракт, все методы including `storeKey`/`loadKey`/`deleteKey`. |
 
 ---
@@ -90,3 +90,40 @@
 - Каждый пункт проверяется человеком независимо.
 - Выявленные расхождения фиксируются в `docs/DEFECTS.md` как новые D-xx или комментируются как «по дизайну».
 - Код не меняется в рамках фазы F6 без отдельного решения о расширении скоупа.
+
+---
+
+## 9. Слой 4: core_storage (drift, EventStore)
+
+| Файл | Диапазон | Что проверять |
+|------|----------|---------------|
+| `packages/core_domain/lib/src/interfaces/event_store.dart` | 5–110 | `InsertOutcome` (`inserted`/`duplicate`), sealed `EventStoreWriteError`, обязательный `author` и опциональный `channelId` в `EventRecord`, `author` не извлекается из payload, курсор `watchFrom` — id события. |
+| `packages/core_storage/lib/src/event_store_impl.dart` | 35–210 | `write` валидирует `id` (ASCII `[A-Za-z0-9._:-]`, 1–128), `author` (64 hex = 32 байта), `payload` (непустой, ≤ 1 МиБ); передаёт `channelId`; ошибки типизированы и не пишут в БД; `watchFrom`/`watchGroup` подписываются до replay и дедуплицируют по id; исключения executor-а → `StorageWriteError`. |
+| `packages/core_storage/lib/src/database/app_database.dart` | 78–130 | `SELECT sqlite_version()` после `ensureOpen` и до схемы; минимум 3.24.0; `DatabaseVersionTooLow`/`OpenFailure`; версия в `StorageInfo`. |
+| `packages/core_storage/lib/src/database/app_database.dart` | 139–203 | Чтение `schema_info`, создание схемы, миграции по возрастанию, запись версии через `ON CONFLICT(id) DO UPDATE`, поведение для будущей версии. |
+| `packages/core_storage/lib/src/database/app_database.dart` | 443–520 | `rangeSummary` возвращает `Result`, SHA-256 по `ids.join('|')`, `RangeTooLarge` при превышении limit; `eventsFromCursor` — история с id включительно. |
+| `packages/core_storage/lib/src/database/app_database.dart` | 221–252 | `INSERT OR IGNORE INTO events`, `runUpdate`, `seq` не записывается, дубль не перезаписывает байты. |
+| `packages/core_storage/lib/src/database/schema.dart` | 41–300 | `schemaVersion = 6`; DDL `events` без `seq`; индексы; миграции v1→v2, v2→v3, пустой v3→v4, v4→v5 с триггерами, v5→v6 с пересборкой `events`. |
+| `packages/platform_linux/lib/src/storage_database_factory.dart` | 24–114 | `StorageBackend`, `NativeDatabase.createInBackground`/`memory`, PRAGMA `foreign_keys`/`WAL`/`FULL`, проверка имени, предупреждение temp-каталога, `ResourceMissing` для отсутствующей `libsqlite3.so`. |
+| `packages/platform_android/lib/src/storage_database_factory.dart` | 23–103 | Те же контракты для Android; bundled SQLite из `sqlite3_flutter_libs`, отсутствие тихого отката в memory. |
+| `packages/platform_web/lib/src/storage_database_factory_web.dart` | 1–160 | Проверка MIME `sqlite3.wasm`/`drift_worker.js`, `WasmDatabase.open`/`inMemory`, `InMemoryFileSystem`, маппинг `WasmStorageImplementation` → `StorageInfo`, предупреждения для `unsafeIndexedDb`/memory/missing features, `ResourceMissing`. |
+| `packages/core_storage/lib/src/models/storage_info.dart` | 1–70 | `StorageSpec`/`StorageInfo`/`OpenedStorage`/`StorageBackend`, sealed `StorageOpenError`, неизменяемость `warnings`. |
+| `packages/core_storage/lib/src/retention.dart` | все | `run` вызывает `deleteBlob` до удаления metadata; при ошибке metadata сохраняется; `expireBlobs` — metadata-only. |
+| `packages/core_storage/lib/src/platform/storage_backend_result.dart` | 1–25 | `openResult` не выпускает исключения: известные ошибки сохраняются, остальные → `OpenFailure`. |
+| `packages/core_storage/test/event_store_validation_test.dart` | все | Пустой/короткий/не-hex автор, пустой `id`, пустой и слишком большой payload; после ошибки записи нет. |
+| `packages/core_storage/test/event_store_concurrency_test.dart` | все | Параллельные записи одного `id` в одной транзакции и из разных транзакций: ровно один `inserted`. |
+| `packages/core_storage/test/sqlite_open_and_migration_test.dart` | 72–230 | Версия SQLite в `StorageInfo`, ошибка для 3.23.0, schema v6, миграции v3→v6 и v5→v6 с сохранением авторов/данных и удалением `seq`. |
+| `packages/core_storage/test/index_query_plan_test.dart` | все | `EXPLAIN QUERY PLAN` использует `idx_events_group_hlc` и `idx_events_author_hlc`. |
+| `packages/core_storage/test/event_store_contract.dart` | все | Общий контракт записи/чтения/дубля для native и Chrome. |
+| `tool/fetch_web_assets.sh`, `tool/web_assets.lock`, `tool/web_assets.sha256` | все | Версии и SHA-256 `drift_worker.js`/`sqlite3.wasm`; ресурсы не хранятся в Git. |
+| `tool/test_web_storage_chrome.sh` | все | Staging ресурсов, Chrome/dart2js, контракт, persistence, typed errors, perf budget. |
+
+### Критерии прохождения ревью слоя 4
+
+- `EventRecord.author` обязателен; хранилище не разбирает payload и не проверяет подпись.
+- Дубль `id` не перезаписывает байты; колонка `seq` удалена в v6; порядок — `hlc`.
+- Минимум SQLite 3.24.0 проверяется при каждом открытии; ошибки типизированы.
+- Миграция v3→v6 не декодирует старые payload, сохраняет карантинные строки, создаёт append-only триггеры; v5→v6 удаляет `seq` без потери событий.
+- `UPDATE`/`DELETE` событий блокируются SQLite-триггерами; низкоуровневый `insertEvent` помечен `@internal`.
+- `core_storage/lib` не содержит платформенных импортов; фабрики живут в `platform_*`.
+- Web-деградация не приводит к тихому откату на memory; предупреждения попадают в `StorageInfo.warnings`.

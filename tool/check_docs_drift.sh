@@ -2,8 +2,8 @@
 # Проверяет дрейф документации относительно кода:
 #   (a) пакеты, упомянутые в docs/DESIGN.md, есть в pubspec.yaml workspace;
 #   (b) идентификаторы дефектов D-xx, упомянутые в docs/DESIGN.md, есть в таблице docs/DEFECTS.md;
-#   (c) число записей Q-xx в docs/OPEN_QUESTIONS.md vs число TODO(verify) в коде (отчёт, не блокер).
-# Возвращает ненулевой код при дрейфе в (a) или (b).
+#   (c) индекс TODO(verify) в docs/OPEN_QUESTIONS.md vs TODO(verify) в коде.
+# Возвращает ненулевой код при дрейфе в (a), (b) или (c).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -71,21 +71,29 @@ if [ "$FAIL" -eq 0 ]; then
 fi
 
 echo ""
-echo "== Проверка (c): Q-xx в OPEN_QUESTIONS.md vs TODO(verify) в коде =="
+echo "== Проверка (c): индекс TODO(verify) в OPEN_QUESTIONS.md vs TODO(verify) в коде =="
 
 Q_COUNT=$(grep -cE '^## Q[0-9]+' "$OPEN_Q" || true)
-TODO_COUNT=$(grep -rn "TODO(verify)" "$REPO_ROOT/packages" "$REPO_ROOT/apps" --include="*.dart" 2>/dev/null | wc -l)
+TODO_LOCS=$(grep -rIn "TODO(verify)" "$REPO_ROOT/packages" "$REPO_ROOT/apps" --include="*.dart" 2>/dev/null \
+  | cut -d: -f1,2 | sed "s|$REPO_ROOT/||" | sort || true)
+TODO_COUNT=$(printf '%s\n' "$TODO_LOCS" | sed '/^$/d' | wc -l)
+INDEX_LOCS=$(grep -oE '\| `?(packages|apps)/[^| `]+:[0-9]+`? \|' "$OPEN_Q" \
+  | tr -d '| `' | sort || true)
+INDEX_COUNT=$(printf '%s\n' "$INDEX_LOCS" | sed '/^$/d' | wc -l)
 
 echo "Q-xx записей в OPEN_QUESTIONS.md: $Q_COUNT"
 echo "TODO(verify) в dart-коде: $TODO_COUNT"
+echo "Записей в индексе TODO: $INDEX_COUNT"
 
-# Q1-Q11 — общие вопросы (не привязаны к конкретным TODO(verify)),
-# Q12-Q19 — 8 TODO(verify) в stub-пакетах, 2 TODO(verify) в bip39_integrity_test.dart ссылаются на существующие Q.
-# Несоответствие не является блокером, но требует осознанного отношения.
-if [ "$Q_COUNT" -ne "$TODO_COUNT" ]; then
-  echo "INFO (c): числа не совпадают ($Q_COUNT Q-записей vs $TODO_COUNT TODO(verify)) — это допустимо, если избыточные Q относятся к закрытым/отложенным вопросам без маркера в коде."
+if [ "$TODO_COUNT" -ne "$INDEX_COUNT" ]; then
+  echo "DRIFT (c): число TODO(verify) ($TODO_COUNT) не совпадает с числом записей индекса ($INDEX_COUNT)" >&2
+  FAIL=1
+elif [ "$TODO_LOCS" != "$INDEX_LOCS" ]; then
+  echo "DRIFT (c): список TODO(verify) не совпадает с индексом" >&2
+  diff <(printf '%s\n' "$TODO_LOCS") <(printf '%s\n' "$INDEX_LOCS") >&2 || true
+  FAIL=1
 else
-  echo "OK (c): числа совпадают ($Q_COUNT = $TODO_COUNT)"
+  echo "OK (c): все TODO(verify) учтены в индексе ($TODO_COUNT = $INDEX_COUNT)"
 fi
 
 echo ""
