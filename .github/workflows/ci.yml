@@ -34,6 +34,9 @@ jobs:
       - name: Test
         run: melos run test
 
+      - name: Text hygiene
+        run: bash tool/check_text_hygiene.sh
+
       - name: Assert no dart:io / dart:html in core_* packages
         run: |
           for pkg in packages/core_*; do
@@ -98,6 +101,33 @@ jobs:
       - name: check_docs_drift.sh
         run: bash tool/check_docs_drift.sh
 
+  storage-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install melos
+        run: dart pub global activate melos
+
+      - name: Bootstrap workspace
+        run: melos bootstrap
+
+      - name: Test full platform_web in Chrome (dart2js)
+        env:
+          CHROME_EXECUTABLE: /usr/bin/google-chrome-stable
+        run: bash tool/test_web_full_chrome.sh
+
   builds:
     needs: analyze-and-test
     runs-on: ubuntu-latest
@@ -115,10 +145,24 @@ jobs:
       - name: Flutter doctor
         run: flutter doctor
 
-      - name: Build Web
-        run: |
-          cd apps/app
-          flutter build web
+      - name: Fetch and verify pinned web assets
+        run: bash tool/fetch_web_assets.sh
+
+      - name: Build Web (debug)
+        working-directory: apps/app
+        run: flutter build web --debug
+
+      - name: Verify debug web resources
+        working-directory: apps/app/build/web
+        run: sha256sum --check "$GITHUB_WORKSPACE/tool/web_assets.sha256"
+
+      - name: Build Web (release)
+        working-directory: apps/app
+        run: flutter build web --release
+
+      - name: Verify release web resources
+        working-directory: apps/app/build/web
+        run: sha256sum --check "$GITHUB_WORKSPACE/tool/web_assets.sha256"
 
       - name: Build Linux
         run: |
