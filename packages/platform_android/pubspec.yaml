@@ -1,5 +1,5 @@
 name: platform_android
-description: "OpenSink Android platform implementation (flutter_secure_storage)."
+description: "OpenSink Android platform implementation."
 version: 0.1.0
 publish_to: 'none'
 resolution: workspace
@@ -14,7 +14,13 @@ dependencies:
     path: ../core_domain
   core_crypto:
     path: ../core_crypto
+  core_storage:
+    path: ../core_storage
+  drift: ^2.17.0
   flutter_secure_storage: ^9.2.2
+  path_provider: ^2.1.6
+  sqlite3: ^2.4.5
+  sqlite3_flutter_libs: 0.5.41
 
 dev_dependencies:
   flutter_test:

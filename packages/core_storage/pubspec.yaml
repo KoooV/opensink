@@ -10,7 +10,13 @@ environment:
 dependencies:
   core_domain:
     path: ../core_domain
+  crypto: ^3.0.0
   drift: ^2.17.0
+  meta: ^1.16.0
 
 dev_dependencies:
   test: ^1.26.0
+  # TODO(verify): drift_dev conflicts with melos/cli_util in workspace.
+  # Hand-write app_database.g.dart until dependency resolution is fixed.
+  # build_runner: ^2.4.0
+  # drift_dev: ^2.17.0

@@ -12,6 +12,10 @@ dependencies:
     path: ../core_domain
   core_crypto:
     path: ../core_crypto
+  core_storage:
+    path: ../core_storage
+  drift: ^2.17.0
+  sqlite3: ^2.4.5
   web: ^0.5.1
 
 dev_dependencies:

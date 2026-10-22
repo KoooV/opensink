@@ -239,6 +239,7 @@ void main() {
       final record = EventRecord(
         id: 'evt-1',
         groupId: GroupId('g-1'),
+        author: List.filled(32, '01').join(),
         payload: [1, 2],
         timestamp: 1000,
         signature: 'sig',

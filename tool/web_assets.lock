@@ -1,0 +1,6 @@
+{
+  "drift": "2.19.1+1",
+  "driftRelease": "2.19.1",
+  "sqlite3": "2.4.5",
+  "sqlite3Release": "2.4.5"
+}

@@ -235,17 +235,40 @@ class FakeEventStore implements EventStore {
   final _controller = StreamController<EventRecord>.broadcast();
 
   @override
-  Future<void> write(EventRecord record) async {
+  Future<Result<InsertOutcome, EventStoreWriteError>> write(
+    EventRecord record,
+  ) async {
+    if (_records.any((existing) => existing.id == record.id)) {
+      return const Ok(InsertOutcome(inserted: false, duplicate: true));
+    }
     _records.add(record);
     _controller.add(record);
+    return const Ok(InsertOutcome(inserted: true, duplicate: false));
   }
 
   @override
-  Stream<EventRecord> watchFrom(String cursor) => _controller.stream;
+  Stream<EventRecord> watchFrom(String cursor) async* {
+    var started = cursor.isEmpty;
+    for (final record in _records) {
+      if (!started && record.id == cursor) {
+        started = true;
+      }
+      if (started) {
+        yield record;
+      }
+    }
+    yield* _controller.stream;
+  }
 
   @override
-  Stream<EventRecord> watchGroup(GroupId groupId) =>
-      _controller.stream.where((r) => r.groupId == groupId);
+  Stream<EventRecord> watchGroup(GroupId groupId) async* {
+    for (final record in _records) {
+      if (record.groupId == groupId) {
+        yield record;
+      }
+    }
+    yield* _controller.stream.where((r) => r.groupId == groupId);
+  }
 
   List<EventRecord> get records => List.unmodifiable(_records);
 
