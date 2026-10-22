@@ -1,16 +1,15 @@
 import 'dart:typed_data';
 import 'package:test/test.dart';
 import 'package:core_domain/core_domain.dart';
-import 'package:core_domain/src/interfaces/fakes.dart';
 
 void main() {
   group('Group.apply — чистая функция от событий', () {
     test('создание группы инициализирует состояние', () {
-      final owner = UserId('user-1');
-      final alice = UserId('user-2');
+      const owner = UserId('user-1');
+      const alice = UserId('user-2');
       final event = GroupCreated(
-        id: EventId('evt-1'),
-        groupId: GroupId('group-1'),
+        id: const EventId('evt-1'),
+        groupId: const GroupId('group-1'),
         authorId: owner,
         timestamp: 1000,
         name: 'My Group',
@@ -18,7 +17,7 @@ void main() {
         initialMembers: {owner, alice},
       );
 
-      final group = Group(
+      final group = const Group(
         id: GroupId('group-1'),
         name: '',
         ownerId: owner,
@@ -36,9 +35,9 @@ void main() {
     });
 
     test('применение не мутирует исходное состояние', () {
-      final owner = UserId('user-1');
+      const owner = UserId('user-1');
       final group = Group(
-        id: GroupId('group-1'),
+        id: const GroupId('group-1'),
         name: 'Old',
         ownerId: owner,
         memberIds: {owner},
@@ -48,7 +47,7 @@ void main() {
         updatedAt: 100,
       );
 
-      final event = GroupRenamed(
+      const event = GroupRenamed(
         id: EventId('evt-2'),
         groupId: GroupId('group-1'),
         authorId: owner,
@@ -68,13 +67,13 @@ void main() {
   group('GroupEvent.validateInvariants', () {
     test('GroupCreated с пустым именем — ошибка', () {
       final event = GroupCreated(
-        id: EventId('evt-1'),
-        groupId: GroupId('g'),
-        authorId: UserId('u'),
+        id: const EventId('evt-1'),
+        groupId: const GroupId('g'),
+        authorId: const UserId('u'),
         timestamp: 1000,
         name: '',
-        ownerId: UserId('u'),
-        initialMembers: {UserId('u')},
+        ownerId: const UserId('u'),
+        initialMembers: {const UserId('u')},
       );
 
       final result = event.validateInvariants();
@@ -86,7 +85,7 @@ void main() {
     });
 
     test('GroupCreated без начальных участников — ошибка', () {
-      final event = GroupCreated(
+      const event = GroupCreated(
         id: EventId('evt-1'),
         groupId: GroupId('g'),
         authorId: UserId('u'),
@@ -136,7 +135,7 @@ void main() {
       final channel = FakeSignalingChannel();
       await channel.join('topic-1');
       final received = <SignalingMessage>[];
-      final sub = channel.incoming.listen((m) => received.add(m));
+      final sub = channel.incoming.listen(received.add);
 
       await channel.publish('topic-1', [1, 2, 3]);
       channel.emit(SignalingMessage(
@@ -161,7 +160,7 @@ void main() {
     test('send/incoming/state/stats/close', () async {
       final link = FakePeerLink(PeerId(Uint8List.fromList([7])));
       final received = <Incoming>[];
-      link.incoming.listen((data) => received.add(data));
+      link.incoming.listen(received.add);
 
       await link.send('chat', [1, 2, 3]);
       link.emitIncoming(const Incoming(
@@ -188,7 +187,7 @@ void main() {
     test('connect/events/send/close', () async {
       final transport = FakeTransport();
       final events = <PeerLinkEvent>[];
-      transport.events.listen((e) => events.add(e));
+      transport.events.listen(events.add);
 
       final link = await transport.connect(PeerId(Uint8List.fromList([8])));
       await transport.send(PeerId(Uint8List.fromList([8])), [9, 9]);
@@ -238,14 +237,14 @@ void main() {
       final store = FakeEventStore();
       final record = EventRecord(
         id: 'evt-1',
-        groupId: GroupId('g-1'),
+        groupId: const GroupId('g-1'),
         author: List.filled(32, '01').join(),
         payload: [1, 2],
         timestamp: 1000,
         signature: 'sig',
       );
       final received = <EventRecord>[];
-      store.watchGroup(GroupId('g-1')).listen((r) => received.add(r));
+      store.watchGroup(const GroupId('g-1')).listen(received.add);
 
       await store.write(record);
 
@@ -272,10 +271,10 @@ void main() {
   group('FakeGroupState', () {
     test('state/watch', () async {
       final state = GroupState(
-        id: GroupId('g-1'),
+        id: const GroupId('g-1'),
         name: 'G',
-        ownerId: UserId('u-1'),
-        memberIds: {UserId('u-1')},
+        ownerId: const UserId('u-1'),
+        memberIds: {const UserId('u-1')},
         channelIds: {},
         createdAt: 100,
         updatedAt: 100,
@@ -284,7 +283,7 @@ void main() {
       expect(fake.state.name, 'G');
 
       final watched = <GroupState>[];
-      fake.watch().listen((s) => watched.add(s));
+      fake.watch().listen(watched.add);
 
       final next = GroupState(
         id: state.id,
@@ -307,7 +306,7 @@ void main() {
   group('FakeSecureKeyStore', () {
     test('хранит и загружает идентичность', () async {
       final store = FakeSecureKeyStore();
-      final userId = UserId('user-1');
+      const userId = UserId('user-1');
       final has = await store.hasIdentity(userId);
       expect(has.isOk, isTrue);
       expect((has as Ok<bool, KeyStoreError>).value, isFalse);
@@ -353,7 +352,7 @@ void main() {
       expect(source.isCapturing, isFalse);
 
       final frames = <List<int>>[];
-      source.frames.listen((f) => frames.add(f));
+      source.frames.listen(frames.add);
 
       await source.start();
       expect(source.isCapturing, isTrue);

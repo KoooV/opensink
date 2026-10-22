@@ -1,4 +1,4 @@
-library core_sync.hlc_validator;
+library;
 
 import 'package:core_domain/core_domain.dart';
 

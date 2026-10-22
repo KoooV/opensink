@@ -1,4 +1,4 @@
-library core_sync;
+library;
 
 export 'src/hlc_validator.dart';
 

@@ -46,7 +46,7 @@ class ChatEvent {
       text: text ?? this.text,
       replyTo: replyTo ?? this.replyTo,
       attachments: attachments ?? this.attachments,
-      unknownFields: unknownFields ?? this._unknownFields,
+      unknownFields: unknownFields ?? _unknownFields,
     );
   }
 
@@ -236,7 +236,7 @@ class GroupEvent {
       channelId: channelId ?? this.channelId,
       channelType: channelType ?? this.channelType,
       newOwnerId: newOwnerId ?? this.newOwnerId,
-      unknownFields: unknownFields ?? this._unknownFields,
+      unknownFields: unknownFields ?? _unknownFields,
     );
   }
 
@@ -1348,7 +1348,7 @@ class RelayFrame {
       ttl: ttl ?? this.ttl,
       hopCount: hopCount ?? this.hopCount,
       payload: payload ?? this.payload,
-      unknownFields: unknownFields ?? this._unknownFields,
+      unknownFields: unknownFields ?? _unknownFields,
     );
   }
 

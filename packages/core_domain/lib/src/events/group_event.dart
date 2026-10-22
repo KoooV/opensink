@@ -19,7 +19,7 @@ sealed class GroupEvent {
   /// Каноническое представление события для подписи / верификации.
   /// Должно быть детерминированным (одинаковое на всех узлах).
   ///
-  /// ⚠ Подпись события носится только на уровне [Envelope] (бинарный
+  /// ⚠ Подпись события носится только на уровне `Envelope` (бинарный
   /// конверт). Доменное событие не подписывается отдельно — доверие
   /// устанавливается подписью конверта, а не полем внутри события.
   Map<String, Object?> toCanonicalMap();
@@ -59,12 +59,12 @@ class GroupCreated extends GroupEvent {
   @override
   Result<void, GroupEventError> validateInvariants() {
     if (name.isEmpty) {
-      return Err(emptyName);
+      return const Err(emptyName);
     }
     if (initialMembers.isEmpty) {
-      return Err(noInitialMembers);
+      return const Err(noInitialMembers);
     }
-    return Ok(null);
+    return const Ok(null);
   }
 }
 
@@ -91,7 +91,7 @@ class MemberAdded extends GroupEvent {
       };
 
   @override
-  Result<void, GroupEventError> validateInvariants() => Ok(null);
+  Result<void, GroupEventError> validateInvariants() => const Ok(null);
 }
 
 class MemberRemoved extends GroupEvent {
@@ -117,7 +117,7 @@ class MemberRemoved extends GroupEvent {
       };
 
   @override
-  Result<void, GroupEventError> validateInvariants() => Ok(null);
+  Result<void, GroupEventError> validateInvariants() => const Ok(null);
 }
 
 class ChannelCreated extends GroupEvent {
@@ -151,9 +151,9 @@ class ChannelCreated extends GroupEvent {
   @override
   Result<void, GroupEventError> validateInvariants() {
     if (name.isEmpty) {
-      return Err(emptyName);
+      return const Err(emptyName);
     }
-    return Ok(null);
+    return const Ok(null);
   }
 }
 
@@ -180,7 +180,7 @@ class ChannelDeleted extends GroupEvent {
       };
 
   @override
-  Result<void, GroupEventError> validateInvariants() => Ok(null);
+  Result<void, GroupEventError> validateInvariants() => const Ok(null);
 }
 
 class GroupRenamed extends GroupEvent {
@@ -208,9 +208,9 @@ class GroupRenamed extends GroupEvent {
   @override
   Result<void, GroupEventError> validateInvariants() {
     if (name.isEmpty) {
-      return Err(emptyName);
+      return const Err(emptyName);
     }
-    return Ok(null);
+    return const Ok(null);
   }
 }
 
@@ -237,7 +237,7 @@ class OwnerTransferred extends GroupEvent {
       };
 
   @override
-  Result<void, GroupEventError> validateInvariants() => Ok(null);
+  Result<void, GroupEventError> validateInvariants() => const Ok(null);
 }
 
 /// Ошибки валидации групповых событий.

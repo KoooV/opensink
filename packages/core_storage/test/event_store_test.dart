@@ -22,11 +22,11 @@ void main() {
     });
 
     test('write stores an event and returns it via watchGroup', () async {
-      const record = const EventRecord(
+      const record = EventRecord(
         id: 'event-1',
-        groupId: const GroupId('group-1'),
+        groupId: GroupId('group-1'),
         author: _kAuthor,
-        payload: const [1, 2, 3],
+        payload: [1, 2, 3],
         timestamp: 1000,
         signature: 'sig-hex',
       );
@@ -77,11 +77,11 @@ void main() {
     });
 
     test('write is idempotent: same id inserted twice = one row', () async {
-      const record = const EventRecord(
+      const record = EventRecord(
         id: 'event-dup',
-        groupId: const GroupId('group-1'),
+        groupId: GroupId('group-1'),
         author: _kAuthor,
-        payload: const [1],
+        payload: [1],
         timestamp: 1000,
         signature: 'sig-a',
       );
@@ -102,19 +102,19 @@ void main() {
     });
 
     test('write with same id but different bytes keeps original bytes', () async {
-      const firstRecord = const EventRecord(
+      const firstRecord = EventRecord(
         id: 'event-same-id',
-        groupId: const GroupId('group-1'),
+        groupId: GroupId('group-1'),
         author: _kAuthor,
-        payload: const [1],
+        payload: [1],
         timestamp: 1000,
         signature: 'sig-a',
       );
-      const secondRecord = const EventRecord(
+      const secondRecord = EventRecord(
         id: 'event-same-id',
-        groupId: const GroupId('group-1'),
+        groupId: GroupId('group-1'),
         author: _kAuthor,
-        payload: const [9, 9, 9],
+        payload: [9, 9, 9],
         timestamp: 2000,
         signature: 'sig-b',
       );
@@ -130,11 +130,11 @@ void main() {
     });
 
     test('getEvent retrieves a single event by id', () async {
-      const record = const EventRecord(
+      const record = EventRecord(
         id: 'event-get',
-        groupId: const GroupId('group-1'),
+        groupId: GroupId('group-1'),
         author: _kAuthor,
-        payload: const [9, 9, 9],
+        payload: [9, 9, 9],
         timestamp: 2000,
         signature: 'sig-get',
       );
@@ -155,11 +155,11 @@ void main() {
       final received = <EventRecord>[];
       final subscription = store.watchFrom('cursor').listen(received.add);
 
-      const record = const EventRecord(
+      const record = EventRecord(
         id: 'event-new',
-        groupId: const GroupId('group-1'),
+        groupId: GroupId('group-1'),
         author: _kAuthor,
-        payload: const [7],
+        payload: [7],
         timestamp: 3000,
         signature: 'sig-new',
       );
@@ -255,9 +255,9 @@ void main() {
       // Pre-existing event
       await store.write(const EventRecord(
         id: 'event-old',
-        groupId: const GroupId('group-1'),
+        groupId: GroupId('group-1'),
         author: _kAuthor,
-        payload: const [0],
+        payload: [0],
         timestamp: 1000,
         signature: 'sig-old',
       ));
@@ -271,9 +271,9 @@ void main() {
       // New event after subscription
       await store.write(const EventRecord(
         id: 'event-new2',
-        groupId: const GroupId('group-1'),
+        groupId: GroupId('group-1'),
         author: _kAuthor,
-        payload: const [1],
+        payload: [1],
         timestamp: 2000,
         signature: 'sig-new2',
       ));
@@ -288,15 +288,15 @@ void main() {
     test('events for different groups are isolated', () async {
       await store.write(const EventRecord(
         id: 'e1',
-        groupId: const GroupId('group-a'),
+        groupId: GroupId('group-a'),
         author: _kAuthor,
-        payload: const [1],
+        payload: [1],
         timestamp: 1000,
         signature: 's1',
       ));
       await store.write(const EventRecord(
         id: 'e2',
-        groupId: const GroupId('group-b'),
+        groupId: GroupId('group-b'),
         author: _kAuthor,
         payload: [2],
         timestamp: 1000,

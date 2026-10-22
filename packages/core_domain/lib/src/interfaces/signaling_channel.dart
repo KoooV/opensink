@@ -1,5 +1,8 @@
+import '../../core_domain.dart' show FakeSignalingChannel;
 import '../models/identifiers.dart';
 import 'package:meta/meta.dart';
+
+import 'fakes.dart' show FakeSignalingChannel;
 
 /// Сообщение сигнализации (WebRTC offer / answer / ICE-кандидат / hangup).
 @immutable

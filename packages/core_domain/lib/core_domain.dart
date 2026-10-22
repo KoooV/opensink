@@ -1,4 +1,4 @@
-library core_domain;
+library;
 
 export 'src/models/identifiers.dart';
 export 'src/models/identity.dart';

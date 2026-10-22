@@ -110,7 +110,7 @@ void main() {
   });
 
   group('StateVault порча зон конверта', () {
-    SealedState _tamperZone(SealedState sealed, int offset, int newValue) {
+    SealedState tamperZone(SealedState sealed, int offset, int newValue) {
       final bytes = Uint8List.fromList(sealed.bytes);
       bytes[offset] = newValue;
       return SealedState.fromBytes(bytes);
@@ -120,7 +120,7 @@ void main() {
       final vault = _freshVault();
       final sealed = await vault.seal(Uint8List.fromList('data'.codeUnits), _ctx());
       expect(sealed.isOk, isTrue);
-      final tampered = _tamperZone(sealed.unwrap(), 0, 0xFF);
+      final tampered = tamperZone(sealed.unwrap(), 0, 0xFF);
       final opened = await vault.open(tampered, _ctx());
       expect(opened.isErr, isTrue);
       expect(opened.unwrapErr(), isA<OpenFailed>());
@@ -130,7 +130,7 @@ void main() {
       final vault = _freshVault();
       final sealed = await vault.seal(Uint8List.fromList('data'.codeUnits), _ctx());
       expect(sealed.isOk, isTrue);
-      final tampered = _tamperZone(sealed.unwrap(), 1, 0xFF);
+      final tampered = tamperZone(sealed.unwrap(), 1, 0xFF);
       final opened = await vault.open(tampered, _ctx());
       expect(opened.isErr, isTrue);
       expect(opened.unwrapErr(), isA<OpenFailed>());
@@ -140,7 +140,7 @@ void main() {
       final vault = _freshVault();
       final sealed = await vault.seal(Uint8List.fromList('data'.codeUnits), _ctx(stateId: 'abc'));
       expect(sealed.isOk, isTrue);
-      final tampered = _tamperZone(sealed.unwrap(), 2, 0xFF);
+      final tampered = tamperZone(sealed.unwrap(), 2, 0xFF);
       final opened = await vault.open(tampered, _ctx(stateId: 'abc'));
       expect(opened.isErr, isTrue);
       expect(opened.unwrapErr(), isA<OpenFailed>());
@@ -151,7 +151,7 @@ void main() {
       final sealed = await vault.seal(Uint8List.fromList('data'.codeUnits), _ctx(stateId: 'abc'));
       expect(sealed.isOk, isTrue);
       // stateId начинается с offset 4.
-      final tampered = _tamperZone(sealed.unwrap(), 4, sealed.unwrap().bytes[4] ^ 0xFF);
+      final tampered = tamperZone(sealed.unwrap(), 4, sealed.unwrap().bytes[4] ^ 0xFF);
       final opened = await vault.open(tampered, _ctx(stateId: 'abc'));
       expect(opened.isErr, isTrue);
       expect(opened.unwrapErr(), isA<OpenFailed>());
@@ -163,7 +163,7 @@ void main() {
       expect(sealed.isOk, isTrue);
       // Тело начинается после version(1) + kind(1) + stateIdLen(2) + stateId(3) = 7.
       const nonceOffset = 7;
-      final tampered = _tamperZone(sealed.unwrap(), nonceOffset, sealed.unwrap().bytes[nonceOffset] ^ 0xFF);
+      final tampered = tamperZone(sealed.unwrap(), nonceOffset, sealed.unwrap().bytes[nonceOffset] ^ 0xFF);
       final opened = await vault.open(tampered, _ctx());
       expect(opened.isErr, isTrue);
       expect(opened.unwrapErr(), isA<OpenFailed>());
@@ -182,7 +182,7 @@ void main() {
       const ciphertextStart = bodyStart + nonceLen;
       final ciphertextEnd = bytes.length - macLen;
       final tamperOffset = ciphertextStart + (ciphertextEnd - ciphertextStart) ~/ 2;
-      final tampered = _tamperZone(sealed.unwrap(), tamperOffset, bytes[tamperOffset] ^ 0xFF);
+      final tampered = tamperZone(sealed.unwrap(), tamperOffset, bytes[tamperOffset] ^ 0xFF);
       final opened = await vault.open(tampered, _ctx());
       expect(opened.isErr, isTrue);
       expect(opened.unwrapErr(), isA<OpenFailed>());
@@ -193,7 +193,7 @@ void main() {
       final sealed = await vault.seal(Uint8List.fromList('data'.codeUnits), _ctx());
       expect(sealed.isOk, isTrue);
       final bytes = sealed.unwrap().bytes;
-      final tampered = _tamperZone(sealed.unwrap(), bytes.length - 1, bytes[bytes.length - 1] ^ 0xFF);
+      final tampered = tamperZone(sealed.unwrap(), bytes.length - 1, bytes[bytes.length - 1] ^ 0xFF);
       final opened = await vault.open(tampered, _ctx());
       expect(opened.isErr, isTrue);
       expect(opened.unwrapErr(), isA<OpenFailed>());

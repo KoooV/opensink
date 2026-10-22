@@ -1,3 +1,3 @@
-library core_relay;
+library;
 
 // TODO(verify): Relay реализация маршрутизации через участников группы.

@@ -1,3 +1,6 @@
+import '../core_protocol.dart' show Envelope;
+import 'envelope.dart' show Envelope;
+
 /// Лимиты протокола OpenSink.
 ///
 /// Жёсткие ограничения защищают от повреждённых или злонамеренных фреймов:

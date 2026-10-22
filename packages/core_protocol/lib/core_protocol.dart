@@ -1,4 +1,4 @@
-library core_protocol;
+library;
 
 export 'src/codec.dart';
 export 'src/envelope.dart';

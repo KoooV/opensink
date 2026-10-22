@@ -1,3 +1,3 @@
-library core_group;
+library;
 
 // TODO(verify): GroupState, права доступа, валидация подписей событий.

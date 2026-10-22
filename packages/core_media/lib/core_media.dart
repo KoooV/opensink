@@ -1,3 +1,3 @@
-library core_media;
+library;
 
 // TODO(verify): MediaTopology реализация, звонки и демонстрация экрана.

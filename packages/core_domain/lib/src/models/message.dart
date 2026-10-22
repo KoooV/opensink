@@ -1,6 +1,4 @@
 import 'identifiers.dart';
-import 'user.dart';
-import 'channel.dart';
 
 /// Сообщение в текстовом канале.
 class Message {

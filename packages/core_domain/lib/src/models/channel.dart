@@ -1,5 +1,4 @@
 import 'identifiers.dart';
-import 'user.dart';
 
 /// Текстовый или голосовой канал внутри группы.
 class Channel {

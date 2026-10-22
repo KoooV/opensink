@@ -91,7 +91,7 @@ void runSecureKeyStoreContract(SecureKeyStore Function() factory,
     });
 
     test('неверное имя ключа (пустой userId) обрабатывается без исключения', () async {
-      const emptyUserId = const UserId('');
+      const emptyUserId = UserId('');
       final result = await store.storeIdentity(emptyUserId, bundle());
       // Хранилище должно обработать пустой ключ либо Ok, либо Err — без исключения.
       expect(result.isOk || result.isErr, isTrue);

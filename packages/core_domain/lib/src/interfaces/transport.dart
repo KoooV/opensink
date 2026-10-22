@@ -1,4 +1,6 @@
+import '../../core_domain.dart' show FakeTransport;
 import '../models/identifiers.dart';
+import 'fakes.dart' show FakeTransport;
 import 'peer_link.dart';
 import 'package:meta/meta.dart';
 
