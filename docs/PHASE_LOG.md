@@ -1257,3 +1257,36 @@ Runtime-версия в собранных Android/Linux приложениях 
 - Q25/Q27/Q28/Q30/Q31 — без изменений.
 
 Этап F4.5 завершён. Остановка до ревью.
+
+---
+
+## Запись 28 — Этап F4.6: закрытие S4-12 через ручной QA
+
+### Решения
+
+1. Автоматизация Android runtime (S4-12) не требуется: `flutter drive`/integration runner не настраивается.
+2. Проверка bundled SQLite и `StorageInfo` на Android переведена в обязательный ручной QA-чек-лист перед релизом.
+3. Runtime SQLite на Android остаётся **не проверенным** до фактического выполнения чек-листа; статус «пройдено» заранее не ставится.
+
+### Изменённые документы
+
+- `docs/DEFECTS.md` — S4-12 закрыт как ручной QA.
+- `docs/MANUAL_QA.md` — убрана перспектива настройки runner, добавлен обязательный отчёт QA.
+- `docs/LAYER4_ACCEPTANCE.md` — добавлен раздел Android runtime со статусом «не проверено».
+- `packages/core_storage/DESIGN.md` — остаточные ограничения обновлены.
+- `docs/PHASE_LOG.md` — эта запись.
+
+### Результаты проверок
+
+- Код, тесты и CI не менялись.
+- `bash tool/check_text_hygiene.sh` — OK.
+- `bash tool/check_docs_drift.sh` — OK.
+- `git status` — только документация этапа.
+
+### Что осталось
+
+- S4-12: выполнить `docs/MANUAL_QA.md` раздел SQLite/EventStore на Android перед релизом.
+- Q25/Q28: runtime-версия SQLite на Android остаётся непроверенной до QA.
+- `melos analyze` как блокирующий CI-гейт — после починки pre-existing diagnostics других слоёв.
+
+Этап F4.6 завершён. Остановка до ревью.

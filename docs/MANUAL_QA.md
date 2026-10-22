@@ -50,7 +50,9 @@
 - [ ] Проверить через `StorageInfo`, что `backend == 'file'`, `isPersistent == true`, `sqliteVersion` заполнена и не ниже 3.24.0.
 - [ ] Если эмулятор недоступен в CI, выполнить этот список на физическом Android-устройстве до релиза и записать модель, версию Android и `sqliteVersion` в отчёт QA.
 
-Пакет `sqlite3_flutter_libs` 0.5.41 содержит Android SQLite 3.51.1. Исходники `sqlite3` 2.4.5 загружают `libsqlite3.so`; в тесте на устройстве сверить `StorageInfo.sqliteVersion` с bundled-версией. В текущем проекте `flutter drive` остановился до сборки с сообщением об unsupported Gradle project, поэтому окончательное подтверждение загруженной библиотеки остаётся ручной проверкой после настройки Android runner.
+Пакет `sqlite3_flutter_libs` 0.5.41 содержит Android SQLite 3.51.1. Исходники `sqlite3` 2.4.5 загружают `libsqlite3.so`; в тесте на устройстве сверить `StorageInfo.sqliteVersion` с bundled-версией.
+
+Автоматизация Android runtime закрыта решением ревью (S4-12): `flutter drive`/integration runner не настраивается. Чек-лист обязателен до релиза; до его выполнения runtime SQLite считается **не проверенным**. В отчёт QA записать модель устройства, версию Android, `backend`, `isPersistent` и `sqliteVersion`.
 
 ## Примечания
 

@@ -141,6 +141,10 @@ No issues found!
 
 Полный `melos run analyze` остаётся **не проверено** как зелёная проверка: предсуществующие diagnostics в других слоях (S4-15 и др.).
 
+### Android runtime
+
+Статус: **не проверено**. Автоматизация `flutter drive`/integration runner закрыта решением ревью (S4-12); проверка bundled SQLite и `StorageInfo` вынесена в `docs/MANUAL_QA.md` и обязательна до релиза. До выполнения чек-листа runtime-версия SQLite на Android не считается подтверждённой (Q25/Q28).
+
 ### Текстовая гигиена
 
 `bash tool/check_text_hygiene.sh` — **OK**: CJK, диакритика и смешение алфавитов не найдены; бинарные файлы и намеренные Unicode-fixtures (`hygiene-allow`) исключены.
