@@ -1,4 +1,2 @@
-library platform_linux;
-
 export 'src/secure_key_store_linux.dart';
 export 'src/storage_database_factory.dart';

@@ -1232,3 +1232,28 @@ Runtime-версия в собранных Android/Linux приложениях 
 - Chrome-приёмка AC3/AC4 теперь подтверждена полным прогоном platform_web.
 
 Этап F4.4 завершён. Остановка до ревью.
+
+---
+
+## Запись 27 — Этап F4.5: S4-11 и S4-15
+
+### Решения
+
+1. S4-11: в `LinuxSecureKeyStoreImpl` добавлены `_kStateKeyPrefix = 'opensink_state_key_'` и `_stateKey(keyId)` — паритет с Android. Заодно устранены analyzer-ошибки/предупреждения в том же файле (unused variable, non-const FormatException, лишние скобки, лишнее имя library).
+2. S4-15: вложенная копия `packages/core_crypto/packages/core_crypto` удалена. `debug_x3dh.dart` перенесён в `packages/core_crypto/tool/`, получил импорт `core_domain` для `Ok`, вывод через `stdout.writeln`; analyzer чист.
+3. Коммиты слоя 4 разбиты на логические: storage/schema/platform factories, S4-13, S4-16, CI, документация.
+
+### Результаты проверок
+
+- `dart analyze packages/platform_linux/lib packages/platform_linux/test packages/core_crypto/tool` — **No issues found!**
+- `cd packages/platform_linux && flutter test` — **7 пройдено, 0 провалов**.
+- `bash tool/check_core_imports.sh` — OK.
+- `bash tool/check_text_hygiene.sh` — OK.
+- `bash tool/check_docs_drift.sh` — OK.
+
+### Что осталось
+
+- S4-12 (Android integration runner/runtime SQLite) — вне скоупа.
+- Q25/Q27/Q28/Q30/Q31 — без изменений.
+
+Этап F4.5 завершён. Остановка до ревью.
