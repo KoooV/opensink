@@ -1353,3 +1353,34 @@ Runtime-версия в собранных Android/Linux приложениях 
 - Q25/Q27/Q28/Q30/Q31 и ручной Android QA — без изменений.
 
 Этап F4.8 завершён.
+
+---
+
+## Запись 31 — core_signaling: poll решений и открытый backlog
+
+### Решения
+
+1. Проведён второй poll владельца по допущениям и открытым вопросам core_signaling; результаты зафиксированы в `packages/core_signaling/DESIGN.md` §7.
+2. Cross-topic replay закрыт: `topic` добавлен в AAD конверта, wire format переведён на v2 (`topic_len || topic || header`); добавлен тест `rejects packet moved to another topic`.
+3. Добавлены Chrome-тесты web-пути `package:web_socket`: fake-реле на `package:web_socket/testing.dart`, тест presence/SDP в `test/signaling_web_test.dart`, CI job `core_signaling-web` (dart2js).
+4. Web-тест выявил и закрыл дефект dart2js: `ByteData.setInt64/getInt64` не поддерживаются; timestamp кодируется двумя 32-битными половинами.
+5. Открытые задачи сведены в `docs/OPEN_QUESTIONS.md` Q35 (SIG-OPEN-01…08) с шагами и критериями закрытия.
+
+### Изменённые файлы
+
+- `packages/core_signaling/lib/src/secure_signaling_codec.dart`, `signaling_session.dart`.
+- `packages/core_signaling/test/secure_signaling_codec_test.dart`, `signaling_web_test.dart`, `support/fake_ws_relays.dart`.
+- `.github/workflows/ci.yml`.
+- `packages/core_signaling/DESIGN.md`, `docs/DESIGN.md`, `docs/OPEN_QUESTIONS.md`.
+
+### Результаты проверок
+
+- `dart analyze packages/core_signaling` — **No issues found!**
+- `dart test packages/core_signaling/test` — **33 пройдено, 0 провалов**.
+- Chrome/dart2js `signaling_web_test.dart` — **1 пройден**; Chrome/dart2wasm — **1 пройден** (локально).
+- `tool/check_core_imports.sh`, `tool/check_text_hygiene.sh`, `tool/check_docs_drift.sh` — **OK**.
+
+### Что осталось
+
+- Q35: SIG-OPEN-01…08 (invite holder, публичные реле/трекеры, NIP-42, реальные трекеры, реальный браузерный WS, LAN/QR, персистентный replay-кэш, hardening `NostrEphemeralSigner`).
+- Реальный браузерный `WebSocket.connect` к сетевому серверу и живые публичные реле/трекеры не проверялись.

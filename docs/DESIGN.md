@@ -21,7 +21,7 @@
 | `core_crypto` | Identity, Ed25519, X25519, HKDF, PBKDF2, XChaCha20-Poly1305, BIP-39, X3DH, Double Ratchet, Sender Keys, StateVault, SecureKeyStore | `packages/core_crypto/lib/src/` |
 | `core_protocol` | Protobuf схемы, конвертеры envelope — заглушка (Q15) | `packages/core_protocol/lib/core_protocol.dart:3` |
 | `core_storage` | Drift схема, EventStore — заглушка (Q18) | `packages/core_storage/lib/core_storage.dart:3` |
-| `core_signaling` | Nostr, трекеры, LAN, QR — заглушка (Q17) | `packages/core_signaling/lib/core_signaling.dart:3` |
+| `core_signaling` | Nostr и WebSocket-трекеры; LAN/QR и открытые задачи — Q17/Q35 | `packages/core_signaling/lib/` |
 | `core_peer` | flutter_webrtc, PeerLink, Transport — заглушка (Q14) | `packages/core_peer/lib/core_peer.dart:3` |
 | `core_sync` | SyncEngine поверх EventStore — заглушка (Q19) | `packages/core_sync/lib/core_sync.dart:3` |
 | `core_group` | GroupState, права, валидация подписей — заглушка (Q12) | `packages/core_group/lib/core_group.dart:3` |

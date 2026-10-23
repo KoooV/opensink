@@ -8,10 +8,15 @@ environment:
   sdk: ^3.13.5
 
 dependencies:
-  core_domain:
-    path: ../core_domain
+  bip340: ^0.3.1
   core_crypto:
     path: ../core_crypto
+  core_domain:
+    path: ../core_domain
+  crypto: ^3.0.7
+  cryptography: ^2.9.0
+  meta: ^1.15.0
+  web_socket: ^1.0.1
 
 dev_dependencies:
   test: ^1.26.0
