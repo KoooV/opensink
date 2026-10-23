@@ -101,6 +101,34 @@ jobs:
       - name: check_docs_drift.sh
         run: bash tool/check_docs_drift.sh
 
+  core_signaling-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install melos
+        run: dart pub global activate melos
+
+      - name: Bootstrap workspace
+        run: melos bootstrap
+
+      - name: Test core_signaling in Chrome (dart2js)
+        working-directory: packages/core_signaling
+        env:
+          CHROME_EXECUTABLE: /usr/bin/google-chrome-stable
+        run: dart test test/signaling_web_test.dart -p chrome -c dart2js
+
   storage-web:
     runs-on: ubuntu-latest
     defaults:

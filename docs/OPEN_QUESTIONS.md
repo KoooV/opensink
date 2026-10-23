@@ -12,10 +12,11 @@
 | TODO-04 | `packages/core_media/lib/core_media.dart:3` | Q13 |
 | TODO-05 | `packages/core_peer/lib/core_peer.dart:3` | Q14 |
 | TODO-06 | `packages/core_relay/lib/core_relay.dart:3` | Q16 |
-| TODO-07 | `packages/core_signaling/lib/core_signaling.dart:3` | Q17 |
 | TODO-08 | `packages/core_storage/test/schema_v3_snapshot.dart:3` | Q26 |
 | TODO-09 | `packages/core_sync/lib/core_sync.dart:5` | Q19 |
 | TODO-10 | `packages/core_sync/lib/src/hlc_validator.dart:17` | Q32 |
+| TODO-11 | `packages/core_signaling/lib/src/nostr_signaling.dart:31` | Q17 |
+| TODO-12 | `packages/core_signaling/lib/src/tracker_signaling.dart:28` | Q17 |
 
 ## Q1 — Миграция package:cryptography
 Версия зафиксирована 2.9.0. Spike подтвердил, что все нужные примитивы доступны в 2.9.0:
@@ -75,8 +76,35 @@
 ## Q16 — core_relay: Relay реализация маршрутизации через участников группы
 `// TODO(verify): Relay реализация маршрутизации через участников группы.` (packages/core_relay/lib/core_relay.dart:3)
 
-## Q17 — core_signaling: Nostr, трекеры, LAN, QR реализации SignalingChannel
-`// TODO(verify): Nostr, трекеры, LAN, QR реализации SignalingChannel.` (packages/core_signaling/lib/core_signaling.dart:3)
+## Q17 — core_signaling: Nostr, трекеры, LAN, QR реализации SignalingChannel — ЧАСТИЧНО ЗАКРЫТО
+Реализованы `NostrSignaling` (NIP-01, ephemeral kind 21000, BIP-340 обёртка, пул реле) и
+`TrackerSignaling` (WebTorrent announce/offer/answer, пул трекеров). Общий защищённый
+конверт, presence, replay/rate limit и reconnect/health описаны в
+`packages/core_signaling/DESIGN.md`; тесты — `packages/core_signaling/test/`.
+
+Решения владельца зафиксированы в `packages/core_signaling/DESIGN.md` §7
+(poll 2026-10-23, два раунда):
+- membership: `GroupSecret` + опциональные `allowedPeers`/`isAuthorized`;
+- публичные реле/трекеры по умолчанию остаются с `TODO(verify)`;
+- наш конверт остаётся в `sdp` как `opensink:1:base64url` с `TODO(verify)`;
+- NIP-01 JSON сверен с V8 `JSON.stringify` (`test/nostr_json_interop_test.dart`);
+- LAN/QR — вне этого слоя;
+- hello 20 с / presence TTL 60 с;
+- rate limit 40/20 глобально и 20/10 на отправителя;
+- дедупликация пула 5 минут по `(topic, kind, from, recipient, body)`;
+- `topic` включён в AAD (wire v2) — cross-topic replay закрыт;
+- NIP-42 AUTH отложен; neighbors caller-supplied; replay-кэш in-memory 5 минут;
+- health-score стартует с 0.0;
+- web-тесты добавлены: `test/signaling_web_test.dart` (Chrome, dart2js и dart2wasm).
+
+Остаются открытыми:
+- TODO(verify): актуальные публичные реле/трекеры и их политика;
+- TODO(verify): совместимость не-SDP `sdp` с конкретными публичными трекерами;
+- TODO(verify): NIP-42 AUTH у части публичных Nostr-реле;
+- LAN/QR реализации `SignalingChannel` (в этом слое не делались);
+- сценарий держателя инвайта без `group_secret` (отложен);
+- реальный браузерный `WebSocket.connect` к сетевому серверу в CI не проверяется
+  (web-тесты используют fake-реле на `package:web_socket/testing.dart`).
 
 ## Q18 — core_storage: drift-схема и реализация EventStore — ЗАКРЫТО
 Реализовано в этапах 4.0–4.8: схема v6, `AppDatabase`, `DriftEventStore`, миграции, native- и web-фабрики, общий portable test suite. Маркер `TODO(verify)` из `packages/core_storage/lib/core_storage.dart` удалён. Доказательства — `docs/LAYER4_ACCEPTANCE.md`.
@@ -130,3 +158,36 @@ Web StorageBackend и Chrome runtime проверены с dart2js. `sqlite3` 2.
 
 ## Q34 (этап 4.8) — канонический event id и контракт хэша
 В задании слоя 4 указано `id = хэш`, но `EventRecord.id` в `core_domain` задаётся вызывающим слоем, а хранилище проверяет только форму ASCII `[A-Za-z0-9._:-]{1,128}`. Хранилище намеренно не вычисляет и не пересчитывает content hash: канонический набор байтов (envelope, подпись, HLC, group/channel) и алгоритм ещё не зафиксированы в `core_protocol`/`core_sync`. TODO(verify): утвердить формулу event id на слое 7, добавить проверку соответствия `id` хэшу на границе записи (или отдельный канонический кодировщик) и тест на несовпадение. До этого `id` трактуется как непрозрачный caller-supplied хэш, а идемпотентность обеспечивается первичным ключом.
+
+## Q35 (core_signaling) — открытые задачи после poll 2026-10-23
+
+Решения poll зафиксированы в `packages/core_signaling/DESIGN.md` §7. Ниже — actionable backlog с критериями закрытия. Статусы: `open` — не начато; `deferred` — сознательно отложено; `accepted-risk` — риск принят, код не меняем; `closed` — закрыто.
+
+| ID | Задача | Статус | Следующий шаг | Критерий закрытия |
+|---|---|---|---|---|
+| SIG-OPEN-01 | Держатель инвайта без `group_secret` | deferred | Design doc: invite-token, `GroupSecret.invitationKey()`, отдельный authorizer/ключ; не переиспользовать payload-ключ группы без явного решения. | Invite holder проходит signaling и обменивается SDP без полного `group_secret`; посторонний отклоняется; есть тесты replay/impersonation; секреты не логируются. |
+| SIG-OPEN-02 | Публичные Nostr-реле и WebTorrent-трекеры | open | Проверить NIP-11 и write/read smoke, политику трекеров, закрепить список и дату, дать override через конфиг, добавить fallback. | Документированный список с датой/политикой; e2e smoke; отказ одного реле не ломает обнаружение. |
+| SIG-OPEN-03 | NIP-42 AUTH | deferred | Обработать `AUTH`-челлендж, подписать его (проверить, допустим ли ephemeral secp-ключ сессии), хранить auth-state, не уходить в бесконечный reconnect при отказе. | Запись в реле, требующее AUTH; понятный backoff при auth-failure; тест с fake AUTH-реле. |
+| SIG-OPEN-04 | Реальные WebTorrent-трекеры и не-SDP `sdp` | accepted-risk | Прогнать `bittorrent-tracker` server и 2–3 публичных трекера; зафиксировать матрицу `offer`/`answer`/`offer_id`/`to_peer_id`; определить fallback. | E2E через выбранный трекер; документирована несовместимость со стандартными WebTorrent-клиентами; пакеты не теряются. |
+| SIG-OPEN-05 | Реальный браузерный `WebSocket.connect` | open | Поднять локальный WS-сервер (Dart VM/Node), передать URL через `--dart-define`, запустить Chrome-тест из `packages/core_signaling`; в CI — dart2js, dart2wasm опционально. | Chrome подключается к реальному WS; presence и SDP проходят; отказ одного реле не ломает сценарий. |
+| SIG-OPEN-06 | LAN/QR реализации `SignalingChannel` | deferred | Отдельный слой/задача: LAN discovery и QR-инвайт за тем же интерфейсом `SignalingChannel`. | Два клиента находят друг друга по LAN/QR без интернета; тесты обнаружения и обмена SDP. |
+| SIG-OPEN-07 | Персистентность replay-кэша | accepted-risk | Оценить угрозу рестарта процесса в пределах clock skew; при необходимости хранить seen nonces в `core_storage`. | Решение зафиксировано; если persistent — тест replay после рестарта. |
+| SIG-OPEN-08 | Hardening `NostrEphemeralSigner` | open | Сделать `privateKeyHex` приватным, оставить test-only factory, исключить попадание ключа в `toString`/логи; зафиксировать, что zeroization в Dart не гарантируется. | Приватный ключ не входит в публичный API и логи; тесты используют factory. |
+
+### Принятые допущения
+
+- `GroupSecret` = членство; отдельный invite-путь отложен (SIG-OPEN-01).
+- Публичные реле/трекеры остаются дефолтом с `TODO(verify)` (SIG-OPEN-02).
+- `neighbors` в hello — caller-supplied; signaling не ведёт топологию.
+- WebTorrent payload остаётся `opensink:1:base64url` в `sdp` (SIG-OPEN-04).
+- Replay-кэш in-memory, TTL 5 минут (SIG-OPEN-07).
+- Health-score неподключённого реле — `0.0`.
+- Web-тесты используют fake-реле на `package:web_socket/testing.dart` (SIG-OPEN-05).
+
+### Закрыто в этом проходе
+
+- Cross-topic replay: `topic` включён в AAD, wire format v2; тест `rejects packet moved to another topic`.
+- Web-тесты: `packages/core_signaling/test/signaling_web_test.dart` проходит в Chrome на dart2js и dart2wasm (локально); добавлен CI job `core_signaling-web` для dart2js.
+- Найден и исправлен web-дефект: `dart2js` не поддерживает `ByteData.setInt64/getInt64`; timestamp кодируется двумя 32-битными половинами.
+- `SignalingChannelPool` изолирует сбой backend-а и учитывает recipient в дедупликации.
+- Health-score стартует с `0.0`; обновлены DESIGN и индекс `TODO(verify)`.
