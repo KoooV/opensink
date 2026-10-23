@@ -1,4 +1,5 @@
 /// BIP39 English wordlist (2048 words), embedded so core_crypto does not depend on package:bip39.
+library;
 
 const List<String> bip39EnglishWordlist = <String>[
   'abandon',

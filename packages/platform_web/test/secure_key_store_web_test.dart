@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
-import 'dart:js_util';
-import 'dart:typed_data';
 
 import 'package:test/test.dart';
 import 'package:platform_web/platform_web.dart';
@@ -86,7 +84,7 @@ Future<void> _writeIdentityRaw(
     final tx = db.transaction(stores, 'readwrite');
     final store = tx.objectStore('identities');
     await _idbRequest(
-      store.put(jsify(value), 'identity_${userId.value}'.toJS),
+      store.put(jsonEncode(value).toJS, 'identity_${userId.value}'.toJS),
       (_) {},
     );
   } finally {
@@ -95,6 +93,8 @@ Future<void> _writeIdentityRaw(
 }
 
 void main() {
+  runSecureKeyStoreContract(_webFactory, label: ' (Web)');
+
   group('WebSecureKeyStoreImpl (Chrome, IndexedDB + Web Crypto API)', () {
     late SecureKeyStore store;
 
@@ -102,12 +102,6 @@ void main() {
 
     setUp(() {
       store = _webFactory();
-    });
-
-    // --- Общий контракт ---
-
-    test('запускает общий контракт SecureKeyStore', () async {
-      runSecureKeyStoreContract(_webFactory, label: ' (Web)');
     });
 
     // --- Конкурентный getOrCreateKek (защита от гонки вкладок) ---
@@ -122,8 +116,8 @@ void main() {
         // Оба пишут разные идентичности под разными userId.
         final bundleA = _bundle(publicKey: 'pk-a', privateSeed: [1, 2, 3]);
         final bundleB = _bundle(publicKey: 'pk-b', privateSeed: [4, 5, 6]);
-        final userA = UserId('user-a');
-        final userB = UserId('user-b');
+        const userA = UserId('user-a');
+        const userB = UserId('user-b');
 
         final writeA = await storeA.storeIdentity(userA, bundleA);
         final writeB = await storeB.storeIdentity(userB, bundleB);

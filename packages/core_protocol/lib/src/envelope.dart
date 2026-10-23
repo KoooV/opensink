@@ -49,8 +49,8 @@ class Envelope {
   ///
   /// Конверты с version > [ProtocolLimits.maxSupportedVersion]
   /// декодируются структурно и могут быть пересланы релеем, но
-  /// семантически не обрабатываются ([codec.decodePayload] вернёт
-  /// [UnsupportedFutureVersion]).
+  /// семантически не обрабатываются (`codec.decodePayload` вернёт
+  /// `UnsupportedFutureVersion`).
   bool get isProcessable => version <= ProtocolLimits.maxSupportedVersion;
 
   /// Копия с заменой полей.
@@ -70,7 +70,7 @@ class Envelope {
       hlc: hlc ?? this.hlc,
       payload: payload ?? this.payload,
       signature: signature ?? this.signature,
-      unknownFields: unknownFields ?? this._unknownFields,
+      unknownFields: unknownFields ?? _unknownFields,
     );
   }
 

@@ -26,8 +26,8 @@ class NativeSecureKeyStoreImpl implements SecureKeyStore {
   static const _kPrefix = 'opensink_identity_v${_schemaVersion}_';
   static const _kStateKeyPrefix = 'opensink_state_key_';
 
-  String _key(UserId userId) => '${_kPrefix}${userId.value}';
-  String _stateKey(String keyId) => '${_kStateKeyPrefix}$keyId';
+  String _key(UserId userId) => '$_kPrefix${userId.value}';
+  String _stateKey(String keyId) => '$_kStateKeyPrefix$keyId';
 
   Map<String, dynamic> _serialize(IdentityBundle bundle) => <String, dynamic>{
         'userId': bundle.userId.value,
@@ -44,7 +44,7 @@ class NativeSecureKeyStoreImpl implements SecureKeyStore {
     }
     final seedBase64 = map['privateSeed'] as String?;
     if (seedBase64 == null) {
-      throw FormatException('Отсутствует privateSeed в записи хранилища');
+      throw const FormatException('Отсутствует privateSeed в записи хранилища');
     }
     return IdentityBundle(
       userId: UserId(map['userId'] as String),

@@ -264,7 +264,7 @@ Envelope _makeEnvelope({
   });
 }
 
-// Вспомогательный фейковый签署ватель для тестов зоны подписи.
+// Вспомогательный фейковыйподписыватель для тестов зоны подписи.
 class FakeSignerProtocol implements Signer {
   FakeSignerProtocol(this.peerId);
 

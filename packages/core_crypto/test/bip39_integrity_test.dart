@@ -18,7 +18,7 @@ List<int> hexToBytes(String hex) {
 void main() {
   group('BIP-39: целостность wordlist', () {
     test('ровно 2048 уникальных слов, отсортированы, строчные ASCII, уникальны первые 4 буквы', () {
-      final words = bip39EnglishWordlist;
+      const words = bip39EnglishWordlist;
 
       // Ровно 2048 слов.
       expect(words, hasLength(2048));
@@ -53,7 +53,7 @@ void main() {
       // Эталонный SHA-256 (из официального репозитория BIP-0039):
       //   50e90a1e6b4a0c8d3f2e1a4b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d
       // Примечание: эталон требует независимой сверки (см. TODO(verify)).
-      final wordlistContent = bip39EnglishWordlist.join('\n') + '\n';
+      final wordlistContent = '${bip39EnglishWordlist.join('\n')}\n';
       final wordlistBytes = Uint8List.fromList(utf8.encode(wordlistContent));
 
       // Реализация SHA-256 из bip39.dart (pure Dart, без package:cryptography).
@@ -73,7 +73,7 @@ void main() {
   group('BIP-39: официальные тестовые векторы (embedded)', () {
     // Векторы встроены в код (не читаются из файла) для совместимости с Chrome/Web.
     // Источник: test/vectors/bip39_vectors.json (самосгенерированные, требуют независимой сверки).
-    const _vectors = [
+    const vectors = [
       {
         'entropyBits': 128,
         'entropyHex': '00000000000000000000000000000000',
@@ -112,9 +112,9 @@ void main() {
     ];
 
     test('все векторы: entropy → mnemonic → seed (passphrase "TREZOR")', () async {
-      expect(_vectors, hasLength(5), reason: 'ожидаются 5 векторов (128/160/192/224/256 бит)');
+      expect(vectors, hasLength(5), reason: 'ожидаются 5 векторов (128/160/192/224/256 бит)');
 
-      for (final v in _vectors) {
+      for (final v in vectors) {
         final entropyBits = v['entropyBits'] as int;
         final entropyHex = v['entropyHex'] as String;
         final expectedMnemonic = v['mnemonic'] as String;
@@ -123,13 +123,13 @@ void main() {
 
         final entropyBytes = Uint8List.fromList(hexToBytes(entropyHex));
         expect(entropyBytes, hasLength(entropyBits ~/ 8),
-            reason: '${entropyBits} бит: неверная длина энтропии');
+            reason: '$entropyBits бит: неверная длина энтропии');
 
         // entropy → mnemonic
         final words = Bip39.entropyToMnemonic(entropyBytes);
         final mnemonic = words.join(' ');
         expect(mnemonic, equals(expectedMnemonic),
-            reason: '${entropyBits} бит: неверная мнемоника');
+            reason: '$entropyBits бит: неверная мнемоника');
 
         // mnemonic + passphrase → seed
         final seed = await Bip39.mnemonicToSeed(mnemonic, passphrase: passphrase);
@@ -137,7 +137,7 @@ void main() {
 
         if (expectedSeedHex.isNotEmpty) {
           expect(seedHex, equals(expectedSeedHex),
-              reason: '${entropyBits} бит: неверный seed (passphrase="$passphrase")');
+              reason: '$entropyBits бит: неверный seed (passphrase="$passphrase")');
         } else {
           // ignore: avoid_print
           print('BIP39_SEED_${entropyBits}_TREZOR=$seedHex');
@@ -147,7 +147,7 @@ void main() {
         final mnemonicStr = words.join(' ');
         final roundtripEntropy = Bip39.mnemonicToEntropy(mnemonicStr.split(' '));
         expect(bytesToHex(roundtripEntropy), equals(entropyHex),
-            reason: '${entropyBits} бит: roundtrip entropy не совпадает');
+            reason: '$entropyBits бит: roundtrip entropy не совпадает');
       }
     });
 
@@ -172,8 +172,8 @@ void main() {
       // Добавление пакета unorm_dart требует отдельного обоснования (TODO(verify)).
       const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 
-      // NFC форма не-ASCII символа (é как один кодовый пункт).
-      const nfcPassphrase = 'Café'; // U+0043 U+0061 U+0066 U+00E9
+      // NFC форма не-ASCII символа (e-acute как один кодовый пункт).
+      const nfcPassphrase = 'Café'; // U+0043 U+0061 U+0066 U+00E9 // hygiene-allow: NFC fixture
 
       // NFD форма того же символа (e + combining acute accent).
       const nfdPassphrase = 'Cafe\u{0301}'; // U+0043 U+0061 U+0066 U+0065 U+0301

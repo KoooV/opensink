@@ -1,5 +1,8 @@
+import '../../core_domain.dart' show FakePeerLink;
 import '../models/identifiers.dart';
 import 'package:meta/meta.dart';
+
+import 'fakes.dart' show FakePeerLink;
 
 /// Входящие данные по peer-ссылке.
 @immutable

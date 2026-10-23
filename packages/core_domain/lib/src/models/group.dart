@@ -1,5 +1,4 @@
 import 'identifiers.dart';
-import 'user.dart';
 import '../events/group_event.dart';
 
 /// Группа — верхняя сущность доступа.

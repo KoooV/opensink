@@ -38,12 +38,14 @@ class FakeSignalingChannel implements SignalingChannel {
 
   @override
   Future<void> publish(String topic, List<int> bytes) async {
-    _sent.add(SignalingMessage(
-      topic: topic,
-      bytes: List<int>.unmodifiable(bytes),
-      from: PeerId(Uint8List.fromList([0, 0, 0, 0])),
-      timestamp: DateTime.now().millisecondsSinceEpoch,
-    ));
+    _sent.add(
+      SignalingMessage(
+        topic: topic,
+        bytes: List<int>.unmodifiable(bytes),
+        from: PeerId(Uint8List.fromList([0, 0, 0, 0])),
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
   }
 
   @override
@@ -68,7 +70,11 @@ class FakeSigner implements Signer {
   }
 
   @override
-  Future<bool> verify(Uint8List data, String signatureHex, PeerId peerId) async {
+  Future<bool> verify(
+    Uint8List data,
+    String signatureHex,
+    PeerId peerId,
+  ) async {
     final hex = data.toList().join(',');
     return _signatures[hex] == signatureHex;
   }
@@ -99,11 +105,11 @@ class FakePeerLink implements PeerLink {
 
   @override
   PeerLinkStats get stats => const PeerLinkStats(
-        rtt: Duration(milliseconds: 10),
-        bytesSent: 0,
-        bytesReceived: 0,
-        loss: 0.0,
-      );
+    rtt: Duration(milliseconds: 10),
+    bytesSent: 0,
+    bytesReceived: 0,
+    loss: 0.0,
+  );
 
   FakePeerLink(this.remotePeerId) {
     _stateController.add(PeerLinkState.connected);
@@ -113,11 +119,13 @@ class FakePeerLink implements PeerLink {
 
   @override
   Future<void> send(String channel, List<int> bytes) async {
-    _sent.add(Incoming(
-      channel: channel,
-      bytes: List<int>.unmodifiable(bytes),
-      timestamp: DateTime.now().millisecondsSinceEpoch,
-    ));
+    _sent.add(
+      Incoming(
+        channel: channel,
+        bytes: List<int>.unmodifiable(bytes),
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
   }
 
   @override
@@ -180,7 +188,7 @@ class FakeTransport implements Transport {
 class FakeRelay implements Relay {
   final _routed = <PeerId>{};
   final _forwarded = <RelayFrame>[];
-  int _capacity = 1000;
+  final int _capacity = 1000;
 
   @override
   bool routes(PeerId dst) => _routed.contains(dst);
@@ -210,8 +218,10 @@ class FakeMediaTopology implements MediaTopology {
   final _plans = <TopologyPlan>[];
 
   @override
-  TopologyPlan plan(Set<PeerId> participants,
-      Map<PeerId, PeerCapabilities> capabilities) {
+  TopologyPlan plan(
+    Set<PeerId> participants,
+    Map<PeerId, PeerCapabilities> capabilities,
+  ) {
     final plan = TopologyPlan(
       type: TopologyType.mesh,
       participants: Set.unmodifiable(participants),
@@ -235,17 +245,40 @@ class FakeEventStore implements EventStore {
   final _controller = StreamController<EventRecord>.broadcast();
 
   @override
-  Future<void> write(EventRecord record) async {
+  Future<Result<InsertOutcome, EventStoreWriteError>> write(
+    EventRecord record,
+  ) async {
+    if (_records.any((existing) => existing.id == record.id)) {
+      return const Ok(InsertOutcome(inserted: false, duplicate: true));
+    }
     _records.add(record);
     _controller.add(record);
+    return const Ok(InsertOutcome(inserted: true, duplicate: false));
   }
 
   @override
-  Stream<EventRecord> watchFrom(String cursor) => _controller.stream;
+  Stream<EventRecord> watchFrom(String cursor) async* {
+    var started = cursor.isEmpty;
+    for (final record in _records) {
+      if (!started && record.id == cursor) {
+        started = true;
+      }
+      if (started) {
+        yield record;
+      }
+    }
+    yield* _controller.stream;
+  }
 
   @override
-  Stream<EventRecord> watchGroup(GroupId groupId) =>
-      _controller.stream.where((r) => r.groupId == groupId);
+  Stream<EventRecord> watchGroup(GroupId groupId) async* {
+    for (final record in _records) {
+      if (record.groupId == groupId) {
+        yield record;
+      }
+    }
+    yield* _controller.stream.where((r) => r.groupId == groupId);
+  }
 
   List<EventRecord> get records => List.unmodifiable(_records);
 
@@ -297,7 +330,6 @@ class FakeGroupState implements IGroupState {
     _controller.add(next);
   }
 
-  @override
   Future<void> close() async => await _controller.close();
 }
 
@@ -319,7 +351,9 @@ class FakeSecureKeyStore implements SecureKeyStore {
   }
 
   @override
-  Future<Result<IdentityBundle, KeyStoreError>> loadIdentity(UserId userId) async {
+  Future<Result<IdentityBundle, KeyStoreError>> loadIdentity(
+    UserId userId,
+  ) async {
     final bundle = _store[userId];
     if (bundle == null) {
       return const Err(IdentityNotFound());

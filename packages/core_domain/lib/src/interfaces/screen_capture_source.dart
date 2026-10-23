@@ -1,4 +1,3 @@
-import '../models/identifiers.dart';
 
 /// Источник captura экрана (платформенный: MediaProjection на Android,
 /// wlr-screencopy / PipeWire на Linux, getDisplayMedia на Web).

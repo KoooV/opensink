@@ -263,7 +263,7 @@ void main() {
         type: MessageType.chatEvent,
         sender: Uint8List.fromList([1]),
         hlc: 1,
-        // length-delimited поле, prétendu длиной maxFrameSize, но тела нет.
+        // length-delimited поле, заявленной длиной maxFrameSize, но тела нет.
         payload: Uint8List.fromList([0x2A, 0x80, 0x80, 0x80, 0x80, 0x80,
           0x80, 0x80, 0x80, 0x80, 0x01]),
         signature: Uint8List(0),

@@ -80,7 +80,7 @@ Wire format: `nonce(24) || ciphertext || mac(16)` (`packages/core_crypto/lib/src
 - Header v1: `version(1) || flags(1) || ephemeralPK(32) || messageNumber(8 LE) || prevChainLength(8 LE) || [dhPublicKey(32) optional] || nonce(24) || ciphertext || mac(16)`.
 - AAD = header bytes || associated data.
 - `toBytes()`/`fromBytes()` версии 1 с проверкой версии.
-- Реplay protection: `messageNumber < receivingMessageCounter` и не в `skippedKeys` → отказ.
+- Replay protection: `messageNumber < receivingMessageCounter` и не в `skippedKeys` → отказ.
 - Атомарность: `skippedKeys` не мутирует до успешной AEAD (дефект D-17 исправлен).
 - DoS-защита: `_maxMessageNumber = 1 << 30`, `maxSkip = 100` с FIFO-вытеснением.
 

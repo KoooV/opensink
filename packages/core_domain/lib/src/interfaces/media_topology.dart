@@ -1,5 +1,8 @@
+import '../../core_domain.dart' show FakeMediaTopology;
 import '../models/identifiers.dart';
 import 'package:meta/meta.dart';
+
+import 'fakes.dart' show FakeMediaTopology;
 
 /// Возможности участника медиасессии (кодеки, аппаратное ускорение и т.п.).
 @immutable

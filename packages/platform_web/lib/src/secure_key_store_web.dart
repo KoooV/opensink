@@ -1,6 +1,8 @@
+// ignore_for_file: invalid_runtime_check_with_js_interop_types
 import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
 import 'package:web/web.dart';
@@ -118,7 +120,7 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
     try {
       await _futureFromRequest<void>(
         store.add(kek, _kekKey.toJS),
-        (_) => null,
+        (_) {},
       );
       _kek = kek;
       return kek;
@@ -138,9 +140,24 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
     }
   }
 
+  AesKeyGenParams _aesKeyGenParams() {
+    final params = AesKeyGenParams(length: 256);
+    params.setProperty('name'.toJS, 'AES-GCM'.toJS);
+    return params;
+  }
+
+  AesGcmParams _aesGcmParams(Uint8List iv, Uint8List aad) {
+    final params = AesGcmParams(
+      iv: iv.toJS,
+      additionalData: aad.toJS,
+    );
+    params.setProperty('name'.toJS, 'AES-GCM'.toJS);
+    return params;
+  }
+
   Future<CryptoKey> _generateKek() async {
     final promise = window.crypto.subtle.generateKey(
-      AesKeyGenParams(length: 256),
+      _aesKeyGenParams(),
       false,
       JSArray<JSString>()
         ..add('encrypt'.toJS)
@@ -161,7 +178,7 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
     Uint8List aad,
     Uint8List iv,
   ) async {
-    final params = AesGcmParams(iv: iv.toJS, additionalData: aad.toJS);
+    final params = _aesGcmParams(iv, aad);
     final promise =
         window.crypto.subtle.encrypt(params, kek, plaintext.toJS);
     final result = await promise.toDart;
@@ -174,7 +191,7 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
     Uint8List aad,
     Uint8List iv,
   ) async {
-    final params = AesGcmParams(iv: iv.toJS, additionalData: aad.toJS);
+    final params = _aesGcmParams(iv, aad);
     final promise = window.crypto.subtle.decrypt(
       params,
       kek,
@@ -213,7 +230,7 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
           'ciphertext': base64Encode(ciphertextBytes),
         }).toJS,
       );
-      return Ok(null);
+      return const Ok(null);
     } on StoreUnavailable catch (e) {
       return Err(e);
     } on DOMException catch (e) {
@@ -238,21 +255,25 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
       final packed = await _get(_identitiesStore, _identityKey(userId).toJS);
       // ignore: unnecessary_null_comparison
       if (packed == null) {
-        return Err(IdentityNotFound());
+        return const Err(IdentityNotFound());
       }
-    final String packedStr;
-    if (packed is String) {
-      packedStr = packed as String;
-    } else {
-      return Err(StoreCorrupted(
-        'Неверный формат записи в хранилище: ожидается JSON-строка',
-      ));
-    }
+      final String packedStr;
+      if (packed is String) {
+        packedStr = packed as String;
+      } else {
+        return const Err(
+          StoreCorrupted(
+            'Неверный формат записи в хранилище: ожидается JSON-строка',
+          ),
+        );
+      }
       Map<String, dynamic> map;
       try {
         map = jsonDecode(packedStr) as Map<String, dynamic>;
       } on FormatException {
-        return Err(StoreCorrupted('Неверный JSON в записи хранилища'));
+        return const Err(
+          StoreCorrupted('Неверный JSON в записи хранилища'),
+        );
       }
       final version = map['version'];
       if (version is! int || version != _schemaVersion) {
@@ -263,7 +284,7 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
       final ivB64 = map['iv'] as String?;
       final ciphertextB64 = map['ciphertext'] as String?;
       if (ivB64 == null || ciphertextB64 == null) {
-        return Err(StoreCorrupted(
+        return const Err(StoreCorrupted(
           'Запись хранилища не содержит iv или ciphertext',
         ));
       }
@@ -273,7 +294,7 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
         iv = base64Decode(ivB64);
         ciphertext = base64Decode(ciphertextB64);
       } on FormatException {
-        return Err(StoreCorrupted(
+        return const Err(StoreCorrupted(
           'Неверный base64 в записи хранилища',
         ));
       }
@@ -297,7 +318,7 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
       try {
         identityMap = jsonDecode(identityJson) as Map<String, dynamic>;
       } on FormatException {
-        return Err(StoreCorrupted(
+        return const Err(StoreCorrupted(
           'Расшифрованные данные не являются валидным JSON',
         ));
       }
@@ -314,7 +335,7 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
       } on TypeError catch (e) {
         return Err(StoreCorrupted('Неверные типы полей в записи: $e'));
       } on FormatException {
-        return Err(StoreCorrupted(
+        return const Err(StoreCorrupted(
           'Неверный base64 в privateSeed расшифрованной записи',
         ));
       }
@@ -346,7 +367,7 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
         store.delete(_identityKey(userId).toJS),
         (_) => null,
       );
-      return Ok(null);
+      return const Ok(null);
     } on StoreUnavailable catch (e) {
       return Err(e);
     } on DOMException catch (e) {
@@ -391,7 +412,7 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
         keyId.toJS,
         base64Encode(bytes).toJS,
       );
-      return Ok(null);
+      return const Ok(null);
     } on StoreUnavailable catch (e) {
       return Err(e);
     } on DOMException catch (e) {
@@ -448,7 +469,7 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
         store.delete(keyId.toJS),
         (_) => null,
       );
-      return Ok(null);
+      return const Ok(null);
     } on StoreUnavailable catch (e) {
       return Err(e);
     } on DOMException catch (e) {

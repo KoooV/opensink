@@ -60,9 +60,9 @@ void main() {
     });
 
     test('SaveLoadError варианты toString не раскрывают секреты', () {
-      final unavailable = const StoreUnavailable('хранилище недоступно');
-      final corrupted = const StoreCorrupted('повреждённые данные');
-      final error = const StoreError('общая ошибка');
+      const unavailable = StoreUnavailable('хранилище недоступно');
+      const corrupted = StoreCorrupted('повреждённые данные');
+      const error = StoreError('общая ошибка');
 
       expect(unavailable.toString(), isNot(contains('secret')));
       expect(corrupted.toString(), isNot(contains('secret')));

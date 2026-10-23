@@ -24,6 +24,7 @@ class LinuxSecureKeyStoreImpl implements SecureKeyStore {
   /// Версия схемы сериализации IdentityBundle.
   static const int _schemaVersion = 1;
   static const _kPrefix = 'opensink_identity_v${_schemaVersion}_';
+  static const _kStateKeyPrefix = 'opensink_state_key_';
 
   static const _secretServiceUnavailableInstruction =
       'Secret Service (libsecret) недоступен. Установите libsecret '
@@ -37,7 +38,7 @@ class LinuxSecureKeyStoreImpl implements SecureKeyStore {
   /// с понятной инструкцией. Никакого тихого отката на файл в открытом виде.
   Future<Result<void, KeyStoreError>> checkDependencies() async {
     try {
-      final value = await _storage.read(key: '_opensink_probe_');
+      await _storage.read(key: '_opensink_probe_');
       // Простая операция записи/чтения достаточно для проверки доступности.
       await _storage.write(key: '_opensink_probe_', value: 'probe');
       await _storage.delete(key: '_opensink_probe_');
@@ -49,25 +50,28 @@ class LinuxSecureKeyStoreImpl implements SecureKeyStore {
           message.contains('secret service') ||
           message.contains('dbus') ||
           message.contains('session bus')) {
-        return Err(StoreUnavailable(
-          '$_secretServiceUnavailableInstruction\n$stack',
-        ));
+        return Err(
+          StoreUnavailable('$_secretServiceUnavailableInstruction\n$stack'),
+        );
       }
-      return Err(StoreUnavailable(
-        'Не удалось инициализировать libsecret: $e\n$_secretServiceUnavailableInstruction\n$stack',
-      ));
+      return Err(
+        StoreUnavailable(
+          'Не удалось инициализировать libsecret: $e\n$_secretServiceUnavailableInstruction\n$stack',
+        ),
+      );
     }
   }
 
-  String _key(UserId userId) => '${_kPrefix}${userId.value}';
+  String _key(UserId userId) => '$_kPrefix${userId.value}';
+  String _stateKey(String keyId) => '$_kStateKeyPrefix$keyId';
 
   Map<String, dynamic> _serialize(IdentityBundle bundle) => <String, dynamic>{
-        'userId': bundle.userId.value,
-        'publicKey': bundle.publicKey,
-        'privateSeed': base64Encode(bundle.privateSeed),
-        'createdAt': bundle.createdAt,
-        'schemaVersion': _schemaVersion,
-      };
+    'userId': bundle.userId.value,
+    'publicKey': bundle.publicKey,
+    'privateSeed': base64Encode(bundle.privateSeed),
+    'createdAt': bundle.createdAt,
+    'schemaVersion': _schemaVersion,
+  };
 
   IdentityBundle _deserialize(Map<String, dynamic> map) {
     final version = map['schemaVersion'] as int?;
@@ -76,7 +80,7 @@ class LinuxSecureKeyStoreImpl implements SecureKeyStore {
     }
     final seedBase64 = map['privateSeed'] as String?;
     if (seedBase64 == null) {
-      throw FormatException('Отсутствует privateSeed в записи хранилища');
+      throw const FormatException('Отсутствует privateSeed в записи хранилища');
     }
     return IdentityBundle(
       userId: UserId(map['userId'] as String),
@@ -104,7 +108,9 @@ class LinuxSecureKeyStoreImpl implements SecureKeyStore {
         'Доступ к libsecret запрещен при $operation: $message\n$stack',
       );
     }
-    if (lower.contains('corrupt') || lower.contains('invalid') || lower.contains('format')) {
+    if (lower.contains('corrupt') ||
+        lower.contains('invalid') ||
+        lower.contains('format')) {
       return StoreCorrupted(
         'Данные в libsecret повреждены при $operation: $message\n$stack',
       );
@@ -175,10 +181,7 @@ class LinuxSecureKeyStoreImpl implements SecureKeyStore {
     List<int> bytes,
   ) async {
     try {
-      await _storage.write(
-        key: _stateKey(keyId),
-        value: base64Encode(bytes),
-      );
+      await _storage.write(key: _stateKey(keyId), value: base64Encode(bytes));
       return const Ok(null);
     } catch (e, stack) {
       return Err(_mapError(e, stack, 'сохранение ключа состояния'));

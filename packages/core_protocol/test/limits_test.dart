@@ -9,7 +9,7 @@ void main() {
     final codec = ProtocolCodec();
 
     test('payload above maxPayloadSize is rejected on decode', () {
-      // Собираем сырой конверт минуя encode, чтобы проверить именноdecode-чек.
+      // Собираем сырой конверт минуя encode, чтобы проверить именно decode-чек.
       final writer = ProtoWriter();
       writer.writeVarintField(1, 1);
       writer.writeVarintField(2, 1);
@@ -31,17 +31,17 @@ void main() {
 
     test('invalid UTF-8 in string field is rejected', () {
       final reader = ProtoReader(Uint8List.fromList([10, 3, 0xFF, 0xFE, 0x00]));
-      expect(() => reader.readStringField(), throwsA(isA<DecodeError>()));
+      expect(reader.readStringField, throwsA(isA<DecodeError>()));
     });
 
     test('varint longer than maxVarintBytes is rejected', () {
       final reader = ProtoReader(Uint8List.fromList(List.filled(11, 0xFF)));
-      expect(() => reader.readVarint(), throwsA(isA<DecodeError>()));
+      expect(reader.readVarint, throwsA(isA<DecodeError>()));
     });
 
     test('readBytes exceeding remaining buffer is rejected', () {
       final reader = ProtoReader(Uint8List.fromList([2, 0x05]));
-      expect(() => reader.readBytes(), throwsA(isA<DecodeError>()));
+      expect(reader.readBytes, throwsA(isA<DecodeError>()));
     });
 
     test('encode of oversized sender is rejected', () {

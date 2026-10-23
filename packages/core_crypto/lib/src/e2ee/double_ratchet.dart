@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart' as crypto_pkg;
 import 'package:core_domain/core_domain.dart';
+
 import '../aead.dart';
 import '../hkdf.dart';
 import '../crypto_exceptions.dart';
@@ -25,13 +26,13 @@ class DoubleRatchet {
   /// TTL пропущенного ключа (24 часа, DESIGN.md §13.3).
   static const Duration ttl = Duration(hours: 24);
 
-/// Длина фиксированной части заголовка (без опционального DH-ключа).
-static const int _fixedHeaderLength = 50; // 1+1+32+8+8
+  /// Длина фиксированной части заголовка (без опционального DH-ключа).
+  static const int _fixedHeaderLength = 50; // 1+1+32+8+8
 
-/// Протокольный максимум номера сообщения. Защита от DoS: absurdные
-/// значения (например 2^31) отвергаются до цикла пропуска ключей и без
-/// аллокаций в цикле.
-static const int _maxMessageNumber = 1 << 30;
+  /// Протокольный максимум номера сообщения. Защита от DoS: абсурдные
+  /// значения (например 2^31) отвергаются до цикла пропуска ключей и без
+  /// аллокаций в цикле.
+  static const int _maxMessageNumber = 1 << 30;
 
   final _aead = XChaCha20Poly1305Aead();
   final _hkdf = GroupHkdf();
@@ -95,7 +96,9 @@ static const int _maxMessageNumber = 1 << 30;
       flags = 0x01;
       final optPk = state.dhPublicKey;
       if (optPk != null) {
-        optionalDhPublicKeyBytes = Uint8List.fromList((optPk as crypto_pkg.SimplePublicKey).bytes);
+        optionalDhPublicKeyBytes = Uint8List.fromList(
+          (optPk as crypto_pkg.SimplePublicKey).bytes,
+        );
       }
     }
 
@@ -200,7 +203,7 @@ static const int _maxMessageNumber = 1 << 30;
     final ephemeralPkBytes = Uint8List.fromList(data.sublist(2, 34));
     final messageNumber = _bytesLeToUint64(data.sublist(34, 42));
 
-    // DoS: absurdный номер сообщения отвергается до любой аллокации в цикле.
+    // DoS: абсурдный номер сообщения отвергается до любой аллокации в цикле.
     if (messageNumber > _maxMessageNumber) {
       return const Err(DecryptionFailed());
     }
@@ -229,7 +232,9 @@ static const int _maxMessageNumber = 1 << 30;
     // тем, что вычислил отправитель (по коммутативности DH: DH(A_priv, B_pub)
     // == DH(B_priv, A_pub) только для одних и тех же ключевых пар).
     // Новый ключ из заголовка сохраняется как remoteDhPublicKey на будущее.
-    if (hasOptionalDh && state.dhPrivateKey != null && state.remoteDhPublicKey != null) {
+    if (hasOptionalDh &&
+        state.dhPrivateKey != null &&
+        state.remoteDhPublicKey != null) {
       final newDhPublicKey = crypto_pkg.SimplePublicKey(
         Uint8List.fromList(data.sublist(optionalOffset, optionalOffset + 32)),
         type: crypto_pkg.KeyPairType.x25519,
@@ -269,7 +274,9 @@ static const int _maxMessageNumber = 1 << 30;
     final aad = Uint8List.fromList([...headerBytes, ...?associatedData]);
 
     // nonce || ciphertext || mac (reassemble for _aead.decrypt).
-    final nonce = Uint8List.fromList(data.sublist(payloadOffset, payloadOffset + 24));
+    final nonce = Uint8List.fromList(
+      data.sublist(payloadOffset, payloadOffset + 24),
+    );
     final cipherText = Uint8List.fromList(
       data.sublist(payloadOffset + 24, data.length - 16),
     );
@@ -311,8 +318,9 @@ static const int _maxMessageNumber = 1 << 30;
         if (skippedMsgNum != messageNumber) {
           // Сохраняем как пропущенный (с вытеснением) в рабочей копии.
           final nowMs = DateTime.now().millisecondsSinceEpoch;
-          workingSkipped.removeWhere((_, e) =>
-              nowMs - e.timestampMs > ttl.inMilliseconds);
+          workingSkipped.removeWhere(
+            (_, e) => nowMs - e.timestampMs > ttl.inMilliseconds,
+          );
           while (workingSkipped.length >= maxSkip) {
             workingSkipped.remove(workingSkipped.keys.first);
           }
@@ -335,7 +343,11 @@ static const int _maxMessageNumber = 1 << 30;
       return const Err(DecryptionFailed());
     }
 
-    final dataForDecrypt = Uint8List.fromList([...nonce, ...cipherText, ...macBytes]);
+    final dataForDecrypt = Uint8List.fromList([
+      ...nonce,
+      ...cipherText,
+      ...macBytes,
+    ]);
     final decrypted = await _aead.decrypt(
       key: messageKey,
       data: dataForDecrypt,
@@ -374,8 +386,9 @@ static const int _maxMessageNumber = 1 << 30;
       dhPublicKey: state.dhPublicKey,
       remoteDhPublicKey: remoteDhPub,
       sendingMessageCounter: state.sendingMessageCounter,
-      receivingMessageCounter:
-          keyFromSkipped ? state.receivingMessageCounter : messageNumber + 1,
+      receivingMessageCounter: keyFromSkipped
+          ? state.receivingMessageCounter
+          : messageNumber + 1,
       previousChainLength: state.previousChainLength,
       skippedKeys: updatedSkipped,
     );
@@ -465,7 +478,9 @@ static const int _maxMessageNumber = 1 << 30;
 
     final rootBytes = Uint8List.fromList(await rootKey.extractBytes());
     final sendBytes = Uint8List.fromList(await sendingChainKey.extractBytes());
-    final recvBytes = Uint8List.fromList(await receivingChainKey.extractBytes());
+    final recvBytes = Uint8List.fromList(
+      await receivingChainKey.extractBytes(),
+    );
     buf.addAll(rootBytes);
     buf.addAll(sendBytes);
     buf.addAll(recvBytes);
@@ -484,7 +499,9 @@ static const int _maxMessageNumber = 1 << 30;
         ? Uint8List.fromList((dhPublicKey! as crypto_pkg.SimplePublicKey).bytes)
         : Uint8List(32);
     final remoteDhPubBytes = remoteDhPublicKey != null
-        ? Uint8List.fromList((remoteDhPublicKey! as crypto_pkg.SimplePublicKey).bytes)
+        ? Uint8List.fromList(
+            (remoteDhPublicKey! as crypto_pkg.SimplePublicKey).bytes,
+          )
         : Uint8List(32);
     buf.addAll(dhPrivBytes);
     buf.addAll(dhPubBytes);
@@ -508,20 +525,25 @@ static const int _maxMessageNumber = 1 << 30;
   /// Неизвестная версия → [StateError].
   static DoubleRatchet fromBytes(Uint8List data) {
     if (data.isEmpty || data[0] != _version) {
-      throw StateError('Unknown DoubleRatchet serialization version: '
-          '${data.isEmpty ? 'empty' : data[0]}');
+      throw StateError(
+        'Unknown DoubleRatchet serialization version: '
+        '${data.isEmpty ? 'empty' : data[0]}',
+      );
     }
 
     var offset = 1;
 
     final rootKey = crypto_pkg.SecretKey(
-        Uint8List.fromList(data.sublist(offset, offset + 32)));
+      Uint8List.fromList(data.sublist(offset, offset + 32)),
+    );
     offset += 32;
     final sendingChainKey = crypto_pkg.SecretKey(
-        Uint8List.fromList(data.sublist(offset, offset + 32)));
+      Uint8List.fromList(data.sublist(offset, offset + 32)),
+    );
     offset += 32;
     final receivingChainKey = crypto_pkg.SecretKey(
-        Uint8List.fromList(data.sublist(offset, offset + 32)));
+      Uint8List.fromList(data.sublist(offset, offset + 32)),
+    );
     offset += 32;
 
     final sendingCounter = _bytesLeToUint64(data.sublist(offset, offset + 8));
@@ -538,10 +560,13 @@ static const int _maxMessageNumber = 1 << 30;
     offset += 32;
     final dhPubBytes = Uint8List.fromList(data.sublist(offset, offset + 32));
     offset += 32;
-    final remoteDhPubBytes = Uint8List.fromList(data.sublist(offset, offset + 32));
+    final remoteDhPubBytes = Uint8List.fromList(
+      data.sublist(offset, offset + 32),
+    );
     offset += 32;
 
-    final skippedCount = _bytesLeToUint64(data.sublist(offset, offset + 8)).toInt();
+    final skippedCount = _bytesLeToUint64(data.sublist(offset, offset + 8))
+        .toInt();
     _assertUint32(skippedCount, 'skippedCount');
     offset += 8;
 
@@ -567,9 +592,13 @@ static const int _maxMessageNumber = 1 << 30;
       receivingChainKey: receivingChainKey,
       dhPrivateKey: crypto_pkg.SecretKey(dhPrivBytes),
       dhPublicKey: crypto_pkg.SimplePublicKey(
-          dhPubBytes, type: crypto_pkg.KeyPairType.x25519),
+        dhPubBytes,
+        type: crypto_pkg.KeyPairType.x25519,
+      ),
       remoteDhPublicKey: crypto_pkg.SimplePublicKey(
-          remoteDhPubBytes, type: crypto_pkg.KeyPairType.x25519),
+        remoteDhPubBytes,
+        type: crypto_pkg.KeyPairType.x25519,
+      ),
       sendingMessageCounter: sendingCounter.toInt(),
       receivingMessageCounter: receivingCounter.toInt(),
       previousChainLength: prevChainLength.toInt(),

@@ -9,7 +9,7 @@
 # выполнение — тестовый суит не стартует и обрывается по таймауту.
 #
 # Решение: компилируем тесты в JS, раздаём через Python http.server с
-# явным映射 .js → application/javascript, запускаем
+# явным маппингом .js → application/javascript, запускаем
 # google-chrome-stable в headless-режиме с удалённой отладкой (CDP),
 # читаем результат через CDP Runtime.evaluate и возвращаем код выхода.
 #

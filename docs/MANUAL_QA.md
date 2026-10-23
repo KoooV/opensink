@@ -31,7 +31,7 @@
 - [ ] Удаление экрана блокировки (безопасность → нет блокировки) → Keystore может invalidate ключи; приложение обрабатывает ошибку без падения.
 
 ### 6. Ошибки хранилища
-- [ ] Keystore недоступен (устройство без支持 Keystore, редкий случай) → `storeIdentity`/`loadIdentity` возвращают `Err(StoreUnavailable)` без падения.
+- [ ] Keystore недоступен (устройство без поддержки Keystore, редкий случай) → `storeIdentity`/`loadIdentity` возвращают `Err(StoreUnavailable)` без падения.
 - [ ] Повреждённые данные в хранилище (вручную изменить SharedPreferences/файл) → `loadIdentity` возвращает `Err(StoreCorrupted)`.
 - [ ] Никакого тихого отката на файл в открытом виде при любой ошибке.
 
@@ -42,7 +42,47 @@
 - [ ] Дамп файлов данных приложения (`adb backup` или root) не раскрывает `privateSeed` в aberto (шифруется Keystore).
 - [ ] `toString()` идентичности и бандла не раскрывает `privateSeed` в логах.
 
+### 9. SQLite / EventStore (этап 4.3)
+- [ ] Установить APK с чистого состояния и убедиться, что приложение открывает постоянную БД без ошибки.
+- [ ] Записать тестовое событие, полностью остановить и перезапустить приложение; событие и его author/payload читаются без изменений.
+- [ ] Установить обновлённую сборку поверх предыдущей установки; данные БД сохраняются и доступны после запуска/миграции.
+- [ ] Очистить только кэш через Settings → Apps → OpenSink → Storage → Clear cache; после запуска событие остаётся доступным (SQLite размещена в application support/files, не в cache).
+- [ ] Проверить через `StorageInfo`, что `backend == 'file'`, `isPersistent == true`, `sqliteVersion` заполнена и не ниже 3.24.0.
+- [ ] Если эмулятор недоступен в CI, выполнить этот список на физическом Android-устройстве до релиза и записать модель, версию Android и `sqliteVersion` в отчёт QA.
+
+Пакет `sqlite3_flutter_libs` 0.5.41 содержит Android SQLite 3.51.1. Исходники `sqlite3` 2.4.5 загружают `libsqlite3.so`; в тесте на устройстве сверить `StorageInfo.sqliteVersion` с bundled-версией.
+
+Автоматизация Android runtime закрыта решением ревью (S4-12): `flutter drive`/integration runner не настраивается. Чек-лист обязателен до релиза; до его выполнения runtime SQLite считается **не проверенным**. В отчёт QA записать модель устройства, версию Android, `backend`, `isPersistent` и `sqliteVersion`.
+
 ## Примечания
 
 - flutter_secure_storage v9.2.4: файлы хранилища исключены из Auto Backup через `android:allowBackup` и `android:fullBackupContent` в `AndroidManifest.xml` (TODO(verify): точные настройки для v9.2.4).
 - Keystore ключи привязаны к экрану блокировки устройства. При смене экрана блокировки ключи могут стать недоступны — приложение должно обрабатывать `StoreUnavailable`/`StoreAccessDenied`.
+
+---
+
+# MANUAL QA — Drift WASM в Chrome
+
+Автоматизированный контракт и persistent reopen запускаются командой `bash tool/test_web_storage_chrome.sh`. Следующие проверки требуют настоящей вкладки/перезагрузки браузерной страницы или настройки заголовков веб-сервера.
+
+## Подготовка
+
+1. Выполнить `bash tool/fetch_web_assets.sh --check`; версии и суммы должны пройти проверку.
+2. Запустить `bash tool/serve_web_dev.sh`; сервер собирает debug web bundle и обслуживает его с `application/wasm` для wasm и JavaScript MIME-типом для worker.
+3. Для OPFS locks запустить dev-сервер с заголовками: `ENABLE_CROSS_ORIGIN_ISOLATION=1 bash tool/serve_web_dev.sh`. Будут выставлены `Cross-Origin-Opener-Policy: same-origin` и `Cross-Origin-Embedder-Policy: require-corp`; без них Drift выбирает поддерживаемый fallback.
+
+## Персистентность и деградация
+
+- [ ] Сохранить событие, перезагрузить страницу, открыть ту же базу; событие читается с прежними `author` и `payload`.
+- [ ] Убедиться, что `StorageInfo.backend` отражает выбранный режим (`opfs`, `indexedDb` или `memory`), `sqliteVersion` заполнена, а `isPersistent` равно `false` только для `memory`.
+- [ ] Для `memory` показать предупреждение о потере данных после перезагрузки; для `unsafeIndexedDb` — предупреждение, что нельзя одновременно открывать базу в нескольких вкладках.
+- [ ] В приватном режиме/при блокировке storage API убедиться, что выбран persistent fallback с предупреждением либо явно указано, что memory не сохраняет данные.
+
+## Две вкладки
+
+- [ ] Открыть приложение в двух вкладках с одним origin и одним именем БД.
+- [ ] В первой вкладке сохранить событие, во второй дождаться отображения через watcher либо перечитать базу.
+- [ ] Записать событие из обеих вкладок и проверить, что данные не теряются/не повреждаются.
+- [ ] Зафиксировать выбранный `StorageInfo.backend`, браузер и версию. Для `unsafeIndexedDb` явно показать ограничение многовкладочного доступа.
+
+Автоматический тест двух отдельных вкладок через `dart test -p chrome` не добавлен: runner запускает suite в одной тестовой странице. Этот сценарий оставлен ручным QA; Drift `sharedIndexedDb`/OPFS shared-worker режимы поддерживают несколько вкладок, `unsafeIndexedDb` этого не гарантирует.

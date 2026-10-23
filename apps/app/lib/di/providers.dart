@@ -1,16 +1,4 @@
 import 'package:core_domain/core_domain.dart';
-import 'package:core_domain/src/interfaces/fakes.dart'
-    show
-        FakeSignalingChannel,
-        FakeSigner,
-        FakeTransport,
-        FakeRelay,
-        FakeMediaTopology,
-        FakeEventStore,
-        FakeSyncEngine,
-        FakeGroupState,
-        FakeScreenCaptureSource,
-        FakePeerLink;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'secure_key_store_platform.dart';
@@ -54,10 +42,10 @@ final syncEngineProvider = Provider<SyncEngine>((ref) {
 
 final groupStateProvider = Provider<IGroupState>((ref) {
   final initial = GroupState(
-    id: GroupId('demo'),
+    id: const GroupId('demo'),
     name: 'Demo',
-    ownerId: UserId('me'),
-    memberIds: {UserId('me')},
+    ownerId: const UserId('me'),
+    memberIds: {const UserId('me')},
     channelIds: {},
     createdAt: DateTime.now().millisecondsSinceEpoch,
     updatedAt: DateTime.now().millisecondsSinceEpoch,

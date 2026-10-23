@@ -16,7 +16,7 @@ enum StateKind {
   senderKey,
 }
 
-/// Контекст封存 состояния: связывает зашифрованный blob с его смыслом и
+/// Контекст запечатывания состояния: связывает зашифрованный blob с его смыслом и
 /// идентификатором, чтобы при открытии AAD проверялся тот же контекст.
 ///
 /// [stateId] — peerId (hex) для Double Ratchet, `groupId|senderPeerId` для
@@ -72,7 +72,7 @@ class SealedState {
   String get stateId {
     if (_bytes.length < 4) return '';
     final len = (_bytes[2] | (_bytes[3] << 8));
-    final start = 4;
+    const start = 4;
     final end = start + len;
     if (end > _bytes.length) return '';
     return String.fromCharCodes(_bytes.sublist(start, end));

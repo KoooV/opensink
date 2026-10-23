@@ -1,3 +1,3 @@
-library core_signaling;
+library;
 
 // TODO(verify): Nostr, трекеры, LAN, QR реализации SignalingChannel.

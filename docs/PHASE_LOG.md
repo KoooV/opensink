@@ -274,7 +274,7 @@
 
 ### Что осталось
 - Q4 (Chrome-тестирование): инфраструктурная проблема с MIME-типом `dart.js`, не код. Требуется донастройка файлового сервера тестового раннера или запуск на CI с корректными MIME-типами.
-- D-11…D-14: дефектыdart2js-совместимости не проверяются (Chrome/Node недоступны для полноценного рантайма). Исправление отложено на следующую фазу (вариант: кодировать 64-битные счётчики двумя 32-битными половинами или ограничить uint32 с версией серийлизации v2).
+- D-11…D-14: дефекты dart2js-совместимости не проверяются (Chrome/Node недоступны для полноценного рантайма). Исправление отложено на следующую фазу (вариант: кодировать 64-битные счётчики двумя 32-битными половинами или ограничить uint32 с версией сериализации v2).
 - D-15 (подтверждена): `package:cryptography` 2.9.0 в Node.js падает на инициализации браузерных привязок Web Crypto API — 93 из 121 тестов ошибка, 38 прошли. `dart test -p node` не является жизнеспособным путём для core_crypto в текущей версии зависимости.
 - Q2, Q7, Q8, Q9, Q10, Q11 — открыты.
 
@@ -312,8 +312,8 @@
    - `_maxSequence = 1 << 30`: `acceptSequence` отклоняет огромный `sequenceNumber` до вычислений.
 
 6. **Новые тесты (все зелёные на VM, 148 всего):**
-   - `test/e2ee/double_ratchet_test.dart`: длинный диалог 200+ DH шагов, симуляция сети (дубликаты, перестановки, потери), атомарность (порча шифртекста/заголовка → ошибка, `toBytes()` идентичен, следующее валидное сообщение расшифровывается), DoS (ogromные n/pn, лимит skipped keys, TTL), аутентификация заголовка (порт dh/n/pn, подмена AD), forward secrecy (message key не в `serialize(state)`), post-compromise (снимок не расшифровывает после DH шага), сериализация (восстановление после каждого шага, усечённые/случайные байты → `Result.error` не исключение, fuzz 1000 входов), повтор первого X3DH сообщения (отсекается библиотекой через replay protection).
-   - `test/e2ee/sender_keys_test.dart`: атомарность (подпись проверяется до расшифровки, ошибка не движет цепочку), DoS (ogromный sequenceNumber отклоняется до вычислений), окно replay (ограничено 100, независимо по senderPeerId).
+   - `test/e2ee/double_ratchet_test.dart`: длинный диалог 200+ DH шагов, симуляция сети (дубликаты, перестановки, потери), атомарность (порча шифртекста/заголовка → ошибка, `toBytes()` идентичен, следующее валидное сообщение расшифровывается), DoS (огромные n/pn, лимит skipped keys, TTL), аутентификация заголовка (порт dh/n/pn, подмена AD), forward secrecy (message key не в `serialize(state)`), post-compromise (снимок не расшифровывает после DH шага), сериализация (восстановление после каждого шага, усечённые/случайные байты → `Result.error` не исключение, fuzz 1000 входов), повтор первого X3DH сообщения (отсекается библиотекой через replay protection).
+   - `test/e2ee/sender_keys_test.dart`: атомарность (подпись проверяется до расшифровки, ошибка не движет цепочку), DoS (огромный sequenceNumber отклоняется до вычислений), окно replay (ограничено 100, независимо по senderPeerId).
 
 7. **DESIGN.md §13.3.1–13.3.3:** добавлена таблица соответствия шагов спецификации Signal коду, обоснование отклонений, закрытие гипотезы про стр. 324-327, описание атомарности и DoS-защиты.
 
@@ -346,7 +346,7 @@
    - Fuzz десериализаторов: `DoubleRatchet.fromBytes` на случайных байтах — только `StateError`/`RangeError`, никаких неожиданных исключений; `Bip39.mnemonicToEntropy` на случайных словах — только `ArgumentError`.
 
 2. **Независимая проверка X3DH** (`test/x3dh_independent_test.dart` — 6 тестов, все зелёные):
-   - Unabhängiger пересчёт SK из приватных ключей получателя + эфемерного pub отправителя (DH коммутативность) — совпадает с `X3DH.receiver()` и `X3DH.sender()`.
+   - Независимый пересчёт SK из приватных ключей получателя + эфемерного pub отправителя (DH коммутативность) — совпадает с `X3DH.receiver()` и `X3DH.sender()`.
    - Негативы: перестановка dh2||dh3 → другой SK; замена info → другой SK; подмена SPK → `InvalidSignature`; подмена ed25519PublicKey → отказ.
    - Regression-вектор из `test/vectors/x3dh_regression.json` (самосгенерированный, фиксированные seed, помечен как не независимая проверка) — roundtrip стабилен, shared key 32 байта.
 
@@ -454,7 +454,7 @@
 - Ожидается: `grep -rn "encryptedPrivateKey" packages/` — 0 совпадений.
 - Ожидается: `grep -rn "SecureKeyStoreStub" packages/core_crypto/` — 0 совпадений.
 
-- `dart analyze packages/core_crypto/lib packages/core_crypto/test`: **0 ошибок**, предупреждения только в novoтестовом коде (не блокируют), 15 info (pre-existing).
+- `dart analyze packages/core_crypto/lib packages/core_crypto/test`: **0 ошибок**, предупреждения только в новом тестовом коде (не блокируют), 15 info (pre-existing).
 - `melos run check:imports`: OK.
 
 ---
@@ -466,7 +466,7 @@
 1. **DESIGN.md §12** — полностью переработан:
    - KEK: AES-GCM-256 `CryptoKey` с `extractable: false`, usages `encrypt`/`decrypt`, создаётся через `SubtleCrypto.generateKey`, хранится в IndexedDB как `CryptoKey`.
    - **Гонка вкладок:** `getOrCreateKek` выполняется в одной `readwrite` транзакции (`add`, при `ConstraintError` — перечитать), две вкладки не создают разные KEK.
-   - **AAD:** имя ключа (`identity_<userId>`) в качестве zusätzlichen аутентифицируемых данных при шифровании/расшифровке — защита от подмены blob под другим именем.
+   - **AAD:** имя ключа (`identity_<userId>`) в качестве дополнительных аутентифицируемых данных при шифровании/расшифровке — защита от подмены blob под другим именем.
    - **Модель угроз Web:** таблица угроз с оценкой защиты (дамп IndexedDB — защищён, XSS — не защищён, приватный режим/квота/без HTTPS — `StoreUnavailable`, seed в памяти — не затирается).
    - `TODO(verify)`: целевые браузеры, `dart2js`/`dart2wasm`, `storage.persist()`, `package:cryptography` Pbkdf2 на вебе.
 
@@ -597,7 +597,7 @@
 - Q4 (Chrome-тестирование): инфраструктурная проблема с MIME-типом `dart.js`, не код.
 - Q2, Q7, Q8, Q9, Q10, Q11 — открыты.
 - check_text_hygiene ложные срабатывания требуют донастройки скрипта или подтверждения вручную.
-- docs/UI_UX.md удалён из рабочей копии (преду-existing, не関連 к фазе F6).
+- docs/UI_UX.md удалён из рабочей копии (предсуществующее, не связано с фазой F6).
 
 ### Результаты тестирования
 
@@ -608,3 +608,748 @@
 - `bash tool/check_text_hygiene.sh`: найдены совпадения (требует ручной оценки).
 - `grep expect(true`: **0 совпадений**.
 - `grep UnimplementedError` в `lib/`: **0 совпадений**.
+
+---
+
+## Запись 18 — Этап 4.4: Web StorageBackend, ресурсы и Chrome
+
+### Сверка закреплённого API и ресурсов
+
+1. В исходнике pub-кэша `drift` 2.19.1+1 сверены сигнатуры `WasmDatabase.open({required String databaseName, required Uri sqlite3Uri, required Uri driftWorkerUri, ...}) -> Future<WasmDatabaseResult>`, `WasmDatabase.inMemory(CommonSqlite3, ...)` и поля `resolvedExecutor`, `chosenImplementation`, `missingFeatures`.
+2. Релизная проверка выявила, что `drift-2.19.1` предоставляет `drift_worker.js`, но не `sqlite3.wasm`. По решению пользователя закреплены раздельные источники: worker из релиза Drift 2.19.1, wasm из релиза `sqlite3.dart` 2.4.5, соответствующего версии `sqlite3` в lock.
+3. Контрольные SHA-256 получены скачиванием upstream артефактов и закреплены в `tool/web_assets.sha256`; `tool/web_assets.lock` связывает package version, release tag и ресурс.
+
+### Что сделано
+
+1. `packages/platform_web/lib/src/storage_database_factory_web.dart` реализует `StorageBackend` на `package:drift/wasm.dart`. Persistent путь использует `WasmDatabase.open`; memory-путь загружает `WasmSqlite3` и регистрирует `InMemoryFileSystem` согласно примеру/API закреплённого `sqlite3`.
+2. Выбранные реализации преобразуются в `StorageInfo`: OPFS → `opfs`, IndexedDB → `indexedDb`, memory → `memory`; `isPersistent` соответствует выбранному backend-у. `unsafeIndexedDb`, memory и ограничения браузерных API добавляют явные warnings. Отсутствующий wasm/worker или неверный Content-Type возвращает `ResourceMissing` с названием ресурса и HTTP/MIME причиной.
+3. `tool/fetch_web_assets.sh` проверяет package/release versions против `pubspec.lock`, скачивает артефакты, сравнивает SHA-256 и помещает файлы в `apps/app/web/`. Артефакты сгенерированы и исключены из Git; Chrome/CI запускают fetch перед сборкой.
+4. `tool/test_web_storage_chrome.sh` получает ресурсы и временно размещает их в корне package-web test runner. Тесты проверяют EventStore contract на `WasmDatabase.inMemory`, StorageInfo, persistence при открытии нового executor, typed errors для отсутствующих ресурсов и perf budget.
+5. Добавлены Chrome performance тест и сравнимый VM benchmark: 100k SQL вставок одной транзакцией, затем 10 страниц по 50 записей. Существующие тесты не менялись.
+6. `tool/serve_web_dev.sh` собирает debug web bundle и запускает локальную раздачу с `application/wasm` для wasm и `application/javascript` для worker. `ENABLE_CROSS_ORIGIN_ISOLATION=1` добавляет COOP same-origin и COEP require-corp для `opfsLocks`. DevTools manual QA дополнен проверками reload, деградации и двух вкладок.
+7. В CI добавлен job `storage-web` с Chrome/dart2js; web build проверяет ресурсные SHA в debug и release артефактах.
+8. Весь репозиторий очищен от упоминаний прежнего отдельного пакета; `core_storage/lib` по-прежнему не импортирует `drift/native.dart`, `drift/wasm.dart`, `dart:io`, `dart:ffi`, `dart:html`, `package:web`, `dart:js_interop`, `sqlite3_flutter_libs` или `path_provider`.
+
+### Файлы этапа
+
+- Новый код: `packages/platform_web/lib/src/storage_database_factory_web.dart`.
+- Web tests: `packages/platform_web/test/storage_database_factory_web_test.dart`, `packages/platform_web/test/storage_performance_web_test.dart`; VM benchmark: `packages/core_storage/test/storage_performance_benchmark_test.dart`.
+- Ресурсы/инструменты: `tool/web_assets.lock`, `tool/web_assets.sha256`, `tool/fetch_web_assets.sh`, `tool/test_web_storage_chrome.sh`, `tool/serve_web_dev.sh`; ресурсы и `apps/app/build/` генерируются локально и не сохраняются в Git.
+- Конфигурация: `packages/platform_web/pubspec.yaml`, `lib/platform_web.dart`, `.gitignore`, `.github/workflows/ci.yml`.
+- Документация: `packages/core_storage/DESIGN.md`, `docs/MANUAL_QA.md`, `docs/OPEN_QUESTIONS.md` (Q30–Q31), `docs/DEFECTS.md` (S4-01/S4-04/S4-06; S4-13 — прежние analyzer diagnostics), этот журнал.
+
+### Результаты проверок
+
+- `bash tool/test_web_storage_chrome.sh`: **6 passed, 0 failed** на Chrome/dart2js; EventStore contract, metadata/warnings, persistent reopen, missing-resource errors и 100k benchmark прошли.
+- Chrome performance output: `events=100000 insert_ms=4994 pagination_p95_ms=4`; пороги слоя 4 — <30 s и p95 <200 ms.
+- `dart test packages/core_storage/test/storage_performance_benchmark_test.dart -p vm`: **1 passed**; `VM_STORAGE_PERF events=100000 insert_ms=2649 pagination_p95_ms=6`.
+- `dart test packages/core_storage/test/performance_test.dart -p vm`: **3 passed, 0 failed**.
+- VM целевой набор (`storage_performance_benchmark_test`, EventStore, validation, app database, SQLite open/migration/version tests): **35 passed, 0 failed**.
+- Точечный `dart analyze` для нового Web factory/tests и `core_storage/lib` + VM benchmark: **No issues found!**. Полный `dart analyze packages/platform_web/lib` обнаруживает 18 `prefer_const_constructors` errors и 16 JS interop infos в неизменённом `secure_key_store_web.dart`; зафиксировано как S4-13, вне скоупа.
+- `flutter build web --debug` и `flutter build web --release`: **успешно**. SHA в обоих `build/web` совпали с `tool/web_assets.sha256`. `dart2wasm` не запускался; Flutter dry-run отмечает несовместимости `flutter_secure_storage_web` (`dart:html`, `dart:js_util`, `package:js`), Q30.
+- `tool/serve_web_dev.sh`: проверка GET/HEAD дала HTTP 200; `sqlite3.wasm` → `Content-Type: application/wasm`, `drift_worker.js` → `application/javascript`.
+- `bash tool/fetch_web_assets.sh` и `--check`: **OK**, package versions/tags и суммы совпадают. Проверено: релизный `drift_worker.js` имеет SHA `a1bd312c6ed74199ee877e4e22e69d45176f0f729bea7548dc882d2bc5b94360`, `sqlite3.wasm` — `6082c7bc2c537ab59cf915c3dcb56b4c054751bef54d16fae2ad25560cd4f8d0`.
+- `bash tool/check_core_imports.sh`, `bash tool/check_core_storage_deps.sh`, `bash tool/check_docs_drift.sh`, `git diff --check`: **OK**. Поиск запрещённого отдельного пакета и запрещённых импортов в `core_storage/lib`: **0 совпадений**.
+- `bash tool/check_text_hygiene.sh`: **не пройден** — после удаления собранных бинарных ресурсов остаются прежние срабатывания на CJK/диакритику/смешение кириллицы с латинскими техническими именами в других слоях и документах; список не указывает на испорченные идентификаторы в новом коде. Проверка вне AC этапа.
+- Попытка проверить штатный `flutter run -d web-server` в этой workspace-конфигурации дала HTTP 404 на отдельные ресурсы; вместо этого добавлен и проверен проектный debug preview `tool/serve_web_dev.sh`, который отдаёт оба ресурса с корректными MIME.
+
+### Что осталось
+
+- Q30: dart2wasm не проверен; закреплённый `sqlite3` считает поддержку экспериментальной, а Flutter dry-run указывает на несовместимые зависимости Web SecureKeyStore.
+- Q31: Chrome test runner проверяет persistent reopen в новой БД/новом executor в рамках той же тестовой страницы. Фактический reload app page и две вкладки не автоматизированы; добавлены ручные шаги в `docs/MANUAL_QA.md`.
+- Полный analyzer пакета `platform_web` остаётся с ранее существовавшими diagnostics SecureKeyStore (S4-13). Файл не менялся в этом этапе.
+- Успешная сборка и resource hash не подтверждают browser storage в каждом браузере/приватном режиме; сценарии деградации и многовкладочной работы описаны в ручном QA.
+
+Этап 4.4 завершён. К этапу 4.5 не переходить; остановка до ревью.
+
+---
+
+## Запись 14 — Этап 4.0: core_storage (drift, EventStore) — проверка фактов и baseline (пять замечаний агента)
+
+### 1. Версии и замечание об отдельном WASM-пакете (пункт 1)
+
+Источник: `pubspec.lock` (закреплённые версии), `pubspec.yaml` пакетов, поиск по репозиторию.
+
+| Компонент | Версия | Источник |
+|-----------|--------|----------|
+| `drift` | 2.19.1+1 | `pubspec.lock:180-187` (transitive) |
+| `drift_dev` | не зафиксирован | закомментирован в `core_storage/pubspec.yaml:17-20` |
+| `sqlite3` | 2.4.5 | `pubspec.lock:728-735` (transitive) |
+| `sqlite3_flutter_libs` | 0.6.0+eol | `pubspec.lock:736-743` (transitive) |
+| `drift_flutter` | отсутствует | не в pubspec/lock |
+| `path_provider` | 2.1.6 | `pubspec.lock:523-530` (transitive, не используется в core_storage) |
+
+Первоначальный поиск по репозиторию обнаружил неверные комментарии о будущем отдельном пакете в `core_storage` и документации. Импорта или зависимости такого пакета в pubspec/lock-файлах не было.
+
+Вывод: отдельного пакета нет — это ложная гипотеза. WebAssembly backend встроен в `drift` 2.19.1+1.
+
+### 2. Проверка замечания 1 (пункт 2) — wasm в составе drift
+
+Подтверждено по исходникам закреплённой версии в pub-кэше (`/home/kov/.pub-cache/hosted/pub.dev/drift-2.19.1+1/`):
+
+- `lib/wasm.dart` **существует** (11280 байт).
+- `WasmDatabase.open({required String databaseName, required Uri sqlite3Uri, required Uri driftWorkerUri, FutureOr<Uint8List?> Function()? initializeDatabase, WasmDatabaseSetup? localSetup, bool enableMigrations = true}) -> Future<WasmDatabaseResult>` — сигнатуры совпадают с ожидаемыми (`databaseName`, `sqlite3Uri`, `driftWorkerUri`, `initializeDatabase`, `localSetup`).
+- `WasmDatabase.inMemory(CommonSqlite3 sqlite3, {WasmDatabaseSetup? setup, ...})` — существует.
+- `WasmDatabaseResult` поля: `resolvedExecutor` (DatabaseConnection), `chosenImplementation` (WasmStorageImplementation), `missingFeatures` (Set<MissingBrowserFeature>). Имена MissingBrowserFeature: `sharedWorkers`, `dedicatedWorkers`, `dedicatedWorkersInSharedWorkers`, `fileSystemAccess`, `indexedDb`, `sharedArrayBuffers`.
+- Файлы для `web/`: `sqlite3.wasm` и drift worker описаны в комментариях `wasm.dart:101-103`; конкретные релизные артефакты проверены в этапе 4.4.
+- Важно: `package:drift/wasm.dart` импортирует `package:web/web.dart` и `package:sqlite3/wasm.dart` — запрещено в `core_storage` (чистый Dart). Веб-фабрика должна жить в `platform_web`, а не в `core_storage`. Это подтверждает архитектуру замечания 5.
+
+Статус замечания 1: **опровергнута гипотеза** — web-поддержка входит в сам `drift` (`package:drift/wasm.dart`).
+
+### 3. Проверка замечания 3 (пункт 3) — ON CONFLICT и версия SQLite
+
+Где используется `ON CONFLICT` в коде репозитория:
+- `packages/core_storage/lib/src/database/app_database.dart:75` — `INSERT INTO schema_info (id, version) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET version = ?` (таблица `schema_info`, DO UPDATE).
+- `packages/core_storage/test/sqlite_version_test.dart:49` — прямой upsert `ON CONFLICT(id) DO UPDATE SET value = ?` (проверка).
+
+Минимальная версия SQLite для `ON CONFLICT ... DO UPDATE` — 3.24.0 (доказано тестом `sqlite_version_test.dart`).
+
+Откуда берётся SQLite на платформах (по README `sqlite3` 2.4.5 в pub-кэше):
+- **Android**: `package:sqlite3` через `dart:ffi` загружает системную библиотеку; `sqlite3_flutter_libs` 0.6.0+eol — **no-op** («Starting from version 0.6.0, this package no longer does anything»), загрузку берет на себя `package:sqlite3`. Можно shipping кастомную `.so`.
+- **Linux**: системный `libsqlite3` (например, `libsqlite3-dev` на Debian) или кастомный, через `dart:ffi`; `sqlite3_flutter_libs` — no-op.
+- **Web**: `sqlite3.wasm` (WASM сборка sqlite3), через `package:sqlite3/wasm.dart`; поддерживается `dartdevc`/`dart2js`, `dart2wasm` экспериментально.
+
+Статус замечания 3: **подтверждено** — bundled/системная SQLite ≥ 3.24.0, `ON CONFLICT` upsert работает (тест зелёный).
+
+### 4. Проверка замечания 2 (пункт 4) — автор события
+
+- `EventStore.write()` (`DriftEventStore.write()`, `event_store_impl.dart:30`) пишет `author: ''` с `TODO(verify)`.
+- `EventRecord` (`core_domain/lib/src/interfaces/event_store.dart:6-13`) НЕ имеет поля `author` — только `id`, `groupId`, `payload`, `timestamp`, `signature`.
+- `Envelope` (`core_protocol/lib/src/envelope.dart:29`) имеет поле `sender` (`Uint8List` — открытый ключ Ed25519 отправителя), но не строку-автора.
+- `GroupEvent`/`ChatEvent` (`messages.dart`) имеют поле `authorId` (строка), но оно внутри payload (хранилище не парсит payload по правилу этапа — непрозрачные байты).
+- `seq` — поле `events.seq INTEGER` есть, индекс `idx_events_author_seq(author, seq)` есть (schema.dart:158), ORDER BY seq есть, НО `insertEvent` не принимает `seq` — оно всегда `NULL`. Кто заполняет `seq` — неизвестно.
+- `id` события — content hash, задаётся вызывающим кодом (слой 3/5), хранилище не считает id.
+
+Статус замечания 2: **не проверено** — заблокировано отсутствием реализации `core_protocol` (Q15) и отсутствием поля `author` в `EventRecord`; автор остаётся `''`.
+
+### 5. Проверка замечания 4 (пункт 5) — что мешает `dart test -p chrome` для core_storage
+
+Разделённые причины:
+1. **Нет веб-реализации `DatabaseFactory`** в `core_storage` — `createWebDatabase()` отсутствует; веб-фабрика должна жить в `platform_web` (замечание 5).
+2. **Запрет импортов в `core_storage`**: `package:drift/wasm.dart` импортирует `package:web/web.dart` — запрещён в `core_storage` (только `drift.dart`). Даже при желании подключить wasm напрямую из `core_storage` нельзя.
+3. **Отсутствуют ресурсы `web/`** — нет `sqlite3.wasm` и drift worker.
+4. **Инфраструктура Chrome**: тестовый раннер `package:test` не отдаёт `dart.js` с MIME-типом `application/javascript` (отдаёт `text/plain`) — Chrome блокирует выполнение (Q4, не код).
+
+Статус замечания 4: **не проверено** — заблокировано отсутствием `drift`-wasm интеграции в `platform_web` (пункт 1-3) и инфраструктурой Chrome (пункт 4).
+
+### 6. Baseline (пункт 6)
+
+- `dart analyze packages/core_storage/lib`: **0 ошибок, 0 предупреждений, 0 info** (`No issues found!`).
+- `dart test packages/core_storage/test/ -p vm`: **40 пройдено, 0 провалено** (включает новый `test/sqlite_version_test.dart`).
+- `bash tool/check_text_hygiene.sh`: находит мусор в репозитории, но **документы слоя 4 чисты** (DEFECTS.md раздел этапа 4, PHASE_LOG.md запись 14, OPEN_QUESTIONS.md Q18 — без CJK/диакритики/смешения алфавитов). Исправлен текстовый мусор: `OPEN_QUESTIONS.md:64` `drift схема` → `drift-схема` (смешение алфавитов).
+- `melos run check:imports`: OK.
+- `grep package:drift/native.dart packages/core_storage/lib`: 0 совпадений.
+
+### Что изменено
+- Изменённые документы:
+  - `docs/DEFECTS.md` — раздел этапа 4: обновлены S4-01/S4-04 (уточнено, что отдельного WASM-пакета нет), добавлены S4-06 (ошибочные комментарии), S4-07 (`seq` всегда NULL), S4-08 (`EventRecord` без `author`).
+  - `docs/OPEN_QUESTIONS.md:64` — исправлен текстовый мусор (`drift схема` → `drift-схема`).
+  - `docs/PHASE_LOG.md` — эта запись (полная проверка фактов пунктов 1–6).
+- Код `lib/` не изменён (`git diff packages/core_storage/lib` пуст).
+
+### Что осталось
+- S4-01: на этапе 4.0 отдельная web-фабрика и ресурсы ещё отсутствовали; дальнейшая реализация отмечена в записи этапа 4.4.
+- S4-02: извлечение `author` требует `core_protocol` (Q15) и поля `author` в `EventRecord`; статус «не проверено».
+- S4-04: Chrome runtime и ресурсы не проверялись на этапе 4.0; результат проверки записан в этапе 4.4.
+- S4-06: комментарии core_storage уже уточнены, импорт WebAssembly-модуля остаётся только в `platform_web`.
+- S4-07: уточнить, кто заполняет `seq` в `events`; статус «не проверено».
+- S4-08: добавить `author` в `EventRecord` или извлекать из payload на уровне вызывающего кода; статус «не проверено».
+- Q2 (DI platform-реализаций) — открыт.
+
+### Результаты тестирования
+- `dart test packages/core_storage/test/ -p vm`: **40 пройдено, 0 провалено**.
+- `dart analyze packages/core_storage/lib`: **0 ошибок, 0 предупреждений, 0 info**.
+- `dart analyze packages/platform_android/lib packages/platform_linux/lib`: ошибки только пред-existing; новые `storage_database_factory.dart` — чисто.
+- `melos run check:imports`: OK.
+- `grep package:drift/native.dart packages/core_storage/lib`: **0 совпадений**.
+- `bash tool/check_text_hygiene.sh`: документы слоя 4 чисты (остальной мусор — в других слоях, вне scoped этапа 4).
+
+---
+
+## Запись 15 — Этап 4.1: EventRecord и EventStore
+
+### Что сделано
+
+1. `EventRecord.author` сделано обязательным полем: вызывающий слой передаёт автора после проверки события. `core_storage` не зависит от `core_protocol`, не проверяет подпись и не разбирает payload.
+2. `DriftEventStore.write()` проверяет непустой `id`, hex-формат публичного ключа автора (32 байта) и payload (непустой, до 1 МиБ); ошибки возвращаются как `Result<InsertOutcome, EventStoreWriteError>` без записи.
+3. Повторная запись идентификатора сохраняет исходные байты. На drift 2.19.1+1 `QueryExecutor.runInsert()` возвращает `lastInsertRowId`, а не число изменённых строк; для `INSERT OR IGNORE` используется `runUpdate()`, который в native и WASM executor-ах возвращает SQLite `updatedRows`.
+4. `FakeEventStore` приведён к Result-контракту и идемпотентному поведению.
+5. Уточнены запросы по событиям: сортировка и индексирование не используют зарезервированный `seq`; миграция v2→v3 сохраняет прежние строки и заменяет индекс автора.
+6. Исправлены комментарии core_storage о backend-ах. `tool/check_core_imports.sh` теперь проверяет import/export/part directives только в `core_*/lib`, поэтому тестовый `NativeDatabase` и упоминания запретов в комментариях не дают ложных срабатываний.
+
+### Что изменено
+
+- `packages/core_domain/lib/src/interfaces/event_store.dart`, `packages/core_domain/lib/src/interfaces/fakes.dart`.
+- `packages/core_storage/lib/core_storage.dart`, `packages/core_storage/lib/src/database/app_database.dart`, `packages/core_storage/lib/src/event_store_impl.dart`, `packages/core_storage/lib/src/platform/database_factory.dart`.
+- `tool/check_core_imports.sh`.
+- `docs/DEFECTS.md` — статусы S4-01…S4-09; `docs/OPEN_QUESTIONS.md` — Q25; этот журнал.
+
+### Что осталось
+
+- S4-01/S4-04: на момент завершения этапа 4.3 web-фабрика, ресурсы и Chrome runtime ещё не были реализованы; отдельный WASM-пакет не требовался. Этап 4.4 закрывает эту работу.
+- S4-03: upsert подтверждён текущим native test runtime; фактические версии SQLite в целевых Android/Linux сборках и необходимость runtime-проверки — Q25.
+- Полный `dart test packages/core_storage/test/ -p vm` не компилирует существующий `sqlite_version_check_test.dart`: сигнатуры `beginTransaction`/`beginExclusive` объявлены как `dynamic`, не как типы закреплённого drift 2.19.1+1. Тест не изменялся.
+- `dart test packages/core_domain/test/core_domain_test.dart -p vm` не компилирует существующий вызов конструктора `EventRecord` без нового обязательного `author`. Тест не изменялся.
+- Этапы 4.2–4.5 не выполнялись.
+
+### Результаты тестирования
+
+- Красный прогон до исправления: дубли EventStore считались вставленными, потому что `runInsert()` ошибочно трактовался как количество затронутых строк.
+- После исправления: `dart test packages/core_storage/test/event_store_test.dart packages/core_storage/test/event_store_validation_test.dart packages/core_storage/test/app_database_test.dart packages/core_storage/test/migration_test.dart packages/core_storage/test/sqlite_version_test.dart packages/core_storage/test/performance_test.dart packages/core_storage/test/retention_test.dart packages/core_storage/test/sync_queries_test.dart packages/core_storage/test/ui_queries_test.dart -p vm` — **50 пройдено, 0 провалено**.
+- `dart analyze packages/core_storage/lib packages/core_domain/lib/src/interfaces/event_store.dart` — **No issues found!**
+- `bash tool/check_core_imports.sh` — **OK**.
+- `dart test packages/core_storage/test/ -p vm` — **полностью не проверено** из-за compile error в существующем `sqlite_version_check_test.dart`.
+- `dart test packages/core_domain/test/core_domain_test.dart -p vm` — **не проверено** из-за устаревшего вызова конструктора в тесте.
+
+---
+
+## Запись 16 — Этап 4.2: проверка SQLite, EventStore и миграция
+
+### Решения
+
+1. По подтверждению пользователя legacy payload **не декодируется**. Строки v3 с пустым `author` сохраняются как карантинные; строки с уже заполненным `author` сохраняются без преобразования.
+2. Версия схемы повышена с 3 до 4. `migrations[4]` не меняет данные или структуру таблиц: в v3 уже присутствуют требуемые колонки и индексы. Миграция обновляет версию и проверяет сохранение обеих категорий строк.
+3. Для хранения `sqliteVersion` добавлен core API `AppDatabase.open(...) -> StorageInfo` и типизированные ошибки открытия. Платформенные фабрики на этапе 4.2 не менялись.
+
+### Что сделано
+
+1. Проверка `SELECT sqlite_version() AS version` выполняется после `ensureOpen`, до чтения/изменения схемы. Минимум — `3.24.0`. Ниже минимума выбрасывается `DatabaseVersionTooLow(required, actual)`; остальные ошибки открытия оборачиваются в `OpenFailure`.
+2. `StorageInfo` включает backend, persistence, SQLite version и warnings; добавлены описанные в design типы `StorageSpec`, `OpenedStorage`, `StorageBackend`, `StorageOpenError` и его варианты.
+3. Для событий оставлен `INSERT OR IGNORE`; `QueryExecutor.runUpdate()` возвращает фактическое число изменённых строк. Upsert остаётся только на `schema_info`, до него теперь гарантированно проверяется минимум SQLite.
+4. Добавлены проверки параллельной записи одного id в одной транзакции и через два подключения/транзакции; ровно один результат — inserted, остальные — duplicate, исходные bytes не перезаписываются.
+5. Добавлен `EXPLAIN QUERY PLAN` тест на `idx_events_group_hlc` и `idx_events_author_hlc`; запросы не сортируют по `seq`.
+6. Добавлен SQL snapshot нужной части схемы v3 и тест миграции v3→v4 для заполненного и пустого автора. `drift_dev` не закреплён в lock-файле и отсутствует в pub-кэше; snapshot пока ручной, TODO внесён как Q26.
+7. `packages/core_storage/DESIGN.md` обновлён по решениям этапа 4.2; `docs/DEFECTS.md` дополнен тестовыми ссылками и статусами.
+
+### Файлы этапа
+
+- `packages/core_storage/lib/src/models/storage_info.dart`, `lib/core_storage.dart`, `lib/src/database/app_database.dart`, `lib/src/database/schema.dart`.
+- `packages/core_storage/test/sqlite_open_and_migration_test.dart`, `test/schema_v3_snapshot.dart`, `test/event_store_concurrency_test.dart`, `test/index_query_plan_test.dart`.
+- `packages/core_storage/DESIGN.md`, `docs/DEFECTS.md`, `docs/OPEN_QUESTIONS.md` (Q25 уточнён, Q26 добавлен), этот журнал.
+- Платформенные фабрики не изменялись.
+
+### Результаты тестирования
+
+- Красный прогон до реализации: `dart test packages/core_storage/test/sqlite_open_and_migration_test.dart -p vm` — **1 пройдено, 3 провалено**: отсутствовал `AppDatabase.open`, ошибка версии не выдавалась, schema version была 3 вместо 4.
+- Зелёный целевой прогон: `dart test packages/core_storage/test/sqlite_open_and_migration_test.dart packages/core_storage/test/event_store_concurrency_test.dart packages/core_storage/test/index_query_plan_test.dart packages/core_storage/test/event_store_validation_test.dart packages/core_storage/test/event_store_test.dart packages/core_storage/test/sqlite_version_test.dart -p vm` — **24 пройдено, 0 провалено**.
+- `dart analyze packages/core_storage/lib packages/core_storage/test/sqlite_open_and_migration_test.dart packages/core_storage/test/event_store_concurrency_test.dart packages/core_storage/test/index_query_plan_test.dart` — **No issues found!**
+- `bash tool/check_core_imports.sh` — **OK**.
+- `git diff --check` — **OK**.
+- Полный `dart test packages/core_storage/test/ -p vm` — **56 пройдено, 2 блокера**: существующий `sqlite_version_check_test.dart` не компилируется из-за `dynamic` вместо типов `TransactionExecutor`/`QueryExecutor`; существующий `migration_test.dart` ожидает schema version 3 вместо 4. Тесты не менялись.
+
+### Что осталось
+
+- Q25: проверить фактическую SQLite version в Android/Linux сборках; runtime-проверка реализована.
+- Q26: закрепить совместимую версию drift_dev и проверить точные команды schema dump/migration tooling; текущий v3 snapshot ручной.
+- Существующие несовместимые тесты из S4-09 не изменялись по правилу этапа.
+- Этапы 4.3–4.5 не выполнялись.
+
+---
+
+## Запись 17 — Этап 4.3: native-фабрики SQLite для Android и Linux
+
+### Решения
+
+1. После обнаружения конфликта с ADR 4.1 пользователь выбрал bundled SQLite для Android. ADR уточнён: `sqlite3_flutter_libs` 0.5.41 вместо 0.6.0+eol (no-op). Контракты `StorageBackend` и `StorageInfo` не менялись.
+2. `sqlite3_flutter_libs` 0.5.41 закреплён в `platform_android` и `platform_linux`, `sqlite3` 2.4.5 и `path_provider` 2.1.6 добавлены как прямые зависимости обоих native-пакетов. `core_storage` по-прежнему зависит только от `core_domain` и `drift`.
+3. Исходники закреплённых библиотек сверены в pub-кэше:
+   - `drift` 2.19.1+1: `NativeDatabase.createInBackground(File, {setup})`, `NativeDatabase.memory({setup})`; setup исполняется до готовности Drift, callback является top-level и подходит для изолята.
+   - `sqlite3_flutter_libs` 0.5.41: README описывает bundled native SQLite на Android/Linux; Android Gradle dependency — `sqlite3-native-library:3.51.1`; Linux CMake собирает SQLite 3.51.1 в plugin shared library.
+   - `sqlite3` 2.4.5: Android loader открывает `libsqlite3.so`; Linux loader использует экспортированный symbol зарегистрированного Flutter plugin, иначе fallback на системный `libsqlite3.so`.
+4. Ошибки открытия сохраняют утверждённый `Future<OpenedStorage>` API, а дополнительный `StorageBackend.openResult()` даёт `Result<OpenedStorage, StorageOpenError>` для границ, которым запрещено выпускать исключения. `StorageOpenError`/`StorageInfo` не менялись. Linux отсутствие `libsqlite3.so` в fallback-режиме преобразуется в `ResourceMissing` с инструкцией установки `libsqlite3-dev`.
+5. Для файловой и memory-БД задаются `foreign_keys=ON`, `journal_mode=WAL`, `synchronous=FULL`. Причины и ограничения фактической durability при потере питания записаны в `packages/core_storage/DESIGN.md`; Q27 оставлен для подтверждения гарантий на целевых устройствах.
+
+### Что сделано
+
+1. `AndroidDatabaseFactory` и `LinuxDatabaseFactory` реализуют `StorageBackend`, используют `getApplicationSupportDirectory()` для файловой БД, именуют backend `file`, устанавливают `isPersistent=true` и возвращают фактическую `sqlite_version()` из `AppDatabase.open()`. `StorageSpec.inMemory` явно создаёт `NativeDatabase.memory`, `backend=memory`, `isPersistent=false` и предупреждение.
+2. Добавлены предупреждение для файлов в системном temp-каталоге и проверка имени файла, предотвращающая выход из application support directory.
+3. Добавлен общий `runEventStoreContract` в `packages/core_storage/test/event_store_contract.dart`; Linux VM тест запускает его на memory и временном файле. Отдельные сценарии проверяют close/reopen того же файла, SQLite PRAGMA, временное предупреждение и ошибки повреждённой БД/недоступной директории через `Result`.
+4. Добавлен `tool/check_core_storage_deps.sh`: проверяет `core_storage/pubspec.yaml` и импорты на `sqlite3_flutter_libs`/`path_provider`; включён в Melos `check:imports`.
+5. `docs/MANUAL_QA.md` дополнен Android-чек-листом: установка, обновление поверх старой версии, перезапуск, очистка только кэша, проверка `StorageInfo` и фиксация результата на устройстве.
+6. `docs/DEFECTS.md` дополнен S4-11 и S4-12: umbrella import Linux обнаружил отсутствующий `_stateKey` в SecureKeyStore; Android `flutter drive` отклоняет текущий Gradle runner как unsupported. Оба дефекта не исправлялись в этом этапе; Linux storage-тест импортирует непосредственно фабрику, Android проверка остаётся ручной.
+
+### Файлы этапа
+
+- `packages/platform_android/lib/src/storage_database_factory.dart`, `packages/platform_linux/lib/src/storage_database_factory.dart`.
+- `packages/platform_android/pubspec.yaml`, `packages/platform_linux/pubspec.yaml`, `pubspec.lock`, `pubspec.yaml`.
+- Сгенерированные Flutter-регистраторы `apps/app/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java`, `apps/app/linux/flutter/generated_plugin_registrant.cc`, `apps/app/linux/flutter/generated_plugins.cmake`.
+- `packages/core_storage/lib/core_storage.dart`, новый `lib/src/platform/storage_backend_result.dart`, новый `test/event_store_contract.dart`.
+- Новый `packages/platform_linux/test/storage_database_factory_test.dart`, новый `tool/check_core_storage_deps.sh`.
+- `packages/core_storage/DESIGN.md`, `docs/MANUAL_QA.md`, `docs/DEFECTS.md`, `docs/OPEN_QUESTIONS.md`, этот журнал.
+
+### Результаты тестирования
+
+- `flutter test packages/platform_linux/test/storage_database_factory_test.dart`: **7 пройдено, 0 провалено**. Покрыты EventStore contract на памяти и файле, persistence после перезапуска, pragma, предупреждение temp-каталога, повреждённая БД и недоступный каталог.
+- `dart test packages/core_storage/test/event_store_test.dart packages/core_storage/test/event_store_validation_test.dart packages/core_storage/test/app_database_test.dart packages/core_storage/test/sqlite_open_and_migration_test.dart packages/core_storage/test/sqlite_version_test.dart -p vm`: **34 пройдено, 0 провалено**.
+- `dart analyze packages/core_storage/lib packages/core_storage/test/event_store_contract.dart packages/platform_android/lib/src/storage_database_factory.dart packages/platform_linux/lib/src/storage_database_factory.dart packages/platform_linux/test/storage_database_factory_test.dart`: **No issues found!**
+- `bash tool/check_core_storage_deps.sh`: **OK** — нет `sqlite3_flutter_libs`/`path_provider` в `core_storage`.
+- `bash tool/check_core_imports.sh`: **OK** — запрещённых импортов нет.
+- `dart pub deps`: `core_storage` имеет runtime-зависимости `core_domain` и `drift`; платформенные пакеты содержат `sqlite3_flutter_libs`, `path_provider`, `sqlite3`, `drift`.
+- `git diff --check`: **OK**.
+- Полный тестовый пакет `platform_linux` не проверен: первая загрузка через umbrella import падает в предсуществующем `secure_key_store_linux.dart` из-за `_stateKey`; зафиксировано как S4-11, код и существующие тесты не менялись.
+- Android runtime не проверен: AVD `Medium_Phone` удалось запустить, но `flutter drive --driver=test_driver/integration_test.dart --target=integration_test/storage_database_test.dart -d emulator-5554` остановился до сборки из-за unsupported Gradle project. Выполнен статический аудит источников пакетов, ручной QA чек-лист добавлен.
+
+### Что осталось
+
+- Q25/Q28: подтвердить runtime SQLite version и источник библиотеки в собранных Android APK и Linux приложении. Пакетные исходники подтверждают bundled SQLite 3.51.1, но runtime сборки/устройства не тестировались.
+- Q27: уточнить power-loss guarantees `WAL` + `FULL` для Android/Linux файловых систем и накопителей; аппаратная сохранность последнего commit не обещана.
+- Q29: определить стратегию поставки после устаревания `sqlite3_flutter_libs` 0.5.41; пакет не обновлять отдельно от `sqlite3` без native ABI проверки.
+- S4-11: отсутствующий `_stateKey` в Linux SecureKeyStore требует отдельного исправления.
+- S4-12: привести Android Gradle runner к поддерживаемому Flutter integration runner, чтобы выполнить runtime-проверку SQLite на AVD.
+- Этапы 4.4–4.5 не выполнялись. Этап 4.3 завершён; дальнейшие изменения остановлены.
+
+---
+
+## Запись 19 — Этап 4.5: финальная приёмка слоя 4 и синхронизация документации
+
+### Решения
+
+1. `packages/core_storage/DESIGN.md` пересобран по коду, а не по памяти. Удалены утверждения о несуществующем `drift_wasm`, «web stub» и отложенном AC3. Зафиксированы фактические контракты `StorageSpec`/`StorageInfo`/`OpenedStorage`/`StorageBackend`, порядок открытия, валидация `EventRecord`, `INSERT OR IGNORE` и `InsertOutcome`, реальные upsert-операции, версия SQLite, миграции, web-ресурсы и модель деградации.
+2. Уточнено расхождение API: `DatabaseFactory` остаётся экспортированным контрактом, но платформенные фабрики реализуют `StorageBackend`; зафиксировано как S4-14, не блокер.
+3. Все 10 маркеров `TODO(verify)` в `.dart`-коде сведены в индекс `docs/OPEN_QUESTIONS.md`. Добавлены Q32 (дрейф HLC) и Q33 (независимая сверка BIP-39/NFKD); Q18 переведён в «ЗАКРЫТО».
+4. Создан `docs/LAYER4_ACCEPTANCE.md` с AC1–AC6, командами, фрагментами вывода и честными статусами. `docs/REVIEW_LIST.md` дополнен разделом слоя 4.
+5. Исправлен устаревший комментарий в `schema.dart` («schema version 1» → «current schema version 4»). Существующие тесты не изменялись.
+
+### Что изменено
+
+- Новые документы: `docs/LAYER4_ACCEPTANCE.md`.
+- Переписано: `packages/core_storage/DESIGN.md`.
+- Обновлены: `docs/OPEN_QUESTIONS.md` (индекс TODO, Q18, Q32, Q33), `docs/REVIEW_LIST.md` (слой 4), `docs/DEFECTS.md` (S4-14, S4-15), `docs/PHASE_LOG.md` (эта запись).
+- Код: только комментарий версии схемы в `packages/core_storage/lib/src/database/schema.dart`; поведение не менялось.
+- Инструменты: `tool/check_docs_drift.sh` — проверка (c) теперь сверяет индекс TODO с кодом и блокирует дрейф.
+
+### Результаты проверок
+
+- `dart test` (12 актуальных файлов core_storage, `-p vm`): **51 пройдено, 0 провалено**; `VM_STORAGE_PERF events=100000 insert_ms=2058 pagination_p95_ms=5`.
+- Полный `dart test packages/core_storage/test/ -p vm`: **57 пройдено, 2 провалено** — S4-09: `migration_test.dart` ожидает schema version 3, `sqlite_version_check_test.dart` не компилируется из-за `dynamic` вместо `TransactionExecutor`/`QueryExecutor`. Тесты не изменялись.
+- `dart test packages/core_storage/test/migration_test.dart -p vm`: **6 пройдено, 1 провалено** (то же устаревшее ожидание version 3).
+- `flutter test packages/platform_linux/test/storage_database_factory_test.dart`: **7 пройдено, 0 провалено**.
+- `bash tool/test_web_storage_chrome.sh`: **6 пройдено, 0 провалено**; `WEB_STORAGE_PERF events=100000 insert_ms=5028 pagination_p95_ms=4`.
+- `dart analyze` целевых файлов слоя 4: **No issues found!**.
+- `melos run analyze`: **не проверено как зелёная проверка** — 217 issues (108 errors, 18 warnings, 91 info), exit 1; причины предсуществующие, в `core_storage/lib` и storage-фабриках ошибок нет. Дополнительно найден вложенный путь `packages/core_crypto/packages/core_crypto/...` (S4-15).
+- `bash tool/check_core_imports.sh`: **OK**.
+- `bash tool/check_core_storage_deps.sh`: **OK**.
+- `bash tool/check_docs_drift.sh`: **OK (a, b, c)**. Индекс TODO в `OPEN_QUESTIONS.md` сверяется с кодом: **10 = 10**; Q-записей 33, включая вопросы без маркера в коде. Проверка (c) обновлена в `tool/check_docs_drift.sh` и теперь блокирующая при расхождении.
+- `grep drift_wasm`: **0**; `grep expect(true`: **0**; `UnimplementedError` в `packages/*/lib`: **0**; единственное совпадение — `apps/app/lib/di/providers.dart:32`, не слой 4.
+- `bash tool/check_text_hygiene.sh`: **не проверено как зелёная проверка** (exit 1). Новые документы слоя 4 и обновлённые записи чисты; остаются предсуществующие срабатывания в других слоях, `docs/DESIGN.md`, `docs/UI_UX.md` и сгенерированном `sqlite3.wasm`.
+
+### Что осталось
+
+- S4-09: устаревшие тесты `sqlite_version_check_test.dart` и `migration_test.dart` не исправлялись по правилу этапа.
+- Q25/Q28: runtime-версия и источник SQLite в собранных Android/Linux приложениях не проверены.
+- Q27: power-loss durability не подтверждена.
+- Q29: стратегия замены `sqlite3_flutter_libs` 0.5.41 не определена.
+- Q30: dart2wasm не проверен.
+- Q31: reload страницы и две вкладки остаются ручным QA.
+- S4-12: Android runtime не проверен; S4-14/S4-15 требуют отдельных решений.
+
+Этап 4.5 завершён. К следующему этапу не переходить; остановка до ревью.
+
+---
+
+## Запись 20 — Этап 4.0 (повторная проверка): факты и baseline на текущем рабочем дереве
+
+### Состояние дерева до работы
+
+В рабочем дереве уже присутствуют незакоммиченные результаты этапов 4.1–4.5 (слой 4 реализован, `packages/core_storage/lib/src/` и `test/` не отслеживаются Git). Поэтому критерий «`git diff` по `lib/` пуст» в исходном виде невыполним: на старте `git status --porcelain` содержит 40 записей, а `git diff -- packages/core_storage/lib` не пуст только из-за изменённого `core_storage.dart` (untracked `lib/src/` в diff не попадает). Контрольная сумма baseline-диффа `packages/core_storage/lib`: `e522e8389ee09e0930262028f29b6a302291f030e93dbb207d1c7243a7735cf2`. В этом этапе `lib/` не изменялся; сумма после работы та же.
+
+### 1. Версии из pubspec.lock
+
+| Компонент | Версия | Доказательство |
+|-----------|--------|----------------|
+| `drift` | 2.19.1+1 | `pubspec.lock:180,187` |
+| `drift_dev` | отсутствует | нет записи в `pubspec.lock`; закомментирован в `packages/core_storage/pubspec.yaml:17-20` |
+| `sqlite3` | 2.4.5 | `pubspec.lock:728,735` |
+| `sqlite3_flutter_libs` | 0.5.41 | `pubspec.lock:736,743` |
+| `drift_flutter` | отсутствует | нет записи в `pubspec.lock` и в pubspec-файлах |
+| `path_provider` | 2.1.6 | `pubspec.lock:523,530` |
+
+`drift_wasm` как зависимость отсутствует. Единственные упоминания имени — в документах (`packages/core_storage/DESIGN.md:3`, `docs/PHASE_LOG.md:907,933`, `docs/LAYER4_ACCEPTANCE.md:240`). Резолвить нечего.
+
+### 2. Замечание 1 — web-поддержка входит в drift
+
+Проверено по pub-кэшу `/home/kov/.pub-cache/hosted/pub.dev/drift-2.19.1+1/`:
+
+- `lib/wasm.dart` существует; `WasmDatabase.open` объявлен на строке 117 с параметрами `databaseName`, `sqlite3Uri`, `driftWorkerUri`, `initializeDatabase`, `localSetup`, `enableMigrations`; `WasmDatabase.inMemory(CommonSqlite3 sqlite3, {setup, logStatements, cachePreparedStatements})` — строка 82.
+- `WasmDatabaseResult` (`lib/src/web/wasm_setup/types.dart:205`): `resolvedExecutor`, `chosenImplementation`, `missingFeatures`.
+- `WasmStorageImplementation` (`types.dart:25`): `opfsShared`, `opfsLocks`, `sharedIndexedDb`, `unsafeIndexedDb`, `inMemory`.
+- `MissingBrowserFeature` (`types.dart:111`): `sharedWorkers`, `dedicatedWorkers`, `dedicatedWorkersInSharedWorkers`, `fileSystemAccess`, `indexedDb`, `sharedArrayBuffers`.
+- Нужные файлы: `sqlite3.wasm` (релиз `sqlite3.dart`) и drift worker; источник указан в doc-комментарии `wasm.dart:101-103`. В репозитории их скачивает `tool/fetch_web_assets.sh`, версии закреплены в `tool/web_assets.lock`.
+
+Вывод: гипотеза об отдельном пакете и stub-реализации **опровергнута**. Web-фабрика находится в `platform_web`, а не в `core_storage`, потому что `drift/wasm.dart` импортирует `package:web/web.dart` и `package:sqlite3/wasm.dart`.
+
+### 3. Замечание 3 — ON CONFLICT и SQLite
+
+Использование upsert:
+
+| Место | Операция | Таблица |
+|-------|----------|---------|
+| `packages/core_storage/lib/src/database/app_database.dart:155-157` | `ON CONFLICT(id) DO UPDATE SET version = ?` | `schema_info` |
+| `packages/core_storage/test/sqlite_version_test.dart:49` | прямой upsert | тестовая таблица |
+| `app_database.dart:237-250` | `INSERT OR IGNORE` | `events` (дубли не перезаписываются) |
+| `app_database.dart:534,601,630,649,684,733` | `INSERT OR REPLACE` | справочники `groups`, `channels`, `peers`, `group_settings`, `blobs_meta`, `sync_state` |
+| `app_database.dart:561` | `INSERT OR IGNORE` | `members` |
+
+Минимум для `ON CONFLICT ... DO UPDATE` — SQLite 3.24.0 (первоисточник SQLite в pub-кэше отсутствует; требование подтверждено `sqlite_version_test.dart`, зелёный на runtime 3.54.0).
+
+Источники SQLite в текущей конфигурации:
+
+- Android: `sqlite3_flutter_libs` 0.5.41, `android/build.gradle:40` — `eu.simonbinder:sqlite3-native-library:3.51.1`; загрузчик `sqlite3` 2.4.5 открывает `libsqlite3.so` (`lib/src/ffi/load_library.dart`).
+- Linux: тот же пакет, `linux/CMakeLists.txt:15` собирает `sqlite-autoconf-3510100.tar.gz` (3.51.1); при отсутствии plugin-символа `sqlite3` 2.4.5 откатывается на системную `libsqlite3.so`. В текущем окружении системная версия — `3.54.0` (`sqlite3 --version`).
+- Web: `sqlite3.wasm` из релиза `sqlite3` 2.4.5; в бинарнике `apps/app/web/sqlite3.wasm` строка версии — `3.46.0` (`strings ... | grep -oE '3\\.[0-9]+\\.[0-9]+'`).
+
+Runtime-версия в собранных Android/Linux приложениях не проверялась — Q25/Q28.
+
+### 4. Замечание 2 — автор, sender, seq, id
+
+- `DriftEventStore.write` (`packages/core_storage/lib/src/event_store_impl.dart:35-67`) передаёт `author: record.author`; значение не пустое и проверяется как 64 hex-символа (`:73-89`).
+- `EventRecord.author` — обязательное поле (`packages/core_domain/lib/src/interfaces/event_store.dart:68-84`), заполняется вызывающим кодом после проверки подписи.
+- В репозитории нет production-вызова `EventStore.write`: `apps/app/lib/di/providers.dart` использует `FakeEventStore`, `core_sync` пока экспортирует только `HlcValidator`. Вызовы `EventRecord(...)` есть только в тестах.
+- `Envelope.sender` (`packages/core_protocol/lib/src/envelope.dart:29`) — `Uint8List` с открытым ключом Ed25519, не hex-строка. Преобразование в `author` не автоматическое; слой, который будет писать событие, обязан сделать hex и передать его.
+- `seq`: колонка `events.seq INTEGER` существует (`schema.dart:95`), но `insertEvent` её не записывает, значение остаётся `NULL`; порядок задаётся `hlc`. В протоколе `Envelope` поля `seq` нет; `sequence` есть только у `LeaderLease` (`messages.dart:1154`) и не является порядковым номером события.
+- `id` события хранилище не вычисляет. Комментарий `event_store_impl.dart:9` называет его content hash, но фактический расчёт в этом дереве не реализован: id приходит от вызывающего кода.
+
+### 5. Замечание 4 — Chrome
+
+Причины разделены:
+
+1. `dart test -p chrome` в `packages/core_storage` компилирует 14 тестов, которые импортируют `package:drift/native.dart` (`test/memory_database.dart:10` и ещё 8 файлов). Это тянет `dart:ffi`; dart2js падает на `ffi-2.2.0/lib/src/allocation.dart` («Only JS interop members may be 'external'»). Отдельного WASM-пакета для этого не нужно — дело в native-импортах тестов.
+2. Сам `core_storage` по правилу не содержит web-открытия БД; web-фабрика находится в `platform_web`.
+3. Chrome и ресурсы в окружении есть: `google-chrome-stable` найден, `tool/fetch_web_assets.sh --check` — OK, `dart test ... -p chrome -c dart2js` для `packages/platform_web` — **5 пройдено, 0 провалено**.
+
+Вывод: замечание **опровергнуто** для web-контракта; ограничение относится только к native-тестам `core_storage`.
+
+### 6. Baseline
+
+- `melos run analyze`: exit 1, **217 issues** (108 error, 18 warning, 91 info). Причины предсуществующие; целевой `dart analyze` по `core_storage/lib` и трём storage-фабрикам — `No issues found!`.
+- `dart test` в `packages/core_storage` (`-p vm`): **57 пройдено, 2 провалено**. Провалы — S4-09: `migration_test.dart` ожидает schema version 3; `sqlite_version_check_test.dart` не компилируется из-за `dynamic` вместо типов executor. Замер: `VM_STORAGE_PERF events=100000 insert_ms=2011 pagination_p95_ms=5`.
+- `bash tool/check_text_hygiene.sh`: exit 1, 29 строк. Документы слоя 4 в выводе отсутствуют; проверка по семи файлам слоя 4 — `LAYER4_DOCS_CLEAN`. Мусор находится в других слоях, плюс скрипт сканирует бинарный `sqlite3.wasm`. Зафиксировано как S4-16; правила этапа запрещают править чужие слои.
+
+### Что изменено
+
+- `docs/DEFECTS.md` — добавлен S4-16 (текстовая гигиена и ложное срабатывание на бинарнике).
+- `docs/PHASE_LOG.md` — эта запись.
+- `lib/` не изменялся; контрольная сумма диффа `packages/core_storage/lib` совпадает с baseline.
+
+### Что осталось
+
+- S4-09: устаревшие `migration_test.dart` и `sqlite_version_check_test.dart` не исправлялись.
+- S4-16: CJK и смешение алфавитов вне слоя 4, сканирование бинарника — отдельная задача.
+- Q25/Q28: runtime-версия SQLite в собранных Android/Linux приложениях не проверена.
+- Исправление замечания 2 требует вызывающего кода (слой 7) и не входит в 4.0.
+
+Этап 4.0 завершён. Остановка до ревью таблицы.
+
+---
+
+## Запись 21 — Раунд 2: закрытие S4-09 и честные статусы полного прогона
+
+### Решения
+
+1. S4-09 признан дефектом тестовых фикстур, а не кода: тесты не соответствовали уже принятой схеме v4 и закреплённому drift 2.19.1+1. Исправлены только тестовые ожидания/типы; поведение `core_storage` не менялось, схема не менялась.
+2. `sqlite_version_check_test.dart` приведён к актуальному API drift (`TransactionExecutor`/`QueryExecutor`) и к реальному alias `SELECT sqlite_version() AS version`; проверка усилена до конкретного `DatabaseVersionTooLow` вместо общего `Exception`.
+3. `migration_test.dart` ожидает schema version 4; `core_domain_test.dart` передаёт обязательный `author`. Это устраняет красные файлы, ранее не входившие в целевые прогоны.
+4. Статус Chrome-приёмки понижен до «не проверено»: полный `dart test -p chrome -c dart2js` в `platform_web` красный из-за предсуществующего S4-13 (6 провалов в `secure_key_store_web_test.dart`). Результат подмножества storage-файлов больше не используется как доказательство «пройдено».
+5. Уточнены формулировки design/review: типы `Result`/`InsertOutcome`/`EventStoreWriteError` приходят из `core_domain` и не реэкспортируются `core_storage`; у `EventStore.write` нет таймаута; `batchEvents` сортирует только по `hlc`.
+
+### Что изменено
+
+- `packages/core_storage/test/sqlite_version_check_test.dart`, `packages/core_storage/test/migration_test.dart`, `packages/core_domain/test/core_domain_test.dart`.
+- `packages/core_storage/lib/src/database/app_database.dart` — только комментарий порядка `batchEvents`.
+- `docs/LAYER4_ACCEPTANCE.md` — переписан под правило полного прогона.
+- `packages/core_storage/DESIGN.md` — экспорты, тестовые статусы, остаточные ограничения.
+- `docs/DEFECTS.md` — S4-09 исправлен, S4-13 уточнён по полному Chrome-прогону.
+- `docs/REVIEW_LIST.md` — убрано несуществующее утверждение о таймауте.
+- Этот журнал.
+
+### Результаты проверок
+
+- `cd packages/core_storage && dart test` — **59 пройдено, 0 провалов**; `VM_STORAGE_PERF events=100000 insert_ms=2102 pagination_p95_ms=7`.
+- `cd packages/core_domain && dart test` — **25 пройдено, 0 провалов**.
+- `cd packages/platform_linux && flutter test` — **7 пройдено, 0 провалов**.
+- `cd packages/platform_web && dart test -p chrome -c dart2js` (полный пакет) — **6 пройдено, 6 провалов**, все провалы в `secure_key_store_web_test.dart` (S4-13); статус Chrome для слоя 4 — не проверено.
+- `dart analyze packages/core_storage/lib packages/core_storage/test/sqlite_version_check_test.dart packages/core_storage/test/migration_test.dart packages/platform_android/lib/src/storage_database_factory.dart packages/platform_linux/lib/src/storage_database_factory.dart packages/platform_web/lib/src/storage_database_factory_web.dart` — **No issues found!**
+- `bash tool/check_core_imports.sh` — **OK**.
+- `bash tool/check_core_storage_deps.sh` — **OK**.
+- `bash tool/check_docs_drift.sh` — **OK (a, b, c)**.
+- `bash tool/fetch_web_assets.sh --check` — **OK**.
+
+### Что осталось
+
+- S4-13: полный Chrome-прогон `platform_web` красный в Web SecureKeyStore; нужен отдельный этап. До исправления AC3/AC4 Chrome остаются «не проверено».
+- S4-14: `DatabaseFactory` экспортируется, но не реализуется платформенными фабриками; удаление/депрекация требует решения по публичному API.
+- Q25/Q28: runtime-версия/источник SQLite в собранных Android/Linux приложениях не проверены.
+- Q27: power-loss durability не подтверждена; Q30: dart2wasm не проверен; Q31: reload/две вкладки — ручной QA.
+- Схема не менялась: новая версия/миграция не требуются.
+
+Раунд 2 завершён. К следующему этапу не переходить; остановка до ревью.
+
+---
+
+## Запись 22 — Этап F4.0: аудит отчёта и baseline
+
+### Решения
+
+1. Baseline зафиксирован полным прогоном `dart test` в `packages/core_storage` без фильтров: 59 тестов, 0 провалов. Файловый разрез: `app_database_test` 13, `event_store_concurrency_test` 2, `event_store_test` 8, `event_store_validation_test` 8, `index_query_plan_test` 1, `migration_test` 7, `performance_test` 3, `retention_test` 2, `sqlite_open_and_migration_test` 4, `sqlite_version_check_test` 1, `sqlite_version_test` 1, `storage_performance_benchmark_test` 1, `sync_queries_test` 5, `ui_queries_test` 3.
+2. Исторические «51 passed», «6/7 migration_test» и «1 fail» относятся к разным наборам: 51 — целевой список без S4-09-файлов; 6/7 — старый `migration_test` с ожиданием schema v3; «1 fail» — упавшее утверждение внутри этого файла. После исправления S4-09 полный набор даёт 59/59, `migration_test` — 7/7.
+3. `dart test -p chrome` в `core_storage` не компилирует ни один из 14 test-файлов: 7 импортируют `package:drift/native.dart` напрямую, ещё 7 — через `test/memory_database.dart`; `dart:ffi` недоступен в Chrome. Общий `test/event_store_contract.dart` native не импортирует, но сам по себе не является test-suite.
+4. `dart analyze` в `packages/core_storage`: 0 errors, 1 warning, 25 info. Warning — неиспользуемый параметр `id` в `_validRecord`; info — `unnecessary_const` в тестах.
+5. Аудит подтвердил: единственный production-путь записи событий — `EventStore.write → AppDatabase.insertEvent → INSERT OR IGNORE INTO events`; `EventStore.write` всегда пишет `channel_id = NULL`; `id` проверяется только на непустоту; `seq` всегда NULL и внешних потребителей не имеет; `rangeSummary` ограничен 100000 id и использует 32-битный некриптографический digest; `watchFrom` игнорирует курсор, `watchGroup` имеет окно гонки; retention удаляет только `blobs_meta`; триггеров append-only нет.
+6. Design 4.1 (Запись 15 журнала) реализован по author/payload/дублю; отклонения/ограничения: id без проверки длины, `channel_id` не проходит через `EventRecord`, единственный production-путь записи соседствует с публичным низкоуровневым `insertEvent`/executor.
+7. `lib/` в этом этапе не менялся. Проверка `git diff -- packages/core_storage/lib` не пуста из-за предсуществующего изменения `core_storage.dart`, а `lib/src/` не отслеживается Git. Контрольная сумма diff `packages/core_storage/lib` до и после этапа: `e522e8389ee09e0930262028f29b6a302291f030e93dbb207d1c7243a7735cf2`.
+
+### Что изменено
+
+- `docs/DEFECTS.md` — добавлены S4-17…S4-23 по результатам аудита.
+- `docs/PHASE_LOG.md` — эта запись.
+- Код, тесты и схема не изменялись.
+
+### Результаты проверок
+
+- `cd packages/core_storage && dart test` — **59 пройдено, 0 провалов**.
+- `cd packages/core_storage && dart test -p chrome` — **0 выполнено, 14 файлов не загрузились** (`dart:ffi` недоступен).
+- `cd packages/core_storage && dart analyze` — **0 errors, 1 warning, 25 info**.
+- `bash tool/check_core_imports.sh` — **OK**.
+- `bash tool/check_text_hygiene.sh` — **exit 1**, 19 уникальных файлов-нарушителей вне слоя 4 (CJK/диакритика/смешение, 25 строк отчёта), включая `apps/app/web/sqlite3.wasm`; документы слоя 4 в выводе отсутствуют.
+- `git diff --check` — **OK**.
+
+### Что осталось
+
+- S4-17…S4-23 требуют отдельных решений; в F4.0 код не менялся.
+- S4-13 (Chrome-прогон platform_web), S4-14 (`DatabaseFactory`), Q25/Q27/Q28/Q30/Q31 остаются открытыми.
+- Приёмка F4.0: таблица утверждений с доказательствами — в ответе этапа; `lib/` не изменён (см. п. 7).
+
+Этап F4.0 завершён. Остановка до ревью таблицы.
+
+---
+
+## Запись 23 — Этап F4.1: channelId, id, rangeSummary, watch
+
+### Решения
+
+1. `EventRecord` получил опциональное `ChannelId? channelId`; `DriftEventStore.write` передаёт его в `events.channel_id`. `null` означает событие уровня группы.
+2. `id` валидируется по ASCII-шаблону `[A-Za-z0-9._:-]`, длина 1–128. Хранилище не вычисляет content hash; ложный комментарий убран.
+3. `rangeSummary` возвращает `Result<RangeSummary, RangeSummaryError>`. Digest — SHA-256 по UTF-8 `ids.join('|')`; при превышении `limit` (по умолчанию 100000) возвращается `RangeTooLarge`, усечённый digest не выдаётся.
+4. `watchFrom(cursor)` отдаёт историю с id-курсора включительно, затем live; пустой/неизвестный курсор — с начала истории. `watchFrom`/`watchGroup` подписываются на live до чтения истории, буферизуют и дедуплицируют по id, закрывая окно гонки.
+
+### Влияние публичного API core_domain
+
+- Изменён `EventRecord`: добавлено опциональное `channelId`, существующие конструкторы совместимы.
+- `FakeEventStore` приведён к replay-семантике `watchFrom`/`watchGroup`.
+- Потребители: `core_storage`, `apps/app/lib/di/providers.dart` (FakeEventStore), тесты; production-вызовов `EventStore.write` вне тестов пока нет.
+- Согласование: poll-решение «Добавить channelId в EventRecord».
+
+### Файлы и проверки
+
+- `core_domain/lib/src/interfaces/event_store.dart`, `fakes.dart`.
+- `core_storage/lib/src/event_store_impl.dart`, `database/app_database.dart`, `models/event_data.dart`, `pubspec.yaml`.
+- Тесты: `event_store_test.dart`, `event_store_validation_test.dart`, `sync_queries_test.dart`, `performance_test.dart`.
+- `dart test` core_storage после F4.1: 65 пройдено, 0 провалов.
+
+---
+
+## Запись 24 — Этап F4.2: schema v5, append-only, retention
+
+### Решения
+
+1. Схема повышена до v5. Миграция v4→v5 создаёт триггеры `events_append_only_no_update` и `events_append_only_no_delete`; свежая установка включает их в `allDdl`.
+2. `AppDatabase.insertEvent` помечен `@internal`: production-путь записи — `DriftEventStore.write`. Публичный `QueryExecutor` остаётся доступен платформенным фабрикам.
+3. `RetentionPolicy.run(before, deleteBlob:)` удаляет файл через callback, затем metadata. При ошибке callback metadata сохраняется для повтора. `expireBlobs` оставлен как metadata-only.
+4. `seq` не удалялся: это отдельная schema-миграция; S4-22 остаётся техническим долгом.
+
+### Файлы и проверки
+
+- `core_storage/lib/src/database/schema.dart`, `app_database.dart`, `retention.dart`.
+- Тесты: `sqlite_open_and_migration_test.dart` (v3→v5, триггеры), `retention_test.dart` (успех/ошибка callback), `migration_test.dart` (schema v5).
+- `dart test` core_storage после F4.2: 68 пройдено, 0 провалов.
+- `dart analyze lib`: No issues found!
+
+---
+
+## Запись 25 — Этап F4.3: удаление DatabaseFactory и синхронизация документов
+
+### Решения
+
+1. Неиспользуемый `DatabaseFactory` удалён из `core_storage/lib/src/platform/` и из экспортов; единственный контракт открытия — `StorageBackend`. S4-14 закрыт.
+2. `packages/core_storage/DESIGN.md` обновлён по коду: schema v5, channelId, id-валидация, SHA-256/`RangeTooLarge`, replay watch, append-only, retention callback, удаление `DatabaseFactory`.
+3. `docs/LAYER4_ACCEPTANCE.md`, `docs/REVIEW_LIST.md`, `docs/DEFECTS.md` синхронизированы с F4.1–F4.3.
+
+### Результаты проверок
+
+- `cd packages/core_storage && dart test` — **68 пройдено, 0 провалов**; `VM_STORAGE_PERF events=100000 insert_ms=2262 pagination_p95_ms=5`.
+- `cd packages/core_domain && dart test` — **25 пройдено, 0 провалов**.
+- `cd packages/platform_linux && flutter test` — **7 пройдено, 0 провалов**.
+- `bash tool/test_web_storage_chrome.sh` — диагностический целевой прогон: 6 пройдено; `WEB_STORAGE_PERF insert_ms=4807 pagination_p95_ms=4`. Статус Chrome-приёмки не поднимается: полный `platform_web` по-прежнему красный из-за S4-13.
+- `dart analyze` целевых файлов слоя 4 — без errors/warnings.
+- `bash tool/check_core_imports.sh` — OK.
+- `bash tool/check_core_storage_deps.sh` — OK.
+- `bash tool/check_docs_drift.sh` — OK (a, b, c).
+
+### Что осталось
+
+- S4-13 (Web SecureKeyStore) и S4-16 (text hygiene) — отдельные этапы.
+- S4-22 (`seq`) — отдельная schema-миграция.
+- Q25/Q27/Q28/Q30/Q31 — без изменений.
+- `git diff` по `packages/core_storage/lib` не пуст из-за ранее незакоммиченных изменений слоя 4; в F4.1–F4.3 менялись только перечисленные файлы.
+
+Этапы F4.1–F4.3 завершены. Остановка до ревью.
+
+---
+
+## Запись 26 — Этап F4.4: schema v6 (seq), S4-13, S4-16
+
+### Решения
+
+1. Схема повышена до v6: колонка `seq` удалена из `events`, SELECT-ов и `EventData`. Миграция v5→v6 пересобирает таблицу (create → copy → drop → rename → indexes → triggers), поэтому минимальная версия SQLite остаётся 3.24.0.
+2. Добавлен ручной снимок `test/schema_v5_snapshot.dart` и тест v5→v6: событие с непустым `seq` сохраняется без колонки, append-only триггеры продолжают блокировать `DELETE`.
+3. S4-13: Web SecureKeyStore исправлен — алгоритмы Web Crypto получают явный `name: 'AES-GCM'`, тест пишет JSON-строку через `jsonEncode(...).toJS`, общий контракт объявлен на верхнем уровне `main` (не внутри теста). Удалён `dart:js_util`, исправлены lint-ошибки.
+4. S4-16: исправлены CJK/диакритика/смешение алфавитов в `core_crypto`, `core_protocol`, `core_sync`, `core_domain`, `docs`, `tool`; `check_text_hygiene.sh` пропускает бинарники, игнорирует экранированные `\n` и поддерживает `hygiene-allow` для намеренных Unicode-fixtures.
+
+### Файлы
+
+- `core_storage/lib/src/database/schema.dart`, `app_database.dart`, `models/event_data.dart`.
+- `core_storage/test/sqlite_open_and_migration_test.dart`, `migration_test.dart`, новый `schema_v5_snapshot.dart`.
+- `platform_web/lib/src/secure_key_store_web.dart`, `platform_web/test/secure_key_store_web_test.dart`.
+- Текстовые файлы других слоёв и `tool/check_text_hygiene.sh`.
+- `docs/LAYER4_ACCEPTANCE.md`, `docs/DEFECTS.md`, `docs/REVIEW_LIST.md`, `packages/core_storage/DESIGN.md`, этот журнал.
+
+### Результаты проверок
+
+- `cd packages/core_storage && dart test` — **69 пройдено, 0 провалов**; `VM_STORAGE_PERF events=100000 insert_ms=2661 pagination_p95_ms=5`.
+- `cd packages/core_crypto && dart test` — **202 пройдено, 0 провалов**.
+- `cd packages/core_protocol && dart test` — **64 пройдено, 0 провалов**.
+- `cd packages/core_sync && dart test` — **6 пройдено, 0 провалов**.
+- `cd packages/core_domain && dart test` — **25 пройдено, 0 провалов**.
+- `cd packages/platform_linux && flutter test` — **7 пройдено, 0 провалов**.
+- `cd packages/platform_web && dart test -p chrome -c dart2js` — **18 пройдено, 0 провалов**; `WEB_STORAGE_PERF events=100000 insert_ms=4965 pagination_p95_ms=4`.
+- `bash tool/check_text_hygiene.sh` — **OK**.
+- `bash tool/check_core_imports.sh` — OK; `bash tool/check_core_storage_deps.sh` — OK; `bash tool/check_docs_drift.sh` — OK.
+
+### Что осталось
+
+- S4-11 (Linux SecureKeyStore `_stateKey`), S4-12 (Android runtime), S4-15 (вложенная копия core_crypto) — вне скоупа слоя 4.
+- Q25/Q27/Q28/Q30/Q31 — без изменений.
+- Chrome-приёмка AC3/AC4 теперь подтверждена полным прогоном platform_web.
+
+Этап F4.4 завершён. Остановка до ревью.
+
+---
+
+## Запись 27 — Этап F4.5: S4-11 и S4-15
+
+### Решения
+
+1. S4-11: в `LinuxSecureKeyStoreImpl` добавлены `_kStateKeyPrefix = 'opensink_state_key_'` и `_stateKey(keyId)` — паритет с Android. Заодно устранены analyzer-ошибки/предупреждения в том же файле (unused variable, non-const FormatException, лишние скобки, лишнее имя library).
+2. S4-15: вложенная копия `packages/core_crypto/packages/core_crypto` удалена. `debug_x3dh.dart` перенесён в `packages/core_crypto/tool/`, получил импорт `core_domain` для `Ok`, вывод через `stdout.writeln`; analyzer чист.
+3. Коммиты слоя 4 разбиты на логические: storage/schema/platform factories, S4-13, S4-16, CI, документация.
+
+### Результаты проверок
+
+- `dart analyze packages/platform_linux/lib packages/platform_linux/test packages/core_crypto/tool` — **No issues found!**
+- `cd packages/platform_linux && flutter test` — **7 пройдено, 0 провалов**.
+- `bash tool/check_core_imports.sh` — OK.
+- `bash tool/check_text_hygiene.sh` — OK.
+- `bash tool/check_docs_drift.sh` — OK.
+
+### Что осталось
+
+- S4-12 (Android integration runner/runtime SQLite) — вне скоупа.
+- Q25/Q27/Q28/Q30/Q31 — без изменений.
+
+Этап F4.5 завершён. Остановка до ревью.
+
+---
+
+## Запись 28 — Этап F4.6: закрытие S4-12 через ручной QA
+
+### Решения
+
+1. Автоматизация Android runtime (S4-12) не требуется: `flutter drive`/integration runner не настраивается.
+2. Проверка bundled SQLite и `StorageInfo` на Android переведена в обязательный ручной QA-чек-лист перед релизом.
+3. Runtime SQLite на Android остаётся **не проверенным** до фактического выполнения чек-листа; статус «пройдено» заранее не ставится.
+
+### Изменённые документы
+
+- `docs/DEFECTS.md` — S4-12 закрыт как ручной QA.
+- `docs/MANUAL_QA.md` — убрана перспектива настройки runner, добавлен обязательный отчёт QA.
+- `docs/LAYER4_ACCEPTANCE.md` — добавлен раздел Android runtime со статусом «не проверено».
+- `packages/core_storage/DESIGN.md` — остаточные ограничения обновлены.
+- `docs/PHASE_LOG.md` — эта запись.
+
+### Результаты проверок
+
+- Код, тесты и CI не менялись.
+- `bash tool/check_text_hygiene.sh` — OK.
+- `bash tool/check_docs_drift.sh` — OK.
+- `git status` — только документация этапа.
+
+### Что осталось
+
+- S4-12: выполнить `docs/MANUAL_QA.md` раздел SQLite/EventStore на Android перед релизом.
+- Q25/Q28: runtime-версия SQLite на Android остаётся непроверенной до QA.
+- `melos analyze` как блокирующий CI-гейт — после починки pre-existing diagnostics других слоёв.
+
+Этап F4.6 завершён. Остановка до ревью.
+
+---
+
+## Запись 29 — Этап F4.7: зелёный workspace analyze
+
+### Решения
+
+1. Полный `melos run analyze` приведён к exit 0: 0 errors, 0 warnings, 11 info.
+2. Основная часть исправлений — механические (`dart fix --apply`): const-конструкторы/декларации, unused imports, unnecessary lambdas/this, library names. После автофикса вручную восстановлены `LinkedHashMap` в `DoubleRatchet` и заменены невидимые comment references на code spans.
+3. Исправлен реальный дефект S4-24: `apps/app/pubspec.yaml` ссылался на `../packages/...` вместо `../../packages/...`.
+4. Удалены неиспользуемые переменные/фикстуры, которые анализатор пометил после автофикса; тесты не ослаблялись, поведение проверок сохранено.
+5. `melos run analyze` остаётся блокирующим шагом CI (уже присутствует в workflow); теперь он зелёный.
+
+### Результаты проверок
+
+- `melos run analyze` — **exit 0**, 0 errors, 0 warnings, 11 info.
+- `core_crypto`: 202/202; `core_protocol`: 64/64; `core_domain`: 25/25; `core_storage`: 69/69; `core_sync`: 6/6.
+- `platform_linux`: 7/7; `platform_web` Chrome/dart2js: 18/18.
+- `check_text_hygiene.sh` — OK; `check_core_imports.sh` — OK; `check_docs_drift.sh` — OK.
+
+### Что осталось
+
+- 11 info-уровневых диагностик (JS interop private types, dangling docs, static-only classes) не блокируют analyze; разобрать при следующей очистке.
+- S4-12 остаётся ручным QA.
+- Push не выполнялся.
+
+Этап F4.7 завершён. Остановка до ревью.
+
+---
+
+## Запись 30 — Этап F4.8: паритет native/Chrome и детерминированная пагинация
+
+### Решения
+
+1. Добавлен общий поведенческий набор `runPortableStorageSuite` (12 тестов). Один и тот же код запускается native-раннером в `core_storage` и Chrome-раннером в `platform_web`; отличие только в фабрике executor-а. Это закрывает фактический разрыв AC3: ранее в Chrome исполнялся только один общий контракт.
+2. Все выборки событий получили tie-breaker `id`: `hlc ASC, id ASC` для истории/диапазонов и `hlc DESC, id DESC` для каналов. `watchFrom` сравнивает курсор составным ключом `(hlc, id)`, поэтому события с тем же HLC, но меньшим id, больше не попадают в выдачу.
+3. `channelPage` определяет `hasMore` выборкой `pageSize + 1`; ложный `hasMore` на последней полной странице устранён. `ChannelPage.nextCursor` (offset под видом курсора) заменён на `nextPage`.
+4. Миграции и запись `schema_info` объединены в одну транзакцию: частично применённая схема после сбоя не сохраняется.
+5. Общий замер 100k событий вынесен в `runPortablePerformanceSuite`; native- и Chrome-обёртки используют один и тот же код.
+
+### Изменённые файлы
+
+- `packages/core_storage/lib/src/database/app_database.dart`.
+- `packages/core_storage/lib/src/models/event_data.dart`.
+- `packages/core_storage/test/portable_storage_suite.dart`, `portable_storage_native_test.dart`, `portable_performance_suite.dart`, `storage_performance_benchmark_test.dart`.
+- `packages/platform_web/test/portable_storage_web_test.dart`, `storage_performance_web_test.dart`.
+- `tool/test_web_storage_chrome.sh`.
+- `packages/core_storage/DESIGN.md`, `docs/LAYER4_ACCEPTANCE.md`, `docs/OPEN_QUESTIONS.md`.
+
+### Результаты проверок
+
+- `cd packages/core_storage && dart test` — **81 пройдено, 0 провалов**; `VM_STORAGE_PERF events=100000 insert_ms=2064 pagination_p95_ms=6`.
+- `bash tool/test_web_full_chrome.sh` — **30 пройдено, 0 провалов**; `WEB_STORAGE_PERF events=100000 insert_ms=4974 pagination_p95_ms=5`.
+- `cd packages/platform_linux && flutter test` — **7 пройдено, 0 провалов**.
+- `dart analyze packages/core_storage/lib packages/core_storage/test packages/platform_web/test` — **No issues found!**.
+
+### Что осталось
+
+- Q34: каноническая формула event id (`id = хэш`) не утверждена; хранилище трактует id как непрозрачный caller-supplied хэш.
+- Индекс `(author, seq)` заменён на `(author, hlc)`: в схеме нет `seq`, а HLC — единственный порядковый ключ события. Это осознанное отклонение от буквы задания слоя.
+- Q25/Q27/Q28/Q30/Q31 и ручной Android QA — без изменений.
+
+Этап F4.8 завершён.
