@@ -1384,3 +1384,40 @@ Runtime-версия в собранных Android/Linux приложениях 
 
 - Q35: SIG-OPEN-01…08 (invite holder, публичные реле/трекеры, NIP-42, реальные трекеры, реальный браузерный WS, LAN/QR, персистентный replay-кэш, hardening `NostrEphemeralSigner`).
 - Реальный браузерный `WebSocket.connect` к сетевому серверу и живые публичные реле/трекеры не проверялись.
+
+---
+
+## Запись 32 — core_peer: poll остаточных блокеров, web/Android миграция
+
+### Решения poll (2026-10-23)
+
+Зафиксированы в `packages/core_peer/DESIGN.md` §10: отдельная миграция web-стека,
+проверка native rollback с сохранением fallback, сверка RTT-единиц, удаление
+no-op IPv6-флага, `StaticPeerPriorityPolicy`, документирование `loss=0`,
+real-тесты reconnect/sync/file, STUN smoke, Android integration runner.
+
+### Что сделано
+
+- Web/Android стек обновлён: `flutter_webrtc 1.6.2`, `dart_webrtc 1.8.2`,
+  `web 1.1.2`, `drift 2.31.0`, `sqlite3 2.9.4`; `web_assets.lock`/SHA-256
+  обновлены, `tool/test_web_full_chrome.sh` — 30/30.
+- Исправлены native-дефекты: null `signalingState`, busy-loop навигации,
+  закрытый data-channel при glare, каскад reset/reconnect, лишний offer при
+  reset, RTT=0 на Android.
+- Добавлены `StaticPeerPriorityPolicy`, STUN smoke, Linux/Android integration
+  runner, Android permissions и полноценный Gradle template.
+- Native integration: Linux — 3/3 (connect+channels+ICE restart, glare,
+  reconnect); Android (основной сценарий) — пройден.
+
+### Изменённые файлы
+
+- `packages/core_peer/*`, `apps/app/android/*`, `apps/app/integration_test/*`,
+  `apps/app/test_driver/integration_test.dart`, `tool/web_assets.*`,
+  `.github/workflows/ci.yml`, документация.
+
+### Что осталось
+
+- Android chaos-тесты (glare/reconnect) вне CI из-за таймингов эмулятора;
+  подтверждены на Linux/fake-RTC.
+- `presence` unreliable на старых native-сборках.
+- `loss` для SCTP data-channel семантически равен 0.

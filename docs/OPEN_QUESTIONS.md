@@ -10,7 +10,6 @@
 | TODO-02 | `packages/core_crypto/test/bip39_integrity_test.dart:172` | Q33 |
 | TODO-03 | `packages/core_group/lib/core_group.dart:3` | Q12 |
 | TODO-04 | `packages/core_media/lib/core_media.dart:3` | Q13 |
-| TODO-05 | `packages/core_peer/lib/core_peer.dart:3` | Q14 |
 | TODO-06 | `packages/core_relay/lib/core_relay.dart:3` | Q16 |
 | TODO-08 | `packages/core_storage/test/schema_v3_snapshot.dart:3` | Q26 |
 | TODO-09 | `packages/core_sync/lib/core_sync.dart:5` | Q19 |
@@ -67,8 +66,43 @@
 ## Q13 — core_media: MediaTopology реализация, звонки и демонстрация экрана
 `// TODO(verify): MediaTopology реализация, звонки и демонстрация экрана.` (packages/core_media/lib/core_media.dart:3)
 
-## Q14 — core_peer: flutter_webrtc реализация PeerLink / Transport
-`// TODO(verify): flutter_webrtc реализация PeerLink / Transport.` (packages/core_peer/lib/core_peer.dart:3)
+## Q14 — core_peer: flutter_webrtc реализация PeerLink / Transport — ЗАКРЫТО (2026-10-23)
+
+Реализованы `WebRtcPeerLink` и `WebRtcTransport`: perfect negotiation
+(polite/impolite по PeerId), control/sync/file/presence, backpressure по
+`bufferedAmount`, STUN/IPv6-политика, ICE restart и reconnect с backoff,
+лимит ссылок и приоритеты (`StaticPeerPriorityPolicy`), `getStats`
+(RTT/потери/битрейт). Адаптер `flutter_webrtc` вынесен в
+`package:core_peer/core_peer_flutter.dart`.
+
+Приёмка (2026-10-23):
+- fake-signaling + fake RTC: VM и Chrome — зелёные;
+- реальный WebRTC Chrome — зелёный;
+- реальный WebRTC native Linux: connect, control/sync/file, ICE restart,
+  glare, full reconnect — зелёные;
+- Android emulator (основной сценарий) — зелёный;
+- STUN smoke — зелёный;
+- design doc: `packages/core_peer/DESIGN.md`, приёмка:
+  `docs/LAYER6_ACCEPTANCE.md`.
+
+Закрыто в этом проходе:
+- **PEER-OPEN-01**: web-стек обновлён (`flutter_webrtc 1.6.2`,
+  `dart_webrtc 1.8.2`, `web 1.1.2`, `drift 2.31.0`, `sqlite3 2.9.4`),
+  web-assets пересобраны; Chrome real-тест проходит.
+- **PEER-OPEN-02**: Linux Android integration runner и `test_driver` добавлены.
+- **PEER-OPEN-03**: native rollback подтверждён на Linux; fallback сохранён.
+- **PEER-OPEN-04**: `currentRoundTripTime` — секунды; при 0 используется
+  `totalRoundTripTime/responsesReceived`; Linux/Android проверены.
+- **PEER-OPEN-05 (частично)**: `enableIpv6Candidates` удалён как no-op;
+  `presence` unreliable остаётся опциональным.
+
+Остаются открытыми:
+- Android chaos-сценарии (glare/full reconnect) не в CI из-за таймингов
+  эмулятора; подтверждены на Linux и fake-RTC (`PEER_CHAOS=false` для Android).
+- `presence` unreliable на старых native-сборках (флаг
+  `enableUnreliablePresence`).
+- `loss` для data-channel всегда 0; это семантика WebRTC/SCTP, зафиксирована
+  в `core_domain`.
 
 ## Q15 — core_protocol: protobuf схемы и конвертеры envelopes
 `// TODO(verify): protobuf схемы и конвертеры envelopes.` (packages/core_protocol/lib/core_protocol.dart:3)

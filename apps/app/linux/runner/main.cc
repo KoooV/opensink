@@ -1,6 +1,6 @@
-#include <flutter/flutter.h>
+#include "my_application.h"
 
 int main(int argc, char** argv) {
-  return flutter::RunDartEntrypoint(
-      flutter::DartProject(argc, argv), "main");
+  g_autoptr(MyApplication) app = my_application_new();
+  return g_application_run(G_APPLICATION(app), argc, argv);
 }

@@ -140,19 +140,17 @@ class WebSecureKeyStoreImpl implements SecureKeyStore {
     }
   }
 
-  AesKeyGenParams _aesKeyGenParams() {
-    final params = AesKeyGenParams(length: 256);
-    params.setProperty('name'.toJS, 'AES-GCM'.toJS);
-    return params;
+  JSObject _aesKeyGenParams() {
+    return JSObject()
+      ..setProperty('name'.toJS, 'AES-GCM'.toJS)
+      ..setProperty('length'.toJS, 256.toJS);
   }
 
-  AesGcmParams _aesGcmParams(Uint8List iv, Uint8List aad) {
-    final params = AesGcmParams(
-      iv: iv.toJS,
-      additionalData: aad.toJS,
-    );
-    params.setProperty('name'.toJS, 'AES-GCM'.toJS);
-    return params;
+  JSObject _aesGcmParams(Uint8List iv, Uint8List aad) {
+    return JSObject()
+      ..setProperty('name'.toJS, 'AES-GCM'.toJS)
+      ..setProperty('iv'.toJS, iv.toJS)
+      ..setProperty('additionalData'.toJS, aad.toJS);
   }
 
   Future<CryptoKey> _generateKek() async {
