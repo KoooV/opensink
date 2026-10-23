@@ -129,6 +129,36 @@ jobs:
           CHROME_EXECUTABLE: /usr/bin/google-chrome-stable
         run: dart test test/signaling_web_test.dart -p chrome -c dart2js
 
+  core_peer-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install melos
+        run: dart pub global activate melos
+
+      - name: Bootstrap workspace
+        run: melos bootstrap
+
+      - name: Real WebRTC in headless Chrome
+        working-directory: packages/core_peer
+        env:
+          CHROME_EXECUTABLE: /usr/bin/google-chrome-stable
+        run: |
+          flutter test --platform chrome --dart-define=PEER_REAL_WEBRTC=true \
+            test/integration/webrtc_loopback_test.dart
+
   storage-web:
     runs-on: ubuntu-latest
     defaults:
@@ -155,6 +185,50 @@ jobs:
         env:
           CHROME_EXECUTABLE: /usr/bin/google-chrome-stable
         run: bash tool/test_web_full_chrome.sh
+
+  peer-native-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install melos
+        run: dart pub global activate melos
+
+      - name: Bootstrap workspace
+        run: melos bootstrap
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Native WebRTC integration on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            cd apps/app
+            flutter drive --driver=test_driver/integration_test.dart \
+              --target=integration_test/peer_link_native_test.dart \
+              -d emulator-5554 --dart-define=PEER_CHAOS=false
 
   builds:
     needs: analyze-and-test

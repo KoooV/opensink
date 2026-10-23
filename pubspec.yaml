@@ -78,7 +78,12 @@ workspace:
 melos:
   scripts:
     analyze: dart analyze
-    test: dart test
+    test: |
+      if grep -qE '^  flutter:$' pubspec.yaml; then
+        flutter test
+      else
+        dart test
+      fi
     check:imports: bash tool/check_core_imports.sh && bash tool/check_core_storage_deps.sh
 
   # To add assets to your application, add an assets section, like this:

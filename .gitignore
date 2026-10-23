@@ -32,6 +32,8 @@ migrate_working_dir/
 .pub/
 /build/
 /apps/app/build/
+/packages/*/build/
+**/.gradle/
 /apps/app/web/drift_worker.js
 /apps/app/web/sqlite3.wasm
 /coverage/

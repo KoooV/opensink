@@ -1,5 +1,6 @@
 import '../../core_domain.dart' show FakePeerLink;
 import '../models/identifiers.dart';
+
 import 'package:meta/meta.dart';
 
 import 'fakes.dart' show FakePeerLink;
@@ -26,22 +27,40 @@ class PeerLinkStats {
     required this.bytesSent,
     required this.bytesReceived,
     required this.loss,
+    this.outgoingBitrate = 0,
   });
 
   /// Round-trip time.
   final Duration rtt;
   final int bytesSent;
   final int bytesReceived;
+
   /// Доля потерянных пакетов (0.0–1.0).
+  ///
+  /// Для SCTP data-channel WebRTC не предоставляет счётчик потерь, поэтому
+  /// значение равно 0. Ненулевые значения возможны только при наличии
+  /// RTP-медиа (`inbound-rtp`/`remote-inbound-rtp`).
   final double loss;
+
+  /// Исходящий битрейт в битах в секунду (оценка по дельте байт).
+  final int outgoingBitrate;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PeerLinkStats &&
+          rtt == other.rtt &&
+          bytesSent == other.bytesSent &&
+          bytesReceived == other.bytesReceived &&
+          loss == other.loss &&
+          outgoingBitrate == other.outgoingBitrate;
+
+  @override
+  int get hashCode =>
+      Object.hash(rtt, bytesSent, bytesReceived, loss, outgoingBitrate);
 }
 
-enum PeerLinkState {
-  connecting,
-  connected,
-  closed,
-  failed,
-}
+enum PeerLinkState { connecting, connected, closed, failed }
 
 /// Абстракция над WebRTC peer connection.
 ///

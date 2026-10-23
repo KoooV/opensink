@@ -22,7 +22,7 @@
 | `core_protocol` | Protobuf схемы, конвертеры envelope — заглушка (Q15) | `packages/core_protocol/lib/core_protocol.dart:3` |
 | `core_storage` | Drift схема, EventStore — заглушка (Q18) | `packages/core_storage/lib/core_storage.dart:3` |
 | `core_signaling` | Nostr и WebSocket-трекеры; LAN/QR и открытые задачи — Q17/Q35 | `packages/core_signaling/lib/` |
-| `core_peer` | flutter_webrtc, PeerLink, Transport — заглушка (Q14) | `packages/core_peer/lib/core_peer.dart:3` |
+| `core_peer` | Прямые WebRTC-соединения: `WebRtcPeerLink`, `WebRtcTransport`, Flutter-адаптер (Q14) | `packages/core_peer/lib/`, `packages/core_peer/DESIGN.md` |
 | `core_sync` | SyncEngine поверх EventStore — заглушка (Q19) | `packages/core_sync/lib/core_sync.dart:3` |
 | `core_group` | GroupState, права, валидация подписей — заглушка (Q12) | `packages/core_group/lib/core_group.dart:3` |
 | `core_relay` | Маршрутизация через участников — заглушка (Q16) | `packages/core_relay/lib/core_relay.dart:3` |

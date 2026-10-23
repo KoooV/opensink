@@ -8,9 +8,16 @@ environment:
   sdk: ^3.13.5
 
 dependencies:
+  flutter:
+    sdk: flutter
   core_domain:
     path: ../core_domain
-  flutter_webrtc: ^0.10.0
+  core_signaling:
+    path: ../core_signaling
+  flutter_webrtc: ^1.6.2
+  meta: ^1.15.0
 
 dev_dependencies:
+  flutter_test:
+    sdk: flutter
   test: ^1.26.0
