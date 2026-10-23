@@ -88,8 +88,8 @@ class ChannelPage {
   final int pageSize;
   final bool hasMore;
 
-  int? get nextCursor =>
-      events.isEmpty ? null : (page - 1) * pageSize + events.length - 1;
+  /// Номер следующей страницы или `null`, если данных больше нет.
+  int? get nextPage => hasMore ? page + 1 : null;
 
   @override
   String toString() => 'ChannelPage(page=$page, size=${events.length}, hasMore=$hasMore)';

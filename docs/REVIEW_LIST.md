@@ -100,8 +100,8 @@
 | `packages/core_domain/lib/src/interfaces/event_store.dart` | 5–110 | `InsertOutcome` (`inserted`/`duplicate`), sealed `EventStoreWriteError`, обязательный `author` и опциональный `channelId` в `EventRecord`, `author` не извлекается из payload, курсор `watchFrom` — id события. |
 | `packages/core_storage/lib/src/event_store_impl.dart` | 35–210 | `write` валидирует `id` (ASCII `[A-Za-z0-9._:-]`, 1–128), `author` (64 hex = 32 байта), `payload` (непустой, ≤ 1 МиБ); передаёт `channelId`; ошибки типизированы и не пишут в БД; `watchFrom`/`watchGroup` подписываются до replay и дедуплицируют по id; исключения executor-а → `StorageWriteError`. |
 | `packages/core_storage/lib/src/database/app_database.dart` | 78–130 | `SELECT sqlite_version()` после `ensureOpen` и до схемы; минимум 3.24.0; `DatabaseVersionTooLow`/`OpenFailure`; версия в `StorageInfo`. |
-| `packages/core_storage/lib/src/database/app_database.dart` | 139–203 | Чтение `schema_info`, создание схемы, миграции по возрастанию, запись версии через `ON CONFLICT(id) DO UPDATE`, поведение для будущей версии. |
-| `packages/core_storage/lib/src/database/app_database.dart` | 443–520 | `rangeSummary` возвращает `Result`, SHA-256 по `ids.join('|')`, `RangeTooLarge` при превышении limit; `eventsFromCursor` — история с id включительно. |
+| `packages/core_storage/lib/src/database/app_database.dart` | 139–220 | Чтение `schema_info`, создание схемы; миграции и запись версии одной транзакцией; поведение для будущей версии. |
+| `packages/core_storage/lib/src/database/app_database.dart` | 310–520 | Детерминированный порядок `hlc/id`, `rangeSummary` с SHA-256 и `RangeTooLarge`, `batchEvents`; `eventsFromCursor` сравнивает `(hlc, id)`; `channelPage` использует `pageSize + 1` для точного `hasMore`. |
 | `packages/core_storage/lib/src/database/app_database.dart` | 221–252 | `INSERT OR IGNORE INTO events`, `runUpdate`, `seq` не записывается, дубль не перезаписывает байты. |
 | `packages/core_storage/lib/src/database/schema.dart` | 41–300 | `schemaVersion = 6`; DDL `events` без `seq`; индексы; миграции v1→v2, v2→v3, пустой v3→v4, v4→v5 с триггерами, v5→v6 с пересборкой `events`. |
 | `packages/platform_linux/lib/src/storage_database_factory.dart` | 24–114 | `StorageBackend`, `NativeDatabase.createInBackground`/`memory`, PRAGMA `foreign_keys`/`WAL`/`FULL`, проверка имени, предупреждение temp-каталога, `ResourceMissing` для отсутствующей `libsqlite3.so`. |
@@ -114,7 +114,7 @@
 | `packages/core_storage/test/event_store_concurrency_test.dart` | все | Параллельные записи одного `id` в одной транзакции и из разных транзакций: ровно один `inserted`. |
 | `packages/core_storage/test/sqlite_open_and_migration_test.dart` | 72–230 | Версия SQLite в `StorageInfo`, ошибка для 3.23.0, schema v6, миграции v3→v6 и v5→v6 с сохранением авторов/данных и удалением `seq`. |
 | `packages/core_storage/test/index_query_plan_test.dart` | все | `EXPLAIN QUERY PLAN` использует `idx_events_group_hlc` и `idx_events_author_hlc`. |
-| `packages/core_storage/test/event_store_contract.dart` | все | Общий контракт записи/чтения/дубля для native и Chrome. |
+| `packages/core_storage/test/event_store_contract.dart`, `portable_storage_suite.dart` | все | Общий контракт и 12-тестовый поведенческий набор, исполняемый native- и Chrome-раннерами. |
 | `tool/fetch_web_assets.sh`, `tool/web_assets.lock`, `tool/web_assets.sha256` | все | Версии и SHA-256 `drift_worker.js`/`sqlite3.wasm`; ресурсы не хранятся в Git. |
 | `tool/test_web_storage_chrome.sh` | все | Staging ресурсов, Chrome/dart2js, контракт, persistence, typed errors, perf budget. |
 

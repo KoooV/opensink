@@ -191,7 +191,6 @@ class AppDatabase implements QueryExecutorUser {
 
     if (currentVersion < _schemaVersion) {
       await _migrate(currentVersion, _schemaVersion);
-      await _setStoredVersion(_schemaVersion);
       return;
     }
 
@@ -200,13 +199,29 @@ class AppDatabase implements QueryExecutorUser {
   }
 
   /// Applies migrations from (fromVersion] to [toVersion] inclusive.
+  ///
+  /// DDL и обновление `schema_info` выполняются одной транзакцией: сбой
+  /// посередине не оставляет частично мигрированную схему.
   Future<void> _migrate(int fromVersion, int toVersion) async {
-    for (var v = fromVersion + 1; v <= toVersion; v++) {
-      final steps = migrations[v];
-      if (steps == null) continue;
-      for (final ddl in steps) {
-        await _executor.runCustom(ddl);
+    final transaction = _executor.beginTransaction();
+    try {
+      await transaction.ensureOpen(this);
+      for (var v = fromVersion + 1; v <= toVersion; v++) {
+        final steps = migrations[v];
+        if (steps == null) continue;
+        for (final ddl in steps) {
+          await transaction.runCustom(ddl);
+        }
       }
+      await transaction.runInsert(
+        'INSERT INTO schema_info (id, version) VALUES (1, ?) '
+        'ON CONFLICT(id) DO UPDATE SET version = ?',
+        [toVersion, toVersion],
+      );
+      await transaction.send();
+    } catch (_) {
+      await transaction.rollback();
+      rethrow;
     }
   }
 
@@ -292,7 +307,8 @@ class AppDatabase implements QueryExecutorUser {
     channelId: row['channel_id'] as String?,
   );
 
-  /// Select events in hlc range [from, to] (inclusive), ordered by hlc ASC.
+  /// Select events in hlc range [from, to] (inclusive), ordered by hlc ASC,
+  /// then id ASC for deterministic pagination.
   Future<List<Map<String, Object?>>> selectEventsInRange({
     required int hlcFrom,
     required int hlcTo,
@@ -304,14 +320,14 @@ class AppDatabase implements QueryExecutorUser {
         'SELECT id, group_id, author, hlc, bytes, signature, channel_id '
         'FROM events '
         'WHERE hlc BETWEEN ? AND ? '
-        'ORDER BY hlc ASC '
+        'ORDER BY hlc ASC, id ASC '
         'LIMIT ? OFFSET ?',
         [hlcFrom, hlcTo, limit, offset],
       );
     });
   }
 
-  /// Select all events for a group, ordered by hlc ASC.
+  /// Select all events for a group, ordered by hlc ASC, then id ASC.
   Future<List<Map<String, Object?>>> selectEventsForGroup(
     String groupId, {
     int? limit,
@@ -321,7 +337,7 @@ class AppDatabase implements QueryExecutorUser {
       final args = <Object?>[groupId];
       var sql =
           'SELECT id, group_id, author, hlc, bytes, signature, channel_id '
-          'FROM events WHERE group_id = ? ORDER BY hlc ASC';
+          'FROM events WHERE group_id = ? ORDER BY hlc ASC, id ASC';
       if (limit != null) {
         sql += ' LIMIT ?';
         args.add(limit);
@@ -349,7 +365,7 @@ class AppDatabase implements QueryExecutorUser {
   }
 
   /// Select events for a channel (or group-level when [channelId] is null),
-  /// ordered by hlc DESC (newest first).
+  /// ordered by hlc DESC (newest first), then id DESC.
   Future<List<Map<String, Object?>>> selectEventsForChannel(
     String groupId, {
     String? channelId,
@@ -363,13 +379,13 @@ class AppDatabase implements QueryExecutorUser {
         sql =
             'SELECT id, group_id, author, hlc, bytes, signature, channel_id '
             'FROM events WHERE group_id = ? AND channel_id = ? '
-            'ORDER BY hlc DESC';
+            'ORDER BY hlc DESC, id DESC';
         args.add(channelId);
       } else {
         sql =
             'SELECT id, group_id, author, hlc, bytes, signature, channel_id '
             'FROM events WHERE group_id = ? AND channel_id IS NULL '
-            'ORDER BY hlc DESC';
+            'ORDER BY hlc DESC, id DESC';
       }
       if (limit != null) {
         sql += ' LIMIT ?';
@@ -396,11 +412,11 @@ class AppDatabase implements QueryExecutorUser {
     final rows = await selectEventsForChannel(
       groupId,
       channelId: channelId,
-      limit: pageSize,
+      limit: pageSize + 1,
       offset: offset,
     );
-    final eventsList = rows.map(_eventDataFromRow).toList();
-    final hasMore = eventsList.length == pageSize;
+    final hasMore = rows.length > pageSize;
+    final eventsList = rows.take(pageSize).map(_eventDataFromRow).toList();
     return ChannelPage(
       events: eventsList,
       page: page,
@@ -450,10 +466,12 @@ class AppDatabase implements QueryExecutorUser {
             const [],
           );
         } else {
+          final cursorHlc = cursorRows.first['hlc'];
           rows = await _executor.runSelect(
-            'SELECT $columns FROM events WHERE hlc >= ? '
+            'SELECT $columns FROM events '
+            'WHERE hlc > ? OR (hlc = ? AND id >= ?) '
             'ORDER BY hlc ASC, id ASC',
-            [cursorRows.first['hlc']],
+            [cursorHlc, cursorHlc, cursor],
           );
         }
       }
@@ -473,7 +491,7 @@ class AppDatabase implements QueryExecutorUser {
       final rows = await _executor.runSelect(
         'SELECT id FROM events '
         'WHERE hlc BETWEEN ? AND ? '
-        'ORDER BY hlc ASC '
+        'ORDER BY hlc ASC, id ASC '
         'LIMIT ? OFFSET ?',
         [hlcFrom, hlcTo, limit, offset],
       );

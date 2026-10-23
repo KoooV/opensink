@@ -1317,3 +1317,39 @@ Runtime-версия в собранных Android/Linux приложениях 
 - Push не выполнялся.
 
 Этап F4.7 завершён. Остановка до ревью.
+
+---
+
+## Запись 30 — Этап F4.8: паритет native/Chrome и детерминированная пагинация
+
+### Решения
+
+1. Добавлен общий поведенческий набор `runPortableStorageSuite` (12 тестов). Один и тот же код запускается native-раннером в `core_storage` и Chrome-раннером в `platform_web`; отличие только в фабрике executor-а. Это закрывает фактический разрыв AC3: ранее в Chrome исполнялся только один общий контракт.
+2. Все выборки событий получили tie-breaker `id`: `hlc ASC, id ASC` для истории/диапазонов и `hlc DESC, id DESC` для каналов. `watchFrom` сравнивает курсор составным ключом `(hlc, id)`, поэтому события с тем же HLC, но меньшим id, больше не попадают в выдачу.
+3. `channelPage` определяет `hasMore` выборкой `pageSize + 1`; ложный `hasMore` на последней полной странице устранён. `ChannelPage.nextCursor` (offset под видом курсора) заменён на `nextPage`.
+4. Миграции и запись `schema_info` объединены в одну транзакцию: частично применённая схема после сбоя не сохраняется.
+5. Общий замер 100k событий вынесен в `runPortablePerformanceSuite`; native- и Chrome-обёртки используют один и тот же код.
+
+### Изменённые файлы
+
+- `packages/core_storage/lib/src/database/app_database.dart`.
+- `packages/core_storage/lib/src/models/event_data.dart`.
+- `packages/core_storage/test/portable_storage_suite.dart`, `portable_storage_native_test.dart`, `portable_performance_suite.dart`, `storage_performance_benchmark_test.dart`.
+- `packages/platform_web/test/portable_storage_web_test.dart`, `storage_performance_web_test.dart`.
+- `tool/test_web_storage_chrome.sh`.
+- `packages/core_storage/DESIGN.md`, `docs/LAYER4_ACCEPTANCE.md`, `docs/OPEN_QUESTIONS.md`.
+
+### Результаты проверок
+
+- `cd packages/core_storage && dart test` — **81 пройдено, 0 провалов**; `VM_STORAGE_PERF events=100000 insert_ms=2064 pagination_p95_ms=6`.
+- `bash tool/test_web_full_chrome.sh` — **30 пройдено, 0 провалов**; `WEB_STORAGE_PERF events=100000 insert_ms=4974 pagination_p95_ms=5`.
+- `cd packages/platform_linux && flutter test` — **7 пройдено, 0 провалов**.
+- `dart analyze packages/core_storage/lib packages/core_storage/test packages/platform_web/test` — **No issues found!**.
+
+### Что осталось
+
+- Q34: каноническая формула event id (`id = хэш`) не утверждена; хранилище трактует id как непрозрачный caller-supplied хэш.
+- Индекс `(author, seq)` заменён на `(author, hlc)`: в схеме нет `seq`, а HLC — единственный порядковый ключ события. Это осознанное отклонение от буквы задания слоя.
+- Q25/Q27/Q28/Q30/Q31 и ручной Android QA — без изменений.
+
+Этап F4.8 завершён.

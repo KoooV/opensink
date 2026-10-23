@@ -19,5 +19,6 @@ cp "$ROOT_DIR/apps/app/web/drift_worker.js" "$ASSET_DIR/drift_worker.js"
 cd "$PACKAGE_DIR"
 dart test \
   test/storage_database_factory_web_test.dart \
+  test/portable_storage_web_test.dart \
   test/storage_performance_web_test.dart \
   -p chrome -c dart2js

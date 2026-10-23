@@ -79,7 +79,7 @@
 `// TODO(verify): Nostr, трекеры, LAN, QR реализации SignalingChannel.` (packages/core_signaling/lib/core_signaling.dart:3)
 
 ## Q18 — core_storage: drift-схема и реализация EventStore — ЗАКРЫТО
-Реализовано в этапах 4.0–4.5: схема v4, `AppDatabase`, `DriftEventStore`, миграции, native- и web-фабрики. Маркер `TODO(verify)` из `packages/core_storage/lib/core_storage.dart` удалён. Доказательства — `docs/LAYER4_ACCEPTANCE.md`.
+Реализовано в этапах 4.0–4.8: схема v6, `AppDatabase`, `DriftEventStore`, миграции, native- и web-фабрики, общий portable test suite. Маркер `TODO(verify)` из `packages/core_storage/lib/core_storage.dart` удалён. Доказательства — `docs/LAYER4_ACCEPTANCE.md`.
 
 ## Q19 — core_sync: SyncEngine реализация поверх EventStore
 `// TODO(verify): SyncEngine реализация поверх EventStore.` (packages/core_sync/lib/core_sync.dart:3)
@@ -127,3 +127,6 @@ Web StorageBackend и Chrome runtime проверены с dart2js. `sqlite3` 2.
 
 ## Q33 (этап 4.5) — независимая сверка BIP-39 wordlist и NFKD
 `packages/core_crypto/test/bip39_integrity_test.dart:55` требует независимой сверки SHA-256 эталонного wordlist, а строка 172 фиксирует отказ от Unicode-нормализации без пакета `unorm_dart`. Обе проверки остаются TODO(verify); текущие тесты используют встроенный эталон и явно отклоняют не-ASCII парольные фразы.
+
+## Q34 (этап 4.8) — канонический event id и контракт хэша
+В задании слоя 4 указано `id = хэш`, но `EventRecord.id` в `core_domain` задаётся вызывающим слоем, а хранилище проверяет только форму ASCII `[A-Za-z0-9._:-]{1,128}`. Хранилище намеренно не вычисляет и не пересчитывает content hash: канонический набор байтов (envelope, подпись, HLC, group/channel) и алгоритм ещё не зафиксированы в `core_protocol`/`core_sync`. TODO(verify): утвердить формулу event id на слое 7, добавить проверку соответствия `id` хэшу на границе записи (или отдельный канонический кодировщик) и тест на несовпадение. До этого `id` трактуется как непрозрачный caller-supplied хэш, а идемпотентность обеспечивается первичным ключом.

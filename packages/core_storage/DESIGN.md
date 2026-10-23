@@ -64,9 +64,11 @@ abstract interface class StorageBackend {
 
 `write` возвращает `Result<InsertOutcome, EventStoreWriteError>`. `InsertOutcome` содержит `inserted` и `duplicate`. Вставка идёт через `INSERT OR IGNORE INTO events`; для получения числа затронутых строк используется `QueryExecutor.runUpdate` (в native и WASM executor-ах возвращает `updatedRows`). `affected == 1` → `inserted`, `affected == 0` → `duplicate`; исходные байты никогда не перезаписываются. `timestamp` записывается в колонку `hlc`.
 
-`RangeSummary` строится по SHA-256 от `ids.join('|')` в UTF-8. Если событий больше `limit` (по умолчанию 100000), возвращается `Err(RangeTooLarge(limit))`, усечённый digest не выдаётся.
+`RangeSummary` строится по SHA-256 от `ids.join('|')` в UTF-8. Если событий больше `limit` (по умолчанию 100000), возвращается `Err(RangeTooLarge(limit))`, усечённый digest не выдаётся. Выборка id идёт в порядке `hlc ASC, id ASC`, поэтому одинаковый набор событий даёт одинаковый digest независимо от физического порядка строк.
 
-`watchFrom(cursor)` отдаёт историю с события `cursor` включительно (`hlc ASC, id ASC`), затем live-записи; пустой/неизвестный курсор означает начало истории. `watchGroup` отдаёт историю группы в порядке `hlc ASC`, затем live-записи. Оба потока подписываются на live до чтения истории, буферизуют записи на время replay и подавляют дубли по `id`.
+`channelPage` возвращает страницу канала в порядке `hlc DESC, id DESC`. `hasMore` определяется выборкой `pageSize + 1` строки, поэтому последняя полная страница не выдаёт ложный `hasMore`; `nextPage` возвращает номер следующей страницы или `null`. Пагинация остаётся offset-based; ключевой набор `(hlc, id)` детерминирован.
+
+`watchFrom(cursor)` отдаёт историю с события `cursor` включительно (`hlc ASC, id ASC`), затем live-записи; пустой/неизвестный курсор означает начало истории. Курсор сравнивается составным ключом `(hlc, id)`, поэтому события с тем же `hlc`, но меньшим `id`, не попадают в выдачу. `watchGroup` отдаёт историю группы в порядке `hlc ASC, id ASC`, затем live-записи. Оба потока подписываются на live до чтения истории, буферизуют записи на время replay и подавляют дубли по `id`. Все выборки событий используют `id` как tie-breaker, чтобы пагинация была детерминированной.
 
 ## 4. SQLite, upsert и версия
 
@@ -89,13 +91,13 @@ abstract interface class StorageBackend {
 
 ## 5. Схема и миграции
 
-Текущая версия — **6**. Свежая установка создаёт все таблицы, индексы и append-only триггеры из `schema.dart` и записывает версию в `schema_info`.
+Текущая версия — **6**. Свежая установка создаёт все таблицы, индексы и append-only триггеры из `schema.dart` и записывает версию в `schema_info`. Миграции и обновление версии выполняются одной транзакцией (`_migrate`), поэтому сбой посередине не оставляет частично мигрированную схему.
 
 Таблицы: `events`, `groups`, `members`, `channels`, `peers`, `blobs_meta`, `sync_state`, `group_settings`, `schema_info`.
 
-Индексы: `idx_events_group_hlc(group_id, hlc)`, `idx_events_author_hlc(author, hlc)`, `idx_events_channel_hlc(channel_id, hlc)`, `idx_channels_group_id(group_id)`, `idx_blobs_group_expires(group_id, expires_at)`, `idx_group_settings_group_key(group_id, key)`.
+Индексы: `idx_events_group_hlc(group_id, hlc)`, `idx_events_author_hlc(author, hlc)`, `idx_events_channel_hlc(channel_id, hlc)`, `idx_channels_group_id(group_id)`, `idx_blobs_group_expires(group_id, expires_at)`, `idx_group_settings_group_key(group_id, key)`. Индекс `(author, seq)` из исходного задания заменён на `(author, hlc)`: в доменной модели нет `seq`, HLC — единственный порядковый ключ события, а `seq` удалён в v6.
 
-Порядок чтения событий — `hlc ASC` (для каналов — `hlc DESC`, новые сверху). Колонка `seq` и индекс `(author, seq)` удалены: в v3 убран индекс, в v6 — сама колонка.
+Порядок чтения событий — `hlc ASC, id ASC` (для каналов — `hlc DESC, id DESC`, новые сверху). Колонка `seq` и индекс `(author, seq)` удалены: в v3 убран индекс, в v6 — сама колонка.
 
 | Переход | Действие |
 |---------|----------|
@@ -129,24 +131,24 @@ abstract interface class StorageBackend {
 | `unsafeIndexedDb` | `indexedDb` | да | нет межвкладочной синхронизации |
 | `inMemory` | `memory` | нет | данные не сохраняются после перезагрузки |
 
-Дополнительно, если `missingFeatures` не пуст, в `warnings` перечисляются ограничения браузера. Для `opfsLocks` нужны заголовки `Cross-Origin-Opener-Policy: same-origin` и `Cross-Origin-Embedder-Policy: require-corp`; без них Drift выбирает поддерживаемый IndexedDB-режим. Локальная раздача с корректными MIME и COOP/COEP — `tool/serve_web_dev.sh` (`ENABLE_CROSS_ORIGIN_ISOLATION=1`).
+Дополнительно, если `missingFeatures` не пуст, в `warnings` перечисляются ограничения браузера. `opfsLocks` требует cross-origin isolation: заголовков `Cross-Origin-Opener-Policy: same-origin` и `Cross-Origin-Embedder-Policy: require-corp`, а также CORP/CORS для кросс-оригинных ресурсов. Без этих заголовков Drift выбирает следующий доступный режим: `opfsShared` (если браузер умеет вложенные воркеры, например Firefox), иначе `sharedIndexedDb`, иначе `unsafeIndexedDb`, и только при полном отсутствии storage API — `inMemory`. `opfsShared` не требует COOP/COEP. Локальная раздача с корректными MIME и COOP/COEP — `tool/serve_web_dev.sh` (`ENABLE_CROSS_ORIGIN_ISOLATION=1`).
 
 Подтверждённая цель компиляции — dart2js. `dart2wasm` не проверен (Q30). Перезагрузка настоящей страницы и две вкладки проверяются вручную (Q31).
 
 ## 7. Тесты и бюджет
 
-Общий контракт `runEventStoreContract` (`test/event_store_contract.dart`) импортируется native- и web-тестами: запись, чтение, дубль без перезаписи, `author`, `sqliteVersion`, предупреждение для памяти.
+Общий контракт `runEventStoreContract` (`test/event_store_contract.dart`) и общий поведенческий набор `runPortableStorageSuite` (`test/portable_storage_suite.dart`, 12 тестов) импортируются native- и web-раннерами. Набор покрывает схему, идемпотентность, порядок `hlc/id`, курсор, range summary, пагинацию канала, `EventStore`, retention, query plan, append-only и миграции v3→v6/v5→v6. Native-раннер — `test/portable_storage_native_test.dart`, Chrome-раннер — `platform_web/test/portable_storage_web_test.dart`.
 
 Статус приёмки раунда 2 считается только по полному прогону пакета без фильтров:
 
 | Набор | Команда | Результат |
 |-------|---------|-----------|
-| core_storage (VM) | `dart test` в `packages/core_storage` | 69 пройдено, 0 провалов |
+| core_storage (VM) | `dart test` в `packages/core_storage` | 81 пройдено, 0 провалов |
 | core_domain (VM) | `dart test` в `packages/core_domain` | 25 пройдено, 0 провалов |
 | platform_linux (native) | `flutter test` в `packages/platform_linux` | 7 пройдено, 0 провалов |
-| platform_web (Chrome) | `dart test -p chrome -c dart2js` | 18 пройдено, 0 провалов |
+| platform_web (Chrome) | `bash tool/test_web_full_chrome.sh` | 30 пройдено, 0 провалов |
 
-Фактический VM-замер из полного прогона (одна in-memory БД, 100k вставок одной транзакцией, 10 страниц по 50 записей): вставка 2 661 мс, pagination p95 5 мс при порогах < 30 000 мс / < 200 мс. Chrome-замер из полного прогона: `WEB_STORAGE_PERF events=100000 insert_ms=4965 pagination_p95_ms=4`. Подробности и команды — `docs/LAYER4_ACCEPTANCE.md`.
+Фактический VM-замер из полного прогона (одна in-memory БД, 100k вставок одной транзакцией, 10 страниц по 50 записей): `VM_STORAGE_PERF events=100000 insert_ms=2064 pagination_p95_ms=6` при порогах < 30 000 мс / < 200 мс. Chrome-замер из полного прогона: `WEB_STORAGE_PERF events=100000 insert_ms=4974 pagination_p95_ms=5`; Chrome также в пороге. Подробности и команды — `docs/LAYER4_ACCEPTANCE.md`.
 
 ## 8. Остаточные ограничения
 
