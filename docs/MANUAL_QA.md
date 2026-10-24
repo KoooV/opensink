@@ -12,7 +12,7 @@
 - [ ] Повторный запуск приложения → `loadIdentity` возвращает сохранённую идентичность.
 
 ### 2. Перезапуск приложения
-- [ ] Полная остановка приложения ( swipe away / Force Stop ) → повторный запуск → `loadIdentity` возвращает ту же идентичность.
+- [ ] Полная остановка приложения (свайп из списка задач / Force Stop) → повторный запуск → `loadIdentity` возвращает ту же идентичность.
 - [ ] Данные сохраняются между перезапусками процесса.
 
 ### 3. Перезагрузка устройства
@@ -39,10 +39,10 @@
 - [ ] StrongBox **не обещан** — приложение работает и без StrongBox (отсутствие StrongBox не является ошибкой).
 
 ### 8. Безопасность
-- [ ] Дамп файлов данных приложения (`adb backup` или root) не раскрывает `privateSeed` в aberto (шифруется Keystore).
+- [ ] Дамп файлов данных приложения (`adb backup` или root) не раскрывает `privateSeed` в открытом виде (шифруется Keystore).
 - [ ] `toString()` идентичности и бандла не раскрывает `privateSeed` в логах.
 
-### 9. SQLite / EventStore (этап 4.3)
+### 9. SQLite / EventStore
 - [ ] Установить APK с чистого состояния и убедиться, что приложение открывает постоянную БД без ошибки.
 - [ ] Записать тестовое событие, полностью остановить и перезапустить приложение; событие и его author/payload читаются без изменений.
 - [ ] Установить обновлённую сборку поверх предыдущей установки; данные БД сохраняются и доступны после запуска/миграции.
@@ -50,13 +50,13 @@
 - [ ] Проверить через `StorageInfo`, что `backend == 'file'`, `isPersistent == true`, `sqliteVersion` заполнена и не ниже 3.24.0.
 - [ ] Если эмулятор недоступен в CI, выполнить этот список на физическом Android-устройстве до релиза и записать модель, версию Android и `sqliteVersion` в отчёт QA.
 
-Пакет `sqlite3_flutter_libs` 0.5.41 содержит Android SQLite 3.51.1. Исходники `sqlite3` 2.4.5 загружают `libsqlite3.so`; в тесте на устройстве сверить `StorageInfo.sqliteVersion` с bundled-версией.
+Пакет `sqlite3_flutter_libs` 0.5.41 содержит Android SQLite 3.51.1. Исходники `sqlite3` 2.9.4 загружают `libsqlite3.so`; в тесте на устройстве сверить `StorageInfo.sqliteVersion` с bundled-версией.
 
-Автоматизация Android runtime закрыта решением ревью (S4-12): `flutter drive`/integration runner не настраивается. Чек-лист обязателен до релиза; до его выполнения runtime SQLite считается **не проверенным**. В отчёт QA записать модель устройства, версию Android, `backend`, `isPersistent` и `sqliteVersion`.
+Автоматизация Android runtime не настроена: `flutter drive`/integration runner для этой проверки не используется. Чек-лист обязателен до релиза; до его выполнения runtime SQLite считается **не проверенным** (см. `docs/DEFECTS.md`, S4-12). В отчёт QA записать модель устройства, версию Android, `backend`, `isPersistent` и `sqliteVersion`.
 
 ## Примечания
 
-- flutter_secure_storage v9.2.4: файлы хранилища исключены из Auto Backup через `android:allowBackup` и `android:fullBackupContent` в `AndroidManifest.xml` (TODO(verify): точные настройки для v9.2.4).
+- flutter_secure_storage v9.2.4: файлы хранилища должны быть исключены из Auto Backup через `android:allowBackup` и `android:fullBackupContent` в `AndroidManifest.xml`; точные настройки для v9.2.4 — открытый вопрос Q22.
 - Keystore ключи привязаны к экрану блокировки устройства. При смене экрана блокировки ключи могут стать недоступны — приложение должно обрабатывать `StoreUnavailable`/`StoreAccessDenied`.
 
 ---

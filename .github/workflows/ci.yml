@@ -129,6 +129,33 @@ jobs:
           CHROME_EXECUTABLE: /usr/bin/google-chrome-stable
         run: dart test test/signaling_web_test.dart -p chrome -c dart2js
 
+  core_sync-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install melos
+        run: dart pub global activate melos
+
+      - name: Bootstrap workspace
+        run: melos bootstrap
+
+      - name: Test SyncEngineImpl over DriftEventStore in Chrome (dart2js)
+        env:
+          CHROME_EXECUTABLE: /usr/bin/google-chrome-stable
+        run: bash tool/test_web_sync_chrome.sh
+
   core_peer-web:
     runs-on: ubuntu-latest
     defaults:

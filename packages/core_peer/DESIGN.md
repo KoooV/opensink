@@ -81,7 +81,7 @@ poll-таймеру при `bufferedAmount <= low`. Отправка в кажд
   иначе 0 (у data-channel нет RTP-потерь);
 - исходящий битрейт: дельта `bytesSent` за интервал, бит/с.
 
-## 7. Различия web/native (flutter_webrtc 1.6.2, dart_webrtc 1.8.2)
+## 7. Различия web/native (flutter_webrtc 1.6.2+hotfix.4, dart_webrtc 1.8.2)
 
 | Область | Web | Native |
 |---|---|---|
@@ -113,9 +113,9 @@ poll-таймеру при `bufferedAmount <= low`. Отправка в кажд
 
 ## 9. Известные ограничения
 
-- Web-стек обновлён: `flutter_webrtc 1.6.2`, `dart_webrtc 1.8.2`,
-  `web 1.1.2`, `drift 2.31.0`, `sqlite3 2.9.4`; web-assets пересобраны.
-  Реальный Chrome-тест проходит.
+- Web-стек: `flutter_webrtc 1.6.2+hotfix.4`, `dart_webrtc 1.8.2`,
+  `web 1.1.2`, `drift 2.31.0`, `sqlite3 2.9.4`; web-assets закреплены в
+  `tool/web_assets.lock`. Реальный Chrome-тест проходит.
 - `flutter test` не регистрирует нативный плагин Linux, поэтому Linux-сценарий
   требует `integration_test`/собранного приложения.
 - SDP не мангируется; кодек/битрейт медиа — задача `core_media`.
@@ -127,19 +127,3 @@ poll-таймеру при `bufferedAmount <= low`. Отправка в кажд
 - `PeerLinkStats.loss` для data-channel всегда 0: WebRTC не отдаёт потери
   пакетов для SCTP; ненулевые значения возможны только при наличии RTP-медиа
   (`inbound-rtp`/`remote-inbound-rtp`).
-
-
-## 10. Решения poll 2026-10-23
-
-| Вопрос | Решение | Результат |
-|---|---|---|
-| Web PEER-OPEN-01 | отдельная миграция web-стека | Выполнена вместе с Android: `flutter_webrtc 1.6.2`, `web 1.1.2`, `drift 2.31.0`, `sqlite3 2.9.4`, новые web-assets. Chrome real-тест зелёный. |
-| Native rollback | проверить и оставить fallback | Real glare-тест на Linux зелёный; fallback сохранён. |
-| RTT единицы | сверить на native, убрать эвристику | Секунды + `totalRoundTripTime/responsesReceived`; Linux/Android зелёные. |
-| IPv6-флаг | удалить no-op | `enableIpv6Candidates` удалён; политика описана в §4. |
-| Приоритеты | добавить `StaticPeerPriorityPolicy` | Реализовано и покрыто `test/policy_test.dart`. |
-| Потери data-channel | задокументировать `loss = 0` | Семантика зафиксирована в `core_domain` и §6. |
-| Real reconnect | добавить Linux-тест | `peer_link_native_test.dart`: failure injection + reconnect. |
-| Real sync/file | расширить Linux-тест | Control/sync/file обмен на реальном WebRTC. |
-| STUN-дефолты | smoke-тест | `stun_smoke_test.dart` получил `srflx` 2026-10-23. |
-| Android | integration runner | `apps/app` получил полноценный Android Gradle template, permissions, `test_driver`; CI job `peer-native-android`. |

@@ -10,7 +10,7 @@ import 'database/app_database.dart';
 /// re-inserting the same event is a no-op via INSERT OR IGNORE.
 /// Watches replay history and then expose the append-only log as broadcast
 /// streams.
-class DriftEventStore implements EventStore {
+class DriftEventStore implements SyncEventStore {
   /// Максимальный размер payload события (1 МБ).
   static const int _maxPayloadSize = 1024 * 1024;
 
@@ -39,7 +39,8 @@ class DriftEventStore implements EventStore {
   /// the opaque payload.
   @override
   Future<Result<InsertOutcome, EventStoreWriteError>> write(
-      EventRecord record) async {
+    EventRecord record,
+  ) async {
     final validationError = _validate(record);
     if (validationError != null) {
       return Err(validationError);
@@ -152,21 +153,23 @@ class DriftEventStore implements EventStore {
     var cancelled = false;
 
     Future<void> start() async {
-      liveSubscription = _writeController.stream.where(matches).listen(
-        (event) {
-          if (replaying) {
-            buffered.add(event);
-          } else if (emittedIds.add(event.id)) {
-            controller.add(event);
-          }
-        },
-        onError: controller.addError,
-        onDone: () async {
-          if (!cancelled && !controller.isClosed) {
-            await controller.close();
-          }
-        },
-      );
+      liveSubscription = _writeController.stream
+          .where(matches)
+          .listen(
+            (event) {
+              if (replaying) {
+                buffered.add(event);
+              } else if (emittedIds.add(event.id)) {
+                controller.add(event);
+              }
+            },
+            onError: controller.addError,
+            onDone: () async {
+              if (!cancelled && !controller.isClosed) {
+                await controller.close();
+              }
+            },
+          );
 
       try {
         final history = await loadHistory();
@@ -208,8 +211,111 @@ class DriftEventStore implements EventStore {
   }
 
   @override
+  Future<EventRecord?> eventById(String id) => getEvent(id);
+
+  @override
+  Future<List<EventRecord>> groupEvents(
+    GroupId groupId, {
+    int? limit,
+    int? offset,
+  }) async {
+    final events = await _db.groupEvents(
+      groupId.value,
+      limit: limit,
+      offset: offset,
+    );
+    return events.map((event) => event.toEventRecord()).toList();
+  }
+
+  @override
+  Future<List<EventRecord>> eventsInRange(
+    GroupId groupId, {
+    required int hlcFrom,
+    required int hlcTo,
+    int limit = 256,
+    int? afterHlc,
+    String? afterId,
+    ChannelId? channelId,
+  }) async {
+    final events = await _db.rangeEventsForGroup(
+      groupId.value,
+      hlcFrom: hlcFrom,
+      hlcTo: hlcTo,
+      limit: limit,
+      afterHlc: afterHlc,
+      afterId: afterId,
+      channelId: channelId?.value,
+    );
+    return events.map((event) => event.toEventRecord()).toList();
+  }
+
+  @override
+  Future<List<EventRecord>> pendingEvents(
+    GroupId groupId, {
+    int limit = 256,
+  }) async {
+    final events = await _db.pendingEventsForGroup(groupId.value, limit: limit);
+    return events.map((event) => event.toEventRecord()).toList();
+  }
+
+  @override
+  Future<void> putPendingEvent(EventRecord record) async {
+    final validationError = _validate(record);
+    if (validationError != null) {
+      throw PendingEventWriteException(validationError);
+    }
+    try {
+      await _db.upsertPendingEvent(
+        id: record.id,
+        groupId: record.groupId.value,
+        author: record.author,
+        hlc: record.timestamp,
+        bytes: record.payload,
+        signature: record.signature,
+        channelId: record.channelId?.value,
+      );
+    } on Object catch (error) {
+      throw PendingEventWriteException(const StorageWriteError(), cause: error);
+    }
+  }
+
+  @override
+  Future<void> deletePendingEvent(String id) async {
+    try {
+      await _db.deletePendingEvent(id);
+    } on Object catch (error) {
+      throw PendingEventWriteException(const StorageWriteError(), cause: error);
+    }
+  }
+
+  @override
+  Future<List<EventRecord>> latestChannelEvents(
+    GroupId groupId,
+    ChannelId channelId, {
+    int limit = 50,
+  }) async {
+    final events = await _db.channelPage(
+      groupId: groupId.value,
+      channelId: channelId.value,
+      pageSize: limit,
+    );
+    return events.events.map((event) => event.toEventRecord()).toList();
+  }
+
+  @override
   Future<void> close() async {
     await _writeController.close();
     await _db.close();
   }
+}
+
+/// Ошибка записи/удаления pending-события.
+class PendingEventWriteException implements Exception {
+  const PendingEventWriteException(this.error, {this.cause});
+
+  final EventStoreWriteError error;
+  final Object? cause;
+
+  @override
+  String toString() => 'PendingEventWriteException($error)';
 }

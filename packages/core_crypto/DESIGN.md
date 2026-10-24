@@ -127,7 +127,7 @@ Dart не гарантирует безопасное затирание сек�
 | HKDF (RFC 5869) | `Hkdf(hmac: Hmac.sha256(), outputLength: 32).deriveKey(secretKey:, nonce:, info:)` | ✅ | — | Параметры `hmac`/`outputLength`/`nonce`/`info` принимаются; выход 32 байта. |
 | PBKDF2 | `Pbkdf2(macAlgorithm: Hmac.sha512(), iterations: 2048, bits: 512).deriveKey(secretKey:, nonce:)` | ✅ | — | Выход 512 бит (64 байта). |
 
-Chrome — проверка пройдена (196 тестов, parity с VM, см. docs/OPEN_QUESTIONS.md Q4).
+Chrome — проверка пройдена; набор тестов совпадает с VM.
 
 ## 7. TODO(verify) (перенесено в docs/OPEN_QUESTIONS.md)
 
@@ -169,7 +169,7 @@ HKDF-SHA-256 с разными versioned info для Ed25519 и X25519:
 
 ### 8.6 Измерение PBKDF2
 
-PBKDF2-HMAC-SHA-512 (2048 итераций, 512 бит) на VM: ~33.6 ms на одну derived-ключ (10 итераций в среднем, Dart VM, без JIT-прогрева после первого вызова). Измерено скриптом `tool/pbkdf2_bench.dart`. Chrome-замер отложен (см. docs/OPEN_QUESTIONS.md Q4).
+PBKDF2-HMAC-SHA-512 (2048 итераций, 512 бит) на VM: ~33.6 ms на одну derived-ключ (10 итераций в среднем, Dart VM, без JIT-прогрева после первого вызова). Измерено скриптом `tool/pbkdf2_bench.dart`. Отдельный Chrome-замер не проводился.
 
 ---
 
@@ -253,7 +253,7 @@ PBKDF2-HMAC-SHA-512 (2048 итераций, 512 бит) на VM: ~33.6 ms на �
 
 - Точные сигнатуры `SubtleCrypto.generateKey`/`encrypt`/`decrypt` и конвертация `JSPromise`→`Future`, `JSArrayBuffer`→`Uint8List` в `package:web` 0.5.1 (сверены с исходниками пакета).
 - Поддержка `AesGcmParams.additionalData` в целевых браузерах (Chrome, Firefox, Safari, WebView Android).
-- Работа IndexedDB + `storage.persist()` в тестовом Chrome (рантайм-тест не стартует из-за инфраструктуры MIME-типа `dart.js`, см. docs/OPEN_QUESTIONS.md Q4).
+- Работа IndexedDB + `storage.persist()` проверяется Chrome-тестами `platform_web`.
 - Сборка `dart2js` и `dart2wasm` — не проверена в этом окружении.
 - Работа `package:cryptography` Pbkdf2 на вебе (для опции Б — KEK из passphrase).
 
@@ -379,7 +379,7 @@ version(1) || flags(1) || ephemeralPK(32) || messageNumber(8 LE) || prevChainLen
 | RatchetEncrypt (с ratchet-шагом) | Доп. DH-публичный ключ в заголовке (опциональное поле), флаг 0x01 | `double_ratchet.dart:80-94, 126-136` | ✅ | Ключ в опциональном поле — это **новый** DH-ключ отправителя после dhRatchetStep |
 | RatchetDecrypt | Парсинг заголовка, определение флага ratchet-шага | `double_ratchet.dart:197-203` | ✅ | — |
 | RatchetDecrypt (с ratchet-шагом) | DH-шаг с открытым ключом собеседника из **опционального поля** заголовка | `double_ratchet.dart:212-226` | ⚠️ | Ключ берётся из `data.sublist(optionalOffset, optionalOffset+32)` — верно |
-| RatchetDecrypt | `remoteDhPublicKey` нового состояния = открытый ключ собеседника из опционального поля | `double_ratchet.dart:324-327` | ❌ | **БАГ**: записывается `ephemeralPkBytes` (offset 2-34, ключ отправителя из фиксированной части), а не ключ из опционального поля |
+| RatchetDecrypt | `remoteDhPublicKey` нового состояния = открытый ключ собеседника из опционального поля | `double_ratchet.dart` | ✅ | При `hasOptionalDh` берётся ключ из опционального поля, иначе из `ephemeralPkBytes`. |
 | DHRatchet | X25519 shared secret + KDF_RK (salt=предыдущий rootKey, info=root-key) → новый rootKey + chain key | `double_ratchet.dart:350-395` | ✅ | salt = текущий rootKey (предыдущий перед шагом) — корректно |
 | DHRatchet | Генерация новой DH-пары после шага | `double_ratchet.dart:378-380` | ✅ | — |
 | SkipMessageKeys | При messageNumber > receivingMessageCounter: промежуточные ключи сохраняются в skippedKeys | `double_ratchet.dart:258-286` | ✅ | FIFO-вытеснение при length >= maxSkip, TTL-очистка |
@@ -391,23 +391,14 @@ version(1) || flags(1) || ephemeralPK(32) || messageNumber(8 LE) || prevChainLen
 
 **Отклонение "опциональное DH-поле":** в заголовке версии 1 всегда присутствует `ephemeralPK` (32 байта, offset 2-34) — это текущий открытый DH-ключ отправителя. Опциональное поле (32 байта, offset 50-82, флаг 0x01) присутствует **только** когда выполнен dhRatchetStep и содержит **новый** открытый DH-ключ отправителя. Получатель обязан сохранить ключ из опционального поля как `remoteDhPublicKey`, иначе следующая отправка с ratchet-шагом использует неверный удалённый ключ.
 
-### 13.3.2 Закрытие гипотезы «баг стр. 324-327»
+### 13.3.2 Атомарность и DoS
 
-**Гипотеза:** `remoteDhPublicKey` следующего состояния берётся из `ephemeralPkBytes` заголовка, а не из опционального DH-поля.
+`decrypt()` не мутирует `this.skippedKeys` до успешной AEAD-расшифровки: изменения
+собираются во временную копию и применяются только к следующему состоянию.
+`messageNumber` и `previousChainLength` валидируются до цикла пропуска;
+`_maxMessageNumber = 1 << 30`, `maxSkip = 100` с FIFO-вытеснением, TTL 24 часа.
 
-**Статус:** **подтверждён как баг.** В `decrypt()` (строки 324-327) `remoteDhPublicKey` всегда устанавливается в `ephemeralPkBytes` (offset 2-34 — текущий DH-ключ отправителя), даже когда флаг 0x01 установлен и в опциональном поле передан новый ключ. При следующем encrypt с `remotePublicKey` вызывающий код должен сам передать корректный удалённый ключ, но состояние `remoteDhPublicKey` в объекте состояния не отражает реальный последний ключ собеседника.
-
-**Исправление:** когда `hasOptionalDh`, `remoteDhPublicKey` берется из опционального поля (offset `optionalOffset`..`optionalOffset+32`); иначе — из `ephemeralPkBytes`.
-
-### 13.3.3 Атомарность и DoS
-
-**Атомарность:** `decrypt()` не должен мутировать `this.skippedKeys` до успешной AEAD-расшифровки. В текущей реализации пропущенные ключи добавляются в `this.skippedKeys` (ссылка на ту же карту) в цикле пропуска (строки 275-283) до проверки AEAD (строка 300). При неудаче расшифровки состояние вызывающего уже изменено — нарушение атомарности.
-
-**Исправление:** все изменения `skippedKeys` собираются во временную копию; следующее состояние получает копию только при успехе. При ошибке `this` не меняется, `toBytes()` до и после неудачного `decrypt()` идентичны.
-
-**DoS:** `messageNumber` и `previousChainLength` из заголовка валидируются перед циклом пропуска. `messageNumber` ограничен протокольным максимумом (`_maxMessageNumber`), что отсекает абсурдные значения (например 2^31) до любой аллокации в цикле. Общий лимит пропущенных ключей задан `maxSkip` (100) с FIFO-вытеснением; TTL (24ч) удаляет уставшие записи.
-
-### 13.7 План тестов (сценарии, без реализации)
+### 13.3.3 Проверяемые сценарии
 
 - X3DH roundtrip: `generateKeyBundle → sender → receiver` дают одинаковый shared key (без OPK).
 - X3DH binding: подмена SPK public key без переподписи → `verifyBinding` false.

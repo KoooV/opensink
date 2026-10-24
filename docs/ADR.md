@@ -1,71 +1,90 @@
 # ADR-001: Каркас монорепозитория OpenSink
 
 ## Статус
-Принято
+Принято; действует для текущего состояния репозитория.
 
 ## Контекст
-Кроссплатформенный (Linux, Android, Web) P2P-мессенджер без собственного сервера. Внешняя инфраструктура только как публичные STUN, Nostr-реле и WebSocket-трекеры (bootstrap/signaling). Стек: Flutter stable, Dart 3, melos, riverpod, protobuf, package:cryptography, drift.
+Кроссплатформенный (Linux, Android, Web) P2P-мессенджер без собственного сервера.
+Внешняя инфраструктура допускается только как публичные STUN, Nostr-реле и
+WebSocket-трекеры для bootstrap/signaling. Стек: Flutter stable, Dart 3, melos,
+riverpod, protobuf, `package:cryptography`, drift.
 
 ## Решения
 
 ### 1. Структура репозитория (melos workspace)
-Монорепо под управлением [melos](https://pub.dev/packages/melos). Корень — мета-пакет, все пакеты в `packages/` и `apps/`:
+Монорепо под управлением melos. Корень — мета-пакет, пакеты находятся в `packages/`
+и `apps/`.
 
-| Пакет | Назначение | Зависит от dart:io/html |
-|---|---|---|
-| `core_domain` | Модели и интерфейсы домена | Нет |
-| `core_crypto` | Идентичность, Ed25519, package:cryptography | Нет |
-| `core_protocol` | Protobuf схемы, envelope | Нет |
-| `core_storage` | Drift event store | Нет |
-| `core_signaling` | Nostr, трекеры, LAN, QR | Нет |
-| `core_peer` | WebRTC через flutter_webrtc | Нет |
-| `core_sync` | Лог событий, синхронизация | Нет |
-| `core_group` | Группы, права | Нет |
-| `core_relay` | Маршрутизация через участников | Нет |
-| `core_media` | Звонки, экран, топологии | Нет |
-| `platform_*` | Платформенные реализации (conditional import) | Да (внутри platform_*) |
-| `apps/app` | UI (Flutter) | Да |
+| Пакет | Назначение | Состояние |
+|-------|------------|-----------|
+| `core_domain` | Модели, `Result`, интерфейсы, fakes | Реализовано |
+| `core_crypto` | Identity, Ed25519/X25519, AEAD, E2EE, StateVault | Реализовано |
+| `core_protocol` | Wire-формат, `Envelope`, сообщения, лимиты | Реализовано |
+| `core_storage` | Drift-схема v7, `EventStore`, `SyncEventStore` | Реализовано |
+| `core_signaling` | Nostr, WebTorrent-трекеры, пул реле | Реализовано; LAN/QR отсутствуют |
+| `core_peer` | WebRTC `PeerLink`/`Transport` | Реализовано |
+| `core_sync` | HLC-лог, anti-entropy, gossip | Реализовано |
+| `core_group` | Группы, права | Заглушка |
+| `core_relay` | Маршрутизация через участников | Заглушка |
+| `core_media` | Звонки, экран, топологии | Заглушка |
+| `platform_*` | SecureKeyStore и SQLite-фабрики | Реализовано |
+| `apps/app` | Flutter UI и DI | Минимальный шелл |
 
-Все `core_*` пакеты — чистый Dart, не импортируют `dart:io` и `dart:html`. Платформенный код только в `platform_*` и `apps/app`.
+`core_*` не импортируют `dart:io`, `dart:html`, `package:web` и `dart:js_interop`.
+`core_peer` содержит Flutter-адаптер в отдельной библиотеке
+`package:core_peer/core_peer_flutter.dart`; чистые интерфейсы остаются в
+`package:core_peer/core_peer.dart`. Платформенный код — только в `platform_*` и
+`apps/app`.
 
-### 2. Контракты (core_domain)
-Каждый внешний порт скрыт за абстрактным интерфейсом с in-memory fake:
+### 2. Контракты (`core_domain`)
+Каждый внешний порт скрыт за интерфейсом с in-memory fake:
 
-- `Identity` / `Signer` — Ed25519 идентичность и подпись (контракты в домене, реализация в `core_crypto`).
-- `PeerId` — узел сети (открытый ключ Ed25519, байты). `GroupId`, `ChannelId`, `UserId` — строковые идентификаторы.
-- `SignalingChannel` — `join(topic)`, `publish(topic, bytes)`, `Stream<SignalingMessage>`.
-- `PeerLink` — `send(channel, bytes)`, `Stream<Incoming>`, `state`, `stats` (RTT, bytes, loss), `close()`.
-- `Transport` — `connect(peerId)`, `Stream<PeerLinkEvent>`, `send(dst, bytes)` (прямой путь или Relay).
-- `Relay` — `routes(dst)`, `forward(frame)`, `capacity`.
-- `MediaTopology` — `plan(participants, capabilities) -> TopologyPlan` (mesh или hosted-by-peer).
-- `EventStore`, `SyncEngine`, `IGroupState`, `SecureKeyStore`, `ScreenCaptureSource`.
+- `Identity`, `Signer` — Ed25519-идентичность и подпись.
+- `PeerId`, `GroupId`, `ChannelId`, `UserId`, `EventId` — идентификаторы.
+- `SignalingChannel` — join/publish/stream.
+- `PeerLink` — send/receive, state, stats, close.
+- `Transport` — connect, события, отправка напрямую или через relay.
+- `Relay` — routes, forward, capacity.
+- `MediaTopology` — plan(participants, capabilities).
+- `EventStore`, `SyncEventStore`, `SyncEngine`, `IGroupState`, `SecureKeyStore`,
+  `EncryptedStateStore`, `ScreenCaptureSource`.
 
 ### 3. Доменная логика
 - `sealed class Result<T, E>` вместо исключений для бизнес-ошибок.
-- Состояние группы — чистая функция от множества подписанных событий (`Group.apply`).
-- Любое событие группы подписано Ed25519 и валидируется до применения.
-- Секреты не попадают в логи.
+- Состояние группы — чистая функция от подписанных событий.
+- События, влияющие на состояние группы, подписаны Ed25519 и валидируются до
+  применения.
+- Секреты не попадают в логи и `toString()`.
 
 ### 4. DI
-Riverpod (`flutter_riverpod`). Провайдеры в `apps/app/lib/di/providers.dart` связывают интерфейсы с fakes для разработки/тестов; в продакшене — с реальными реализациями из `core_*` и `platform_*`.
+Riverpod. Провайдеры в `apps/app/lib/di/providers.dart` подключают платформенное
+хранилище, `DriftEventStore`, identity, `CryptoSigner` и `SyncEngineImpl`. Для
+`SignalingChannel`, `PeerLink`, `Transport`, `Relay`, `MediaTopology`, `IGroupState`
+и `ScreenCaptureSource` пока используются fakes/заглушки до реализации слоёв.
 
 ### 5. Линтинг и CI
-- Строгие правила в корневом `analysis_options.yaml` (на базе `flutter_lints/flutter.yaml`, лишние правила как ошибки).
-- CI (GitHub Actions): `melos run analyze`, `melos run test`, проверка отсутствия `dart:io`/`dart:html` в `core_*`, сборки `flutter build web` / `linux` / `apk` для `apps/app`.
+- Строгие правила в корневом `analysis_options.yaml`.
+- CI: `melos run analyze`, `melos run test`, `tool/check_text_hygiene.sh`,
+  проверка отсутствия `dart:io`/`dart:html` в `core_*`, Chrome-прогоны
+  `core_crypto`/`core_signaling`/`core_sync`/`platform_web`, real-WebRTC и
+  Android job.
+- Локальные проверки документации: `tool/check_docs_drift.sh`,
+  `tool/check_core_imports.sh`, `tool/check_core_storage_deps.sh`.
 
 ### 6. Именование
 - Код и идентификаторы — английский.
 - Комментарии к решениям и документация — русский.
-- Интерфейсы без префикса `I` (кроме `IGroupState` для читаемости, так как `GroupState` — модель).
+- Интерфейсы без префикса `I` (кроме `IGroupState`, где `GroupState` — модель).
 - Файлы в `snake_case`, классы в `PascalCase`.
 
-## Открытые вопросы (TODO(verify))
-- API десеализации Ed25519 подписи из hex в `package:cryptography` v3 (`Ed25519Signature.fromHex`).
-- Точная схема protobuf envelope (core_protocol) — требует отдельного design doc.
-- Реализация SecureKeyStore на Android Keystore / Linux libsecret / Web Crypto API.
-- flutter_webrtc версия и поддержка Linux/Web.
+## Открытые вопросы
+Актуальный список — `docs/OPEN_QUESTIONS.md`. Ключевые блокеры: реализация
+`core_group`, `core_relay`, `core_media`; production DI для signaling/peer; LAN/QR;
+проверка runtime SQLite и публичных реле/трекеров.
 
 ## Критерии приёмки
-- `melos run analyze && melos run test` — зелёные.
-- Три сборки (`web`, `linux`, `apk`) проходят.
-- Ни один `core_*` пакет не импортирует `dart:io` / `dart:html`.
+- `dart analyze` — без ошибок и предупреждений.
+- `melos run test` — зелёный.
+- `bash tool/check_core_imports.sh`, `bash tool/check_core_storage_deps.sh`,
+  `bash tool/check_text_hygiene.sh`, `bash tool/check_docs_drift.sh` — зелёные.
+- Ни один `core_*` пакет не импортирует `dart:io`/`dart:html`.

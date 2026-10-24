@@ -89,6 +89,84 @@ void main() {
       expect(g1limited, hasLength(2));
     });
 
+    test('rangeEventsForGroup filters by channel', () async {
+      for (var i = 0; i < 6; i++) {
+        await db.insertEvent(
+          id: 'channel-event-$i',
+          groupId: 'g1',
+          author: 'user-$i',
+          hlc: 1000 + i,
+          bytes: Uint8List.fromList([i]),
+          signature: 'sig-$i',
+          channelId: i.isEven ? 'c1' : 'c2',
+        );
+      }
+      await db.insertEvent(
+        id: 'group-event',
+        groupId: 'g1',
+        author: 'user',
+        hlc: 1010,
+        bytes: Uint8List.fromList([9]),
+        signature: 'sig',
+      );
+
+      final c1 = await db.rangeEventsForGroup(
+        'g1',
+        hlcFrom: 0,
+        hlcTo: 99999,
+        channelId: 'c1',
+      );
+      expect(c1.map((event) => event.id), [
+        'channel-event-0',
+        'channel-event-2',
+        'channel-event-4',
+      ]);
+
+      final paginated = await db.rangeEventsForGroup(
+        'g1',
+        hlcFrom: 0,
+        hlcTo: 99999,
+        channelId: 'c1',
+        limit: 1,
+        afterHlc: c1.first.hlc,
+        afterId: c1.first.id,
+      );
+      expect(paginated.single.id, 'channel-event-2');
+    });
+
+    test('pending events upsert, read in hlc order, and delete', () async {
+      await db.upsertPendingEvent(
+        id: 'pending-b',
+        groupId: 'g1',
+        author: 'author-b',
+        hlc: 200,
+        bytes: const [2],
+        signature: 'sig-b',
+      );
+      await db.upsertPendingEvent(
+        id: 'pending-a',
+        groupId: 'g1',
+        author: 'author-a',
+        hlc: 100,
+        bytes: const [1],
+        signature: 'sig-a',
+      );
+      await db.upsertPendingEvent(
+        id: 'other-group',
+        groupId: 'g2',
+        author: 'author-c',
+        hlc: 50,
+        bytes: const [3],
+        signature: 'sig-c',
+      );
+
+      final pending = await db.pendingEventsForGroup('g1');
+      expect(pending.map((event) => event.id), ['pending-a', 'pending-b']);
+
+      await db.deletePendingEvent('pending-a');
+      final afterDelete = await db.pendingEventsForGroup('g1');
+      expect(afterDelete.map((event) => event.id), ['pending-b']);
+    });
     test('getEventById returns EventData or null', () async {
       await seedEvents(3);
 

@@ -1,5 +1,5 @@
 name: core_sync
-description: "OpenSync sync engine: event log and state convergence."
+description: "OpenSync sync engine: HLC event log, anti-entropy, gossip and convergence."
 version: 0.1.0
 publish_to: 'none'
 resolution: workspace
@@ -8,10 +8,19 @@ environment:
   sdk: ^3.13.5
 
 dependencies:
+  collection: ^1.19.0
   core_domain:
     path: ../core_domain
+  core_protocol:
+    path: ../core_protocol
   core_storage:
     path: ../core_storage
+  crypto: ^3.0.0
+  meta: ^1.15.0
 
 dev_dependencies:
+  cryptography: ^2.9.0
+  drift: ^2.17.0
+  platform_web:
+    path: ../platform_web
   test: ^1.26.0

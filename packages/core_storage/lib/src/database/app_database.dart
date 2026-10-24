@@ -447,8 +447,7 @@ class AppDatabase implements QueryExecutorUser {
   /// `hlc ASC, id ASC`.
   Future<List<EventData>> eventsFromCursor(String cursor) async {
     return await _open(() async {
-      const columns =
-          'id, group_id, author, hlc, bytes, signature, channel_id';
+      const columns = 'id, group_id, author, hlc, bytes, signature, channel_id';
       List<Map<String, Object?>> rows;
       if (cursor.isEmpty) {
         rows = await _executor.runSelect(
@@ -542,6 +541,96 @@ class AppDatabase implements QueryExecutorUser {
       offset: offset,
     );
     return rows.map(_eventDataFromRow).toList();
+  }
+
+  /// События группы в диапазоне HLC с курсором `(afterHlc, afterId)`.
+  ///
+  /// Используется anti-entropy из core_sync: ответ на RangeRequest отдаёт
+  /// страницы в стабильном порядке, поэтому offset-пагинация не нужна.
+  Future<List<EventData>> rangeEventsForGroup(
+    String groupId, {
+    required int hlcFrom,
+    required int hlcTo,
+    int limit = 256,
+    int? afterHlc,
+    String? afterId,
+    String? channelId,
+  }) async {
+    return await _open(() async {
+      const columns = 'id, group_id, author, hlc, bytes, signature, channel_id';
+      final args = <Object?>[groupId, hlcFrom, hlcTo];
+      var sql =
+          'SELECT $columns FROM events '
+          'WHERE group_id = ? AND hlc BETWEEN ? AND ?';
+      if (channelId != null) {
+        sql += ' AND channel_id = ?';
+        args.add(channelId);
+      }
+      if (afterHlc != null && afterId != null) {
+        sql += ' AND (hlc > ? OR (hlc = ? AND id > ?))';
+        args.addAll(<Object?>[afterHlc, afterHlc, afterId]);
+      }
+      sql += ' ORDER BY hlc ASC, id ASC LIMIT ?';
+      args.add(limit);
+      final rows = await _executor.runSelect(sql, args);
+      return rows.map(_eventDataFromRow).toList();
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Pending events (membership unknown yet)
+  // -------------------------------------------------------------------------
+
+  /// Upsert отложенного события. Очередь не append-only: событие может быть
+  /// удалено после успешного применения или LRU-eviction.
+  Future<void> upsertPendingEvent({
+    required String id,
+    required String groupId,
+    required String author,
+    required int hlc,
+    required List<int> bytes,
+    required String signature,
+    String? channelId,
+  }) async {
+    await _open(() async {
+      await _executor.runInsert(
+        'INSERT OR REPLACE INTO pending_events '
+        '(id, group_id, author, hlc, bytes, signature, channel_id) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [
+          id,
+          groupId,
+          author,
+          hlc,
+          Uint8List.fromList(bytes),
+          signature,
+          channelId,
+        ],
+      );
+    });
+  }
+
+  Future<List<EventData>> pendingEventsForGroup(
+    String groupId, {
+    int limit = 256,
+  }) async {
+    return await _open(() async {
+      final rows = await _executor.runSelect(
+        'SELECT id, group_id, author, hlc, bytes, signature, channel_id '
+        'FROM pending_events '
+        'WHERE group_id = ? ORDER BY hlc ASC, id ASC LIMIT ?',
+        [groupId, limit],
+      );
+      return rows.map(_eventDataFromRow).toList();
+    });
+  }
+
+  Future<void> deletePendingEvent(String id) async {
+    await _open(() async {
+      await _executor.runDelete('DELETE FROM pending_events WHERE id = ?', [
+        id,
+      ]);
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -728,10 +817,9 @@ class AppDatabase implements QueryExecutorUser {
   /// Delete a single blob metadata row by id.
   Future<int> deleteBlobMeta(String id) async {
     return await _open(() async {
-      return await _executor.runDelete(
-        'DELETE FROM blobs_meta WHERE id = ?',
-        [id],
-      );
+      return await _executor.runDelete('DELETE FROM blobs_meta WHERE id = ?', [
+        id,
+      ]);
     });
   }
 

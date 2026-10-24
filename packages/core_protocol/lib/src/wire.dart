@@ -41,16 +41,19 @@ class ProtoReader {
   }
 
   /// Читает varint. Ограничивает длину [ProtocolLimits.maxVarintBytes].
+  ///
+  /// Арифметика вместо `<<`/`|`: dart2js выполняет битовые операции над
+  /// 32-битными значениями и иначе обрезал бы HLC/таймстемпы (~1.7e12).
   int readVarint() {
     int result = 0;
-    int shift = 0;
+    int multiplier = 1;
     for (var i = 0; i < ProtocolLimits.maxVarintBytes; i++) {
       final b = readByte();
-      result |= (b & 0x7F) << shift;
+      result += (b & 0x7F) * multiplier;
       if ((b & 0x80) == 0) {
         return result;
       }
-      shift += 7;
+      multiplier *= 128;
     }
     throw const DecodeError('varint too long');
   }
@@ -78,14 +81,13 @@ class ProtoReader {
     final b = _data;
     final pos = _pos;
     _pos += 8;
-    return b[pos] |
-        (b[pos + 1] << 8) |
-        (b[pos + 2] << 16) |
-        (b[pos + 3] << 24) |
-        (b[pos + 4] << 32) |
-        (b[pos + 5] << 40) |
-        (b[pos + 6] << 48) |
-        (b[pos + 7] << 56);
+    int result = 0;
+    int multiplier = 1;
+    for (var i = 0; i < 8; i++) {
+      result += b[pos + i] * multiplier;
+      multiplier *= 256;
+    }
+    return result;
   }
 
   /// Читает 32-битное little-endian значение.
@@ -96,7 +98,13 @@ class ProtoReader {
     final b = _data;
     final pos = _pos;
     _pos += 4;
-    return b[pos] | (b[pos + 1] << 8) | (b[pos + 2] << 16) | (b[pos + 3] << 24);
+    int result = 0;
+    int multiplier = 1;
+    for (var i = 0; i < 4; i++) {
+      result += b[pos + i] * multiplier;
+      multiplier *= 256;
+    }
+    return result;
   }
 
   /// Читает тег поля: возвращает (fieldNumber, wireType).
@@ -176,18 +184,18 @@ class ProtoWriter {
   }
 
   /// Кодирует значение как varint (little-endian base-128).
+  ///
+  /// Арифметика вместо `>>`/`&`: dart2js обрезал бы значения > 32 бит.
   void writeVarint(int value) {
     if (value < 0) {
       throw ArgumentError('negative value cannot be encoded as varint');
     }
-    while (true) {
-      if (value < 0x80) {
-        _buffer.add(value);
-        return;
-      }
-      _buffer.add((value & 0x7F) | 0x80);
-      value >>= 7;
+    var remaining = value;
+    while (remaining >= 0x80) {
+      _buffer.add((remaining % 128) + 0x80);
+      remaining = remaining ~/ 128;
     }
+    _buffer.add(remaining);
   }
 
   /// Записывает тег поля: (field_number << 3) | wire_type.
@@ -204,16 +212,20 @@ class ProtoWriter {
   /// Записывает fixed64-поле.
   void writeFixed64Field(int fieldNumber, int value) {
     writeTag(fieldNumber, WireType.fixed64);
+    var remaining = value;
     for (var i = 0; i < 8; i++) {
-      _buffer.add((value >> (i * 8)) & 0xFF);
+      _buffer.add(remaining % 256);
+      remaining = remaining ~/ 256;
     }
   }
 
   /// Записывает fixed32-поле.
   void writeFixed32Field(int fieldNumber, int value) {
     writeTag(fieldNumber, WireType.fixed32);
+    var remaining = value;
     for (var i = 0; i < 4; i++) {
-      _buffer.add((value >> (i * 8)) & 0xFF);
+      _buffer.add(remaining % 256);
+      remaining = remaining ~/ 256;
     }
   }
 

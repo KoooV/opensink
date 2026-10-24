@@ -1,6 +1,9 @@
-# Design doc: core_storage — drift event store (слой 4, этапы F4.1–F4.4)
+# Design doc: core_storage — drift event store
 
-Статус: документ пересобран по коду этапов F4.1–F4.4. Источник фактов — `packages/core_storage/lib`, платформенные фабрики `packages/platform_*`, `pubspec.lock` (закреплены `drift` 2.19.1+1, `sqlite3` 2.4.5, `sqlite3_flutter_libs` 0.5.41) и выполненные проверки из `docs/LAYER4_ACCEPTANCE.md`. Утверждения о несуществующем пакете `drift_wasm`, «web stub» и «AC3 откладывается» удалены как не соответствующие коду.
+Статус: документ соответствует текущему коду. Источник фактов —
+`packages/core_storage/lib`, платформенные фабрики `packages/platform_*` и
+`pubspec.lock` (закреплены `drift` 2.31.0, `sqlite3` 2.9.4,
+`sqlite3_flutter_libs` 0.5.41).
 
 ## 1. Границы пакетов
 
@@ -64,6 +67,8 @@ abstract interface class StorageBackend {
 
 `write` возвращает `Result<InsertOutcome, EventStoreWriteError>`. `InsertOutcome` содержит `inserted` и `duplicate`. Вставка идёт через `INSERT OR IGNORE INTO events`; для получения числа затронутых строк используется `QueryExecutor.runUpdate` (в native и WASM executor-ах возвращает `updatedRows`). `affected == 1` → `inserted`, `affected == 0` → `duplicate`; исходные байты никогда не перезаписываются. `timestamp` записывается в колонку `hlc`.
 
+`SyncEventStore` дополнительно отдаёт `eventsInRange(..., channelId)` (фильтр по каналу для channel-scoped `requestHistory`) и очередь `pendingEvents`/`putPendingEvent`/`deletePendingEvent`. Pending-события прошли проверку размера, id и подписи, но ещё не получили membership; они лежат отдельно от append-only лога и переживают рестарт движка. Порядок выдачи — `hlc ASC, id ASC`; повторный `put` по тому же id идемпотентен.
+
 `RangeSummary` строится по SHA-256 от `ids.join('|')` в UTF-8. Если событий больше `limit` (по умолчанию 100000), возвращается `Err(RangeTooLarge(limit))`, усечённый digest не выдаётся. Выборка id идёт в порядке `hlc ASC, id ASC`, поэтому одинаковый набор событий даёт одинаковый digest независимо от физического порядка строк.
 
 `channelPage` возвращает страницу канала в порядке `hlc DESC, id DESC`. `hasMore` определяется выборкой `pageSize + 1` строки, поэтому последняя полная страница не выдаёт ложный `hasMore`; `nextPage` возвращает номер следующей страницы или `null`. Пагинация остаётся offset-based; ключевой набор `(hlc, id)` детерминирован.
@@ -85,17 +90,23 @@ abstract interface class StorageBackend {
 
 Для `events` `INSERT OR REPLACE`/`DO UPDATE` запрещены: событие неизменяемо, правки моделируются новым событием с новым `id`.
 
-**Источник SQLite.** Android: `sqlite3_flutter_libs` 0.5.41 и `sqlite3` 2.4.5, bundled-библиотека 3.51.1 по данным пакета. Linux: тот же пакет в Flutter-сборке; вне Flutter-приложения загрузчик `sqlite3` использует системную `libsqlite3.so`, её отсутствие преобразуется в `ResourceMissing` с инструкцией по установке `libsqlite3-dev`. Web: `sqlite3.wasm` релиза `sqlite3` 2.4.5. Runtime-версия и фактически загруженная библиотека в собранных Android/Linux приложениях не подтверждены (Q25, Q28).
+**Источник SQLite.** Android: `sqlite3_flutter_libs` 0.5.41 и `sqlite3` 2.9.4,
+bundled-библиотека 3.51.1 по данным пакета. Linux: тот же пакет в Flutter-сборке;
+вне Flutter-приложения загрузчик `sqlite3` использует системную `libsqlite3.so`, её
+отсутствие преобразуется в `ResourceMissing` с инструкцией по установке
+`libsqlite3-dev`. Web: `sqlite3.wasm` релиза `sqlite3` 2.9.4. Runtime-версия и
+фактически загруженная библиотека в собранных Android/Linux приложениях не
+подтверждены (Q25, Q28).
 
 **Настройки native-подключения.** Для файла и памяти выполняются `PRAGMA foreign_keys = ON`, `PRAGMA journal_mode = WAL`, `PRAGMA synchronous = FULL`. В DDL внешние ключи не объявлены, поэтому `foreign_keys` — страховка на будущее, а не текущая ссылочная целостность. `WAL` и `FULL` выбраны как более строгий режим, но не являются обещанием сохранности последнего commit при потере питания (Q27).
 
 ## 5. Схема и миграции
 
-Текущая версия — **6**. Свежая установка создаёт все таблицы, индексы и append-only триггеры из `schema.dart` и записывает версию в `schema_info`. Миграции и обновление версии выполняются одной транзакцией (`_migrate`), поэтому сбой посередине не оставляет частично мигрированную схему.
+Текущая версия — **7**. Свежая установка создаёт все таблицы, индексы и append-only триггеры из `schema.dart` и записывает версию в `schema_info`. Миграции и обновление версии выполняются одной транзакцией (`_migrate`), поэтому сбой посередине не оставляет частично мигрированную схему.
 
-Таблицы: `events`, `groups`, `members`, `channels`, `peers`, `blobs_meta`, `sync_state`, `group_settings`, `schema_info`.
+Таблицы: `events`, `groups`, `members`, `channels`, `peers`, `blobs_meta`, `sync_state`, `pending_events`, `group_settings`, `schema_info`.
 
-Индексы: `idx_events_group_hlc(group_id, hlc)`, `idx_events_author_hlc(author, hlc)`, `idx_events_channel_hlc(channel_id, hlc)`, `idx_channels_group_id(group_id)`, `idx_blobs_group_expires(group_id, expires_at)`, `idx_group_settings_group_key(group_id, key)`. Индекс `(author, seq)` из исходного задания заменён на `(author, hlc)`: в доменной модели нет `seq`, HLC — единственный порядковый ключ события, а `seq` удалён в v6.
+Индексы: `idx_events_group_hlc(group_id, hlc)`, `idx_events_author_hlc(author, hlc)`, `idx_events_channel_hlc(channel_id, hlc)`, `idx_channels_group_id(group_id)`, `idx_blobs_group_expires(group_id, expires_at)`, `idx_group_settings_group_key(group_id, key)`, `idx_pending_events_group_hlc(group_id, hlc, id)`. Индекс `(author, seq)` из исходного задания заменён на `(author, hlc)`: в доменной модели нет `seq`, HLC — единственный порядковый ключ события, а `seq` удалён в v6.
 
 Порядок чтения событий — `hlc ASC, id ASC` (для каналов — `hlc DESC, id DESC`, новые сверху). Колонка `seq` и индекс `(author, seq)` удалены: в v3 убран индекс, в v6 — сама колонка.
 
@@ -106,8 +117,9 @@ abstract interface class StorageBackend {
 | 3 → 4 | шагов нет: версия закрепляет контракт записи; строки не преобразуются |
 | 4 → 5 | создать триггеры `events_append_only_no_update` и `events_append_only_no_delete` |
 | 5 → 6 | удалить `seq` пересборкой `events` с сохранением данных и пересозданием индексов/триггеров |
+| 6 → 7 | создать `pending_events` и индекс `(group_id, hlc, id)` для очереди отложенных событий |
 
-Строки v3 с пустым `author` сохраняются как карантинные: payload не декодируется, автор не восстанавливается автоматически. Строки с заполненным `author` сохраняются без изменений. Триггеры v5 запрещают `UPDATE`/`DELETE` событий на уровне SQLite. Миграция v5→v6 использует пересборку таблицы, а не `DROP COLUMN`, чтобы не поднимать минимум SQLite выше 3.24.0. Миграции применяются по возрастанию целевой версии; неизвестная будущая версия схемы не мигрируется и не понижается. Ручные снимки схем v3 и v5 находятся в `test/schema_v3_snapshot.dart` и `test/schema_v5_snapshot.dart`; генерация через `drift_dev` не закреплена (Q26).
+Строки v3 с пустым `author` сохраняются как карантинные: payload не декодируется, автор не восстанавливается автоматически. Строки с заполненным `author` сохраняются без изменений. Триггеры v5 запрещают `UPDATE`/`DELETE` событий на уровне SQLite. Миграция v5→v6 использует пересборку таблицы, а не `DROP COLUMN`, чтобы не поднимать минимум SQLite выше 3.24.0. Таблица `pending_events` не является append-only: строка удаляется после успешного применения события или LRU-eviction; `events` по-прежнему защищена триггерами. Миграции применяются по возрастанию целевой версии; неизвестная будущая версия схемы не мигрируется и не понижается. Ручные снимки схем v3 и v5 находятся в `test/schema_v3_snapshot.dart` и `test/schema_v5_snapshot.dart`; генерация через `drift_dev` не закреплена (Q26).
 
 ## 6. Web: ресурсы, реализации и деградация
 
@@ -115,8 +127,8 @@ abstract interface class StorageBackend {
 
 | Ресурс | Источник | SHA-256 |
 |--------|----------|---------|
-| `drift_worker.js` | релиз Drift 2.19.1 | `a1bd312c6ed74199ee877e4e22e69d45176f0f729bea7548dc882d2bc5b94360` |
-| `sqlite3.wasm` | релиз `sqlite3` 2.4.5 | `6082c7bc2c537ab59cf915c3dcb56b4c054751bef54d16fae2ad25560cd4f8d0` |
+| `drift_worker.js` | релиз Drift 2.31.0 | `f0a9b87085f732fd7b6ee7eb34d3858c556f05d221eb1febfc443649cd365752` |
+| `sqlite3.wasm` | релиз `sqlite3` 2.9.4 | `922a76b182b6af69b030c8e2fdd3283ecc8e827248b20e4b1f3f3db170b52117` |
 
 Версии и теги закреплены в `tool/web_assets.lock`, суммы — в `tool/web_assets.sha256`, загрузка и проверка — `tool/fetch_web_assets.sh`. Ресурсы генерируются локально/в CI и не хранятся в Git.
 
@@ -137,7 +149,7 @@ abstract interface class StorageBackend {
 
 ## 7. Тесты и бюджет
 
-Общий контракт `runEventStoreContract` (`test/event_store_contract.dart`) и общий поведенческий набор `runPortableStorageSuite` (`test/portable_storage_suite.dart`, 12 тестов) импортируются native- и web-раннерами. Набор покрывает схему, идемпотентность, порядок `hlc/id`, курсор, range summary, пагинацию канала, `EventStore`, retention, query plan, append-only и миграции v3→v6/v5→v6. Native-раннер — `test/portable_storage_native_test.dart`, Chrome-раннер — `platform_web/test/portable_storage_web_test.dart`.
+Общий контракт `runEventStoreContract` (`test/event_store_contract.dart`) и общий поведенческий набор `runPortableStorageSuite` (`test/portable_storage_suite.dart`, 12 тестов) импортируются native- и web-раннерами. Набор покрывает схему, идемпотентность, порядок `hlc/id`, курсор, range summary, пагинацию канала, `EventStore`, retention, query plan, append-only и миграции v3→v7/v5→v6. Native-раннер — `test/portable_storage_native_test.dart`, Chrome-раннер — `platform_web/test/portable_storage_web_test.dart`.
 
 Статус приёмки раунда 2 считается только по полному прогону пакета без фильтров:
 
@@ -148,7 +160,10 @@ abstract interface class StorageBackend {
 | platform_linux (native) | `flutter test` в `packages/platform_linux` | 7 пройдено, 0 провалов |
 | platform_web (Chrome) | `bash tool/test_web_full_chrome.sh` | 30 пройдено, 0 провалов |
 
-Фактический VM-замер из полного прогона (одна in-memory БД, 100k вставок одной транзакцией, 10 страниц по 50 записей): `VM_STORAGE_PERF events=100000 insert_ms=2064 pagination_p95_ms=6` при порогах < 30 000 мс / < 200 мс. Chrome-замер из полного прогона: `WEB_STORAGE_PERF events=100000 insert_ms=4974 pagination_p95_ms=5`; Chrome также в пороге. Подробности и команды — `docs/LAYER4_ACCEPTANCE.md`.
+Бюджет: вставка 100k событий < 30 000 мс, p95 пагинации < 200 мс. Замеры
+выполняются тестами `packages/core_storage/test/performance_test.dart` (VM) и
+`packages/platform_web/test/storage_performance_web_test.dart` (Chrome); актуальные
+цифры печатаются в выводе тестов.
 
 ## 8. Остаточные ограничения
 
@@ -157,5 +172,5 @@ abstract interface class StorageBackend {
 - Q29: `sqlite3_flutter_libs` 0.5.41 помечен upstream как устаревающий; стратегия перехода не определена.
 - Q30: dart2wasm не проверен.
 - Q31: reload страницы и две вкладки не автоматизированы.
-- S4-11/S4-15: дефекты соседних платформенных файлов, закрыты в F4.5.
-- S4-12: автоматизация Android runtime не требуется; проверка вынесена в ручной QA (`docs/MANUAL_QA.md`) и остаётся непроверенной до выполнения чек-листа.
+- S4-12: автоматизация Android runtime не настроена; проверка вынесена в ручной QA
+  (`docs/MANUAL_QA.md`) и остаётся непроверенной до выполнения чек-листа.
