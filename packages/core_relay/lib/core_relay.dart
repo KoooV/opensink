@@ -1,3 +1,7 @@
 library;
 
-// TODO(verify): Relay реализация маршрутизации через участников группы.
+export 'src/member_relay.dart';
+export 'src/relay_config.dart';
+export 'src/relay_metrics.dart';
+export 'src/relay_topology.dart';
+export 'src/relay_transport.dart';

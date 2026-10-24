@@ -1,0 +1,188 @@
+import 'package:core_domain/core_domain.dart';
+import 'package:meta/meta.dart';
+
+/// Presence-анонс узла в терминах релейного слоя.
+@immutable
+class RelayPeer {
+  const RelayPeer({
+    required this.peerId,
+    required this.neighbors,
+    required this.updatedAt,
+    this.canRelay = false,
+    this.capacityBytesPerSecond = 0,
+    this.rtt = const Duration(milliseconds: 100),
+    this.loadBytesPerSecond = 0,
+  });
+
+  final PeerId peerId;
+
+  /// Прямые соседи, заявленные в presence.
+  final Set<PeerId> neighbors;
+
+  /// Момент получения анонса.
+  final DateTime updatedAt;
+
+  /// Готов ли узел добровольно пересылать чужие кадры.
+  final bool canRelay;
+
+  /// Заявленная ёмкость в байтах в секунду.
+  final int capacityBytesPerSecond;
+
+  /// Измеренный RTT до узла.
+  final Duration rtt;
+
+  /// Наблюдаемая/заявленная текущая нагрузка.
+  final int loadBytesPerSecond;
+
+  /// Чем меньше, тем лучше. Нагрузка нормируется на ёмкость.
+  double get relayScore {
+    if (capacityBytesPerSecond <= 0) {
+      return double.infinity;
+    }
+    final loadRatio = loadBytesPerSecond / capacityBytesPerSecond;
+    return rtt.inMilliseconds + loadRatio * 1000;
+  }
+
+  bool isFresh(DateTime now, Duration maxAge) =>
+      now.difference(updatedAt) <= maxAge;
+
+  RelayPeer copyWith({
+    Set<PeerId>? neighbors,
+    DateTime? updatedAt,
+    bool? canRelay,
+    int? capacityBytesPerSecond,
+    Duration? rtt,
+    int? loadBytesPerSecond,
+  }) {
+    return RelayPeer(
+      peerId: peerId,
+      neighbors: neighbors ?? this.neighbors,
+      updatedAt: updatedAt ?? this.updatedAt,
+      canRelay: canRelay ?? this.canRelay,
+      capacityBytesPerSecond:
+          capacityBytesPerSecond ?? this.capacityBytesPerSecond,
+      rtt: rtt ?? this.rtt,
+      loadBytesPerSecond: loadBytesPerSecond ?? this.loadBytesPerSecond,
+    );
+  }
+}
+
+/// Граф достижимости, собранный из presence-анонсов.
+///
+/// Слой не доверяет анонсам как маршрутам: соседство используется только для
+/// выбора одного промежуточного узла. Неизвестные/устаревшие анонсы
+/// игнорируются.
+class RelayTopology {
+  RelayTopology({
+    this.maxAge = const Duration(minutes: 2),
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now;
+
+  final Duration maxAge;
+  final DateTime Function() _clock;
+  final Map<PeerId, RelayPeer> _peers = <PeerId, RelayPeer>{};
+
+  void applyPresence(
+    PeerId peerId, {
+    required Iterable<PeerId> neighbors,
+    bool canRelay = false,
+    int capacityBytesPerSecond = 0,
+    Duration rtt = const Duration(milliseconds: 100),
+    int loadBytesPerSecond = 0,
+    DateTime? at,
+  }) {
+    _peers[peerId] = RelayPeer(
+      peerId: peerId,
+      neighbors: Set<PeerId>.unmodifiable(neighbors),
+      updatedAt: at ?? _clock(),
+      canRelay: canRelay,
+      capacityBytesPerSecond: capacityBytesPerSecond,
+      rtt: rtt,
+      loadBytesPerSecond: loadBytesPerSecond,
+    );
+  }
+
+  void announce(RelayPeer peer) {
+    _peers[peer.peerId] = peer;
+  }
+
+  void remove(PeerId peerId) {
+    _peers.remove(peerId);
+  }
+
+  RelayPeer? infoFor(PeerId peerId) => _peers[peerId];
+
+  Set<PeerId> neighborsOf(PeerId peerId) =>
+      _peers[peerId]?.neighbors ?? const <PeerId>{};
+
+  /// Есть ли заявленный линк между двумя узлами (в любую сторону).
+  bool linked(PeerId a, PeerId b) {
+    if (a == b) {
+      return false;
+    }
+    if (_peers[a]?.neighbors.contains(b) ?? false) {
+      return true;
+    }
+    return _peers[b]?.neighbors.contains(a) ?? false;
+  }
+
+  /// Кандидаты для пути source → relay → destination.
+  List<RelayPeer> candidates({
+    required PeerId source,
+    required PeerId destination,
+    DateTime? now,
+  }) {
+    final at = now ?? _clock();
+    return _peers.values
+        .where(
+          (peer) =>
+              peer.peerId != source &&
+              peer.peerId != destination &&
+              peer.canRelay &&
+              peer.capacityBytesPerSecond > 0 &&
+              peer.isFresh(at, maxAge) &&
+              peer.neighbors.contains(source) &&
+              peer.neighbors.contains(destination),
+        )
+        .toList(growable: false);
+  }
+
+  RelayPeer? selectRelay({
+    required PeerId source,
+    required PeerId destination,
+    Set<PeerId> exclude = const <PeerId>{},
+    DateTime? now,
+  }) {
+    final available = candidates(
+      source: source,
+      destination: destination,
+      now: now,
+    ).where((peer) => !exclude.contains(peer.peerId)).toList();
+    if (available.isEmpty) {
+      return null;
+    }
+    available.sort((left, right) {
+      final byScore = left.relayScore.compareTo(right.relayScore);
+      if (byScore != 0) {
+        return byScore;
+      }
+      return left.peerId.toString().compareTo(right.peerId.toString());
+    });
+    return available.first;
+  }
+
+  /// Следующий хоп из [from] к [destination].
+  ///
+  /// Прямой сосед предпочтительнее; иначе выбирается общий релей.
+  PeerId? nextHop({required PeerId from, required PeerId destination}) {
+    if (linked(from, destination)) {
+      return destination;
+    }
+    return selectRelay(source: from, destination: destination)?.peerId;
+  }
+
+  /// Доступен ли маршрут (прямой или через релея).
+  bool routes(PeerId from, PeerId destination) =>
+      linked(from, destination) ||
+      selectRelay(source: from, destination: destination) != null;
+}

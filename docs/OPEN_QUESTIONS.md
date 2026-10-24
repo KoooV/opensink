@@ -11,7 +11,6 @@
 | TODO-01 | `packages/core_crypto/test/bip39_integrity_test.dart:55` | Q33 |
 | TODO-02 | `packages/core_crypto/test/bip39_integrity_test.dart:172` | Q33 |
 | TODO-04 | `packages/core_media/lib/core_media.dart:3` | Q13 |
-| TODO-05 | `packages/core_relay/lib/core_relay.dart:3` | Q16 |
 | TODO-06 | `packages/core_signaling/lib/src/nostr_signaling.dart:31` | Q17 |
 | TODO-07 | `packages/core_signaling/lib/src/tracker_signaling.dart:28` | Q17 |
 | TODO-08 | `packages/core_storage/test/schema_v3_snapshot.dart:3` | Q26 |
@@ -39,11 +38,6 @@ TTL SPK (предлагается 7 дней), grace period и распрост�
 
 `packages/core_media/lib/core_media.dart:3` содержит `TODO(verify)`. Нужно
 реализовать `MediaTopology`, управление звонками и захват экрана.
-
-## Q16 — `core_relay`: маршрутизация через участников
-
-`packages/core_relay/lib/core_relay.dart:3` содержит `TODO(verify)`. Нужно
-реализовать `Relay`, маршруты, capacity и защиту от злоупотреблений.
 
 ## Q17 — `core_signaling`: публичная инфраструктура и LAN/QR
 
@@ -166,6 +160,14 @@ ingest отсекал бы поздние легитимные события; �
 причинный DAG/квитанции. Решение poll (2026-10-24): оставить принятый риск;
 проверка опирается на `inviteProof` и срок по HLC события.
 
+## Q37 — Подпись presence-анонсов
+
+Решение poll: presence-анонсы (`neighbors`, `can_relay`, capacity) должны быть
+подписаны Ed25519; до реализации топология `core_relay` считается недоверенной.
+Следующий шаг — расширить `PresenceCodec`/`RichSignalingChannel` подписью и
+проверкой в `core_signaling`, затем передавать проверенные анонсы в
+`RelayTopology`.
+
 ## Принятые допущения
 
 - HLC цепочки `prevId` неубывающий; равный HLC соседних событий автора допустим.
@@ -196,3 +198,8 @@ ingest отсекал бы поздние легитимные события; �
 - Replay-кэш in-memory, TTL 5 минут (SIG-OPEN-07).
 - Health-score неподключённого реле — `0.0`.
 - Web-тесты используют fake-реле на `package:web_socket/testing.dart` (SIG-OPEN-05).
+- E2E-шифрование payload — ответственность вызывающего слоя/`core_crypto`;
+  `core_relay` видит только заголовок и непрозрачные байты.
+- Дубль при позднем завершении direct-send допустим и поглощается sync-дедупом.
+- ACK от релея не вводится; failover и потеря кадра компенсируются sync.
+- Production-сборка `RelayTransport`, relay-канала и opt-in — в `apps/app` DI.
