@@ -103,7 +103,7 @@
 | `packages/core_storage/lib/src/database/app_database.dart` | 139–220 | Чтение `schema_info`, создание схемы; миграции и запись версии одной транзакцией; поведение для будущей версии. |
 | `packages/core_storage/lib/src/database/app_database.dart` | 310–520 | Детерминированный порядок `hlc/id`, `rangeSummary` с SHA-256 и `RangeTooLarge`, `batchEvents`; `eventsFromCursor` сравнивает `(hlc, id)`; `channelPage` использует `pageSize + 1` для точного `hasMore`. |
 | `packages/core_storage/lib/src/database/app_database.dart` | 221–252 | `INSERT OR IGNORE INTO events`, `runUpdate`, `seq` не записывается, дубль не перезаписывает байты. |
-| `packages/core_storage/lib/src/database/schema.dart` | 41–300 | `schemaVersion = 6`; DDL `events` без `seq`; индексы; миграции v1→v2, v2→v3, пустой v3→v4, v4→v5 с триггерами, v5→v6 с пересборкой `events`. |
+| `packages/core_storage/lib/src/database/schema.dart` | 41–330 | `schemaVersion = 7`; DDL `events` без `seq`; индексы; миграции v1→v2, v2→v3, пустой v3→v4, v4→v5 с триггерами, v5→v6 с пересборкой `events`, v6→v7 с `pending_events`. |
 | `packages/platform_linux/lib/src/storage_database_factory.dart` | 24–114 | `StorageBackend`, `NativeDatabase.createInBackground`/`memory`, PRAGMA `foreign_keys`/`WAL`/`FULL`, проверка имени, предупреждение temp-каталога, `ResourceMissing` для отсутствующей `libsqlite3.so`. |
 | `packages/platform_android/lib/src/storage_database_factory.dart` | 23–103 | Те же контракты для Android; bundled SQLite из `sqlite3_flutter_libs`, отсутствие тихого отката в memory. |
 | `packages/platform_web/lib/src/storage_database_factory_web.dart` | 1–160 | Проверка MIME `sqlite3.wasm`/`drift_worker.js`, `WasmDatabase.open`/`inMemory`, `InMemoryFileSystem`, маппинг `WasmStorageImplementation` → `StorageInfo`, предупреждения для `unsafeIndexedDb`/memory/missing features, `ResourceMissing`. |
@@ -112,7 +112,7 @@
 | `packages/core_storage/lib/src/platform/storage_backend_result.dart` | 1–25 | `openResult` не выпускает исключения: известные ошибки сохраняются, остальные → `OpenFailure`. |
 | `packages/core_storage/test/event_store_validation_test.dart` | все | Пустой/короткий/не-hex автор, пустой `id`, пустой и слишком большой payload; после ошибки записи нет. |
 | `packages/core_storage/test/event_store_concurrency_test.dart` | все | Параллельные записи одного `id` в одной транзакции и из разных транзакций: ровно один `inserted`. |
-| `packages/core_storage/test/sqlite_open_and_migration_test.dart` | 72–230 | Версия SQLite в `StorageInfo`, ошибка для 3.23.0, schema v6, миграции v3→v6 и v5→v6 с сохранением авторов/данных и удалением `seq`. |
+| `packages/core_storage/test/sqlite_open_and_migration_test.dart` | 72–230 | Версия SQLite в `StorageInfo`, ошибка для 3.23.0, schema v7, миграции v3→v7 и v5→v6 с сохранением авторов/данных и удалением `seq`. |
 | `packages/core_storage/test/index_query_plan_test.dart` | все | `EXPLAIN QUERY PLAN` использует `idx_events_group_hlc` и `idx_events_author_hlc`. |
 | `packages/core_storage/test/event_store_contract.dart`, `portable_storage_suite.dart` | все | Общий контракт и 12-тестовый поведенческий набор, исполняемый native- и Chrome-раннерами. |
 | `tool/fetch_web_assets.sh`, `tool/web_assets.lock`, `tool/web_assets.sha256` | все | Версии и SHA-256 `drift_worker.js`/`sqlite3.wasm`; ресурсы не хранятся в Git. |
@@ -123,7 +123,26 @@
 - `EventRecord.author` обязателен; хранилище не разбирает payload и не проверяет подпись.
 - Дубль `id` не перезаписывает байты; колонка `seq` удалена в v6; порядок — `hlc`.
 - Минимум SQLite 3.24.0 проверяется при каждом открытии; ошибки типизированы.
-- Миграция v3→v6 не декодирует старые payload, сохраняет карантинные строки, создаёт append-only триггеры; v5→v6 удаляет `seq` без потери событий.
+- Миграция v3→v7 не декодирует старые payload, сохраняет карантинные строки, создаёт append-only триггеры и `pending_events`; v5→v6 удаляет `seq` без потери событий.
 - `UPDATE`/`DELETE` событий блокируются SQLite-триггерами; низкоуровневый `insertEvent` помечен `@internal`.
 - `core_storage/lib` не содержит платформенных импортов; фабрики живут в `platform_*`.
 - Web-деградация не приводит к тихому откату на memory; предупреждения попадают в `StorageInfo.warnings`.
+
+---
+
+## 10. Слой 7: core_sync (HLC, anti-entropy, gossip)
+
+| Файл | Диапазон | Что проверять |
+|------|----------|---------------|
+| `packages/core_sync/lib/src/hlc.dart` | все | `Hlc(physicalMs, counter)`, лексикографическое сравнение, монотонный `tick`, `observe` двигает часы за remote, нет 64-битных сдвигов. |
+| `packages/core_sync/lib/src/sync_event.dart` | все | Канонический protobuf фиксированного порядка, `id = SHA-256(domain || canonical)`, подпись над доменно-разделёнными байтами, `prevId`, лимит 512 KiB, `fromRecord` сверяет group/author/hlc/channel. |
+| `packages/core_sync/lib/src/ingest_pipeline.dart` | все | Порядок размер → id → подпись → членство → prev → дедуп → запись; типизированные ошибки; `unknown` → pending, `notMember` → отказ. |
+| `packages/core_sync/lib/src/projection.dart` | все | Membership по `(HLC, id)` строго до события; `never member` vs `removed`; tombstones применяются после создания сообщений, чужая правка игнорируется. |
+| `packages/core_sync/lib/src/frame.dart` | все | Protobuf-кадры summary/range/window/events/gossip/ping, лимиты кадра и числа событий, курсор `(hlc, id)`. |
+| `packages/core_sync/lib/src/sync_engine_impl.dart` | все | High/low lanes (окно канала раньше сводок), одна страница диапазона за раз, LRU id, `hops ≤ 4`, token bucket, `drain` для детерминированного симулятора. |
+| `packages/core_sync/test/convergence_sim_test.dart` | все | 1000 seeded-прогонов, N=3, случайный порядок/потери/разделы; сравнение набора id и проекции. |
+| `packages/core_sync/test/drift_e2e_test.dart` | все | `SyncEngineImpl` поверх `DriftEventStore`: сходимость/рестарт, channel-scoped `requestHistory`, восстановление pending после рестарта. |
+| `packages/core_domain/lib/src/interfaces/sync_event_store.dart` | все | `eventsInRange(channelId)`, `pendingEvents`/`putPendingEvent`/`deletePendingEvent`; границы pending отдельно от append-only лога. |
+| `packages/core_storage/lib/src/database/schema.dart` | миграция 7 | `pending_events`, индекс `(group_id, hlc, id)`, схема v7 без изменения append-only `events`. |
+| `packages/core_protocol/lib/src/wire.dart` | varint/fixed | Арифметика вместо 32-битных `<<`/`|`; regression `test/wire_test.dart` для значений > 32 бит. |
+| `apps/app/lib/di/providers.dart` | все | Riverpod: платформенный storage, `DriftEventStore`, Ed25519 identity/signer, `SyncEngineImpl`; fakes остались только для несвязанных слоёв. |

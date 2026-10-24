@@ -12,7 +12,6 @@
 | TODO-04 | `packages/core_media/lib/core_media.dart:3` | Q13 |
 | TODO-06 | `packages/core_relay/lib/core_relay.dart:3` | Q16 |
 | TODO-08 | `packages/core_storage/test/schema_v3_snapshot.dart:3` | Q26 |
-| TODO-09 | `packages/core_sync/lib/core_sync.dart:5` | Q19 |
 | TODO-10 | `packages/core_sync/lib/src/hlc_validator.dart:17` | Q32 |
 | TODO-11 | `packages/core_signaling/lib/src/nostr_signaling.dart:31` | Q17 |
 | TODO-12 | `packages/core_signaling/lib/src/tracker_signaling.dart:28` | Q17 |
@@ -141,10 +140,19 @@
   (web-тесты используют fake-реле на `package:web_socket/testing.dart`).
 
 ## Q18 — core_storage: drift-схема и реализация EventStore — ЗАКРЫТО
-Реализовано в этапах 4.0–4.8: схема v6, `AppDatabase`, `DriftEventStore`, миграции, native- и web-фабрики, общий portable test suite. Маркер `TODO(verify)` из `packages/core_storage/lib/core_storage.dart` удалён. Доказательства — `docs/LAYER4_ACCEPTANCE.md`.
+Реализовано в этапах 4.0–4.8: схема v6 (в слое 7 расширена до v7 таблицей `pending_events`), `AppDatabase`, `DriftEventStore`, миграции, native- и web-фабрики, общий portable test suite. Маркер `TODO(verify)` из `packages/core_storage/lib/core_storage.dart` удалён. Доказательства — `docs/LAYER4_ACCEPTANCE.md`.
 
-## Q19 — core_sync: SyncEngine реализация поверх EventStore
-`// TODO(verify): SyncEngine реализация поверх EventStore.` (packages/core_sync/lib/core_sync.dart:3)
+## Q19 — core_sync: SyncEngine реализация поверх EventStore — ЗАКРЫТО (2026-10-23)
+Реализован `SyncEngineImpl`: HLC, канонический id = SHA-256, Ed25519-подпись,
+конвейер приёма, anti-entropy по HLC-сводкам, gossip с защитой от штормов,
+приоритетные окна каналов и tombstones. Добавлен `SyncEventStore` в
+`core_domain`, реализован в `DriftEventStore` (range/window/eventById).
+Доказательства: `packages/core_sync/DESIGN.md`, `docs/LAYER7_ACCEPTANCE.md`,
+`packages/core_sync/test/` (36 тестов, включая 1000 seeded-прогонов и
+Drift e2e), `bash tool/test_web_sync_chrome.sh` (Chrome/dart2js).
+Pending-события персистятся в `pending_events` (схема v7), `requestHistory`
+поддерживает `channelId`. Маркер `TODO(verify)` из
+`packages/core_sync/lib/core_sync.dart` удалён.
 
 ## Q20 (F4A) — flutter_secure_storage версия с поддержкой Linux
 Минимальная версия flutter_secure_storage с рабочей поддержкой Linux (libsecret / secret-service). pubspec.lock фиксирует 9.2.4, но нужно подтвердить, что эта версия корректно собирается на Linux и опции платформ соответствуют README.
@@ -187,11 +195,15 @@ Web StorageBackend и Chrome runtime проверены с dart2js. `sqlite3` 2.
 ## Q32 (этап 4.5) — дрейф HLC на целевых устройствах
 `packages/core_sync/lib/src/hlc_validator.dart:17` содержит TODO(verify): измерить реальный дрейф часов Android/iOS/Linux/Web и уточнить `maxClockSkewMs = 30 000`. Значение выбрано как компромисс между допуском NTP-дрейфа и окном replay; измерения на устройствах не выполнялись.
 
+Poll 2026-10-23: `core_sync` отклоняет только будущие HLC > `maxClockSkewMs` (30 с); прошлые метки принимаются для истории. Проверка выполняется в `SyncIngestPipeline` до подписи. `observe()` по-прежнему двигает локальные часы за принятую удалённую метку.
+
 ## Q33 (этап 4.5) — независимая сверка BIP-39 wordlist и NFKD
 `packages/core_crypto/test/bip39_integrity_test.dart:55` требует независимой сверки SHA-256 эталонного wordlist, а строка 172 фиксирует отказ от Unicode-нормализации без пакета `unorm_dart`. Обе проверки остаются TODO(verify); текущие тесты используют встроенный эталон и явно отклоняют не-ASCII парольные фразы.
 
-## Q34 (этап 4.8) — канонический event id и контракт хэша
-В задании слоя 4 указано `id = хэш`, но `EventRecord.id` в `core_domain` задаётся вызывающим слоем, а хранилище проверяет только форму ASCII `[A-Za-z0-9._:-]{1,128}`. Хранилище намеренно не вычисляет и не пересчитывает content hash: канонический набор байтов (envelope, подпись, HLC, group/channel) и алгоритм ещё не зафиксированы в `core_protocol`/`core_sync`. TODO(verify): утвердить формулу event id на слое 7, добавить проверку соответствия `id` хэшу на границе записи (или отдельный канонический кодировщик) и тест на несовпадение. До этого `id` трактуется как непрозрачный caller-supplied хэш, а идемпотентность обеспечивается первичным ключом.
+## Q34 (этап 4.8) — канонический event id и контракт хэша — ЗАКРЫТО для core_sync (2026-10-23)
+Формула зафиксирована в `core_sync`: `id = hex(SHA-256("opensink/sync/event-id/v1|" || canonical))`, canonical — детерминированный protobuf (HLC, group/channel, author, kind, targetId, prevId, payload). Подпись Ed25519 — над `"opensink/sync/event-signature/v1|" || canonical`. Конвейер пересчитывает id и отклоняет несовпадение до записи (`EventIdMismatch`), тесты — `packages/core_sync/test/sync_event_test.dart`, `ingest_pipeline_test.dart`.
+
+Остаётся для границы `EventStore`: хранилище по-прежнему не пересчитывает content hash само по себе (оно не знает формат payload); проверка выполняется слоем `core_sync` до `write`. Если событие пишет другой слой, он обязан использовать тот же канонический кодировщик.
 
 ## Q35 (core_signaling) — открытые задачи после poll 2026-10-23
 

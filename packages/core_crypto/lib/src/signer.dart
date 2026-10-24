@@ -2,8 +2,16 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:core_domain/core_domain.dart';
+
 import 'hkdf.dart';
 import 'crypto_provider.dart';
+
+/// Восстанавливает подписчик из сохранённого 32-байтного seed.
+///
+/// Публичный ключ выводится из seed при каждой подписи, поэтому отдельное
+/// хранение приватного ключа в другом формате не требуется.
+CryptoSigner signerFromSeed(List<int> seed) =>
+    CryptoSigner(SecretKey(Uint8List.fromList(seed)));
 
 class CryptoSigner implements Signer {
   CryptoSigner(this.privateKey);
@@ -41,10 +49,7 @@ class CryptoSigner implements Signer {
         type: KeyPairType.ed25519,
       );
 
-      final signature = Signature(
-        signatureBytes,
-        publicKey: expectedPublicKey,
-      );
+      final signature = Signature(signatureBytes, publicKey: expectedPublicKey);
 
       return await algorithm.verify(data, signature: signature);
     } catch (_) {

@@ -15,6 +15,7 @@ export 'src/interfaces/transport.dart';
 export 'src/interfaces/relay.dart';
 export 'src/interfaces/media_topology.dart';
 export 'src/interfaces/event_store.dart';
+export 'src/interfaces/sync_event_store.dart';
 export 'src/interfaces/sync_engine.dart';
 export 'src/interfaces/group_state.dart';
 export 'src/interfaces/secure_key_store.dart';

@@ -1421,3 +1421,71 @@ real-тесты reconnect/sync/file, STUN smoke, Android integration runner.
   подтверждены на Linux/fake-RTC.
 - `presence` unreliable на старых native-сборках.
 - `loss` для SCTP data-channel семантически равен 0.
+
+---
+
+## Запись 33 — core_sync: HLC-лог, anti-entropy, gossip, tombstones
+
+### Что сделано
+
+- `core_sync`: HLC `(physicalMs, counter)`, канонический `id = SHA-256`, Ed25519-
+  подпись над доменно-разделёнными байтами, `prevId` — хэш-цепочка по автору.
+- Конвейер приёма: размер → id → подпись → членство на момент события
+  (детерминированная проекция `(HLC, id)`, pending для неизвестных авторов) →
+  дедупликация → запись.
+- Anti-entropy: сводки по HLC-бакетам `(count, SHA-256 ids)`, запрос диапазона
+  страницами с курсором, backpressure (следующая страница после применения).
+- Gossip: дедуп по id, `hops ≤ 4`, LRU отправленных, token bucket, лимит
+  исходящей очереди; события из anti-entropy тоже распространяются gossip-ом.
+- Приоритетная загрузка: `WindowRequest` последних N событий канала уходит
+  раньше сводок; остальная история — low-priority диапазонами.
+- Правки/удаления — отдельные события с `targetId`; `GroupProjection`
+  применяет tombstones после создания сообщений.
+- `core_domain`: добавлен `SyncEventStore`; `DriftEventStore` реализует
+  range/window/eventById через `AppDatabase.rangeEventsForGroup`.
+
+### Тесты
+
+- 33 теста `packages/core_sync/test/`.
+- `convergence_sim_test.dart`: 1000 seeded-прогонов, N=3, реальный Ed25519,
+  случайный порядок, потери и разделы сети — все реплики сходятся по id
+  событий и проекции.
+- Poll 2026-10-23 зафиксирован в `packages/core_sync/DESIGN.md §8`.
+- `dart analyze` — без новых замечаний.
+
+### Документы
+
+`packages/core_sync/DESIGN.md`, `docs/LAYER7_ACCEPTANCE.md`, Q19/Q34 в
+`docs/OPEN_QUESTIONS.md`.
+
+---
+
+## Запись 34 — core_sync: Drift e2e, Chrome, channel-scoped history, pending
+
+### Что сделано
+
+- Добавлены e2e-тесты `SyncEngineImpl` поверх `DriftEventStore` (VM):
+  сходимость и восстановление после рестарта, channel-scoped `requestHistory`,
+  персистентность pending.
+- `requestHistory` получил `channelId`; фильтр проведён через
+  `RangeRequestFrame` (поле 9), `SyncEventStore.eventsInRange` и состояние
+  постраничной загрузки.
+- Pending-события персистятся в `pending_events` (схема v7), восстанавливаются
+  в `_loadGroup`, применяются после membership и удаляются из очереди.
+- `apps/app` Riverpod: `DriftEventStore`, `CryptoSigner`, `SyncEngineImpl`
+  подключены вместо fakes; идентичность Ed25519 хранится в SecureKeyStore.
+- Chrome-прогон выявил dart2js-обрезку varint > 32 бит; `ProtoReader`/
+  `ProtoWriter` переведены на арифметику, добавлен regression-тест.
+- Добавлены `tool/test_web_sync_chrome.sh` и CI job `core_sync-web`.
+
+### Проверки
+
+- `cd packages/core_sync && dart test` — 36/36.
+- `bash tool/test_web_sync_chrome.sh` — 3/3 e2e + 2/2 wire в Chrome/dart2js.
+- `cd packages/core_storage && dart test` — зелёные; `bash tool/test_web_storage_chrome.sh` — зелёный.
+- `cd apps/app && flutter test test/di/sync_engine_di_test.dart` — зелёный.
+
+### Документы
+
+`packages/core_sync/DESIGN.md`, `packages/core_storage/DESIGN.md`,
+`docs/LAYER7_ACCEPTANCE.md`, Q19 в `docs/OPEN_QUESTIONS.md`.

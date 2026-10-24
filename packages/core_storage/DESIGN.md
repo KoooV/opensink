@@ -64,6 +64,8 @@ abstract interface class StorageBackend {
 
 `write` возвращает `Result<InsertOutcome, EventStoreWriteError>`. `InsertOutcome` содержит `inserted` и `duplicate`. Вставка идёт через `INSERT OR IGNORE INTO events`; для получения числа затронутых строк используется `QueryExecutor.runUpdate` (в native и WASM executor-ах возвращает `updatedRows`). `affected == 1` → `inserted`, `affected == 0` → `duplicate`; исходные байты никогда не перезаписываются. `timestamp` записывается в колонку `hlc`.
 
+`SyncEventStore` дополнительно отдаёт `eventsInRange(..., channelId)` (фильтр по каналу для channel-scoped `requestHistory`) и очередь `pendingEvents`/`putPendingEvent`/`deletePendingEvent`. Pending-события прошли проверку размера, id и подписи, но ещё не получили membership; они лежат отдельно от append-only лога и переживают рестарт движка. Порядок выдачи — `hlc ASC, id ASC`; повторный `put` по тому же id идемпотентен.
+
 `RangeSummary` строится по SHA-256 от `ids.join('|')` в UTF-8. Если событий больше `limit` (по умолчанию 100000), возвращается `Err(RangeTooLarge(limit))`, усечённый digest не выдаётся. Выборка id идёт в порядке `hlc ASC, id ASC`, поэтому одинаковый набор событий даёт одинаковый digest независимо от физического порядка строк.
 
 `channelPage` возвращает страницу канала в порядке `hlc DESC, id DESC`. `hasMore` определяется выборкой `pageSize + 1` строки, поэтому последняя полная страница не выдаёт ложный `hasMore`; `nextPage` возвращает номер следующей страницы или `null`. Пагинация остаётся offset-based; ключевой набор `(hlc, id)` детерминирован.
@@ -91,11 +93,11 @@ abstract interface class StorageBackend {
 
 ## 5. Схема и миграции
 
-Текущая версия — **6**. Свежая установка создаёт все таблицы, индексы и append-only триггеры из `schema.dart` и записывает версию в `schema_info`. Миграции и обновление версии выполняются одной транзакцией (`_migrate`), поэтому сбой посередине не оставляет частично мигрированную схему.
+Текущая версия — **7**. Свежая установка создаёт все таблицы, индексы и append-only триггеры из `schema.dart` и записывает версию в `schema_info`. Миграции и обновление версии выполняются одной транзакцией (`_migrate`), поэтому сбой посередине не оставляет частично мигрированную схему.
 
-Таблицы: `events`, `groups`, `members`, `channels`, `peers`, `blobs_meta`, `sync_state`, `group_settings`, `schema_info`.
+Таблицы: `events`, `groups`, `members`, `channels`, `peers`, `blobs_meta`, `sync_state`, `pending_events`, `group_settings`, `schema_info`.
 
-Индексы: `idx_events_group_hlc(group_id, hlc)`, `idx_events_author_hlc(author, hlc)`, `idx_events_channel_hlc(channel_id, hlc)`, `idx_channels_group_id(group_id)`, `idx_blobs_group_expires(group_id, expires_at)`, `idx_group_settings_group_key(group_id, key)`. Индекс `(author, seq)` из исходного задания заменён на `(author, hlc)`: в доменной модели нет `seq`, HLC — единственный порядковый ключ события, а `seq` удалён в v6.
+Индексы: `idx_events_group_hlc(group_id, hlc)`, `idx_events_author_hlc(author, hlc)`, `idx_events_channel_hlc(channel_id, hlc)`, `idx_channels_group_id(group_id)`, `idx_blobs_group_expires(group_id, expires_at)`, `idx_group_settings_group_key(group_id, key)`, `idx_pending_events_group_hlc(group_id, hlc, id)`. Индекс `(author, seq)` из исходного задания заменён на `(author, hlc)`: в доменной модели нет `seq`, HLC — единственный порядковый ключ события, а `seq` удалён в v6.
 
 Порядок чтения событий — `hlc ASC, id ASC` (для каналов — `hlc DESC, id DESC`, новые сверху). Колонка `seq` и индекс `(author, seq)` удалены: в v3 убран индекс, в v6 — сама колонка.
 
@@ -106,8 +108,9 @@ abstract interface class StorageBackend {
 | 3 → 4 | шагов нет: версия закрепляет контракт записи; строки не преобразуются |
 | 4 → 5 | создать триггеры `events_append_only_no_update` и `events_append_only_no_delete` |
 | 5 → 6 | удалить `seq` пересборкой `events` с сохранением данных и пересозданием индексов/триггеров |
+| 6 → 7 | создать `pending_events` и индекс `(group_id, hlc, id)` для очереди отложенных событий |
 
-Строки v3 с пустым `author` сохраняются как карантинные: payload не декодируется, автор не восстанавливается автоматически. Строки с заполненным `author` сохраняются без изменений. Триггеры v5 запрещают `UPDATE`/`DELETE` событий на уровне SQLite. Миграция v5→v6 использует пересборку таблицы, а не `DROP COLUMN`, чтобы не поднимать минимум SQLite выше 3.24.0. Миграции применяются по возрастанию целевой версии; неизвестная будущая версия схемы не мигрируется и не понижается. Ручные снимки схем v3 и v5 находятся в `test/schema_v3_snapshot.dart` и `test/schema_v5_snapshot.dart`; генерация через `drift_dev` не закреплена (Q26).
+Строки v3 с пустым `author` сохраняются как карантинные: payload не декодируется, автор не восстанавливается автоматически. Строки с заполненным `author` сохраняются без изменений. Триггеры v5 запрещают `UPDATE`/`DELETE` событий на уровне SQLite. Миграция v5→v6 использует пересборку таблицы, а не `DROP COLUMN`, чтобы не поднимать минимум SQLite выше 3.24.0. Таблица `pending_events` не является append-only: строка удаляется после успешного применения события или LRU-eviction; `events` по-прежнему защищена триггерами. Миграции применяются по возрастанию целевой версии; неизвестная будущая версия схемы не мигрируется и не понижается. Ручные снимки схем v3 и v5 находятся в `test/schema_v3_snapshot.dart` и `test/schema_v5_snapshot.dart`; генерация через `drift_dev` не закреплена (Q26).
 
 ## 6. Web: ресурсы, реализации и деградация
 
@@ -137,7 +140,7 @@ abstract interface class StorageBackend {
 
 ## 7. Тесты и бюджет
 
-Общий контракт `runEventStoreContract` (`test/event_store_contract.dart`) и общий поведенческий набор `runPortableStorageSuite` (`test/portable_storage_suite.dart`, 12 тестов) импортируются native- и web-раннерами. Набор покрывает схему, идемпотентность, порядок `hlc/id`, курсор, range summary, пагинацию канала, `EventStore`, retention, query plan, append-only и миграции v3→v6/v5→v6. Native-раннер — `test/portable_storage_native_test.dart`, Chrome-раннер — `platform_web/test/portable_storage_web_test.dart`.
+Общий контракт `runEventStoreContract` (`test/event_store_contract.dart`) и общий поведенческий набор `runPortableStorageSuite` (`test/portable_storage_suite.dart`, 12 тестов) импортируются native- и web-раннерами. Набор покрывает схему, идемпотентность, порядок `hlc/id`, курсор, range summary, пагинацию канала, `EventStore`, retention, query plan, append-only и миграции v3→v7/v5→v6. Native-раннер — `test/portable_storage_native_test.dart`, Chrome-раннер — `platform_web/test/portable_storage_web_test.dart`.
 
 Статус приёмки раунда 2 считается только по полному прогону пакета без фильтров:
 

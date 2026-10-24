@@ -18,6 +18,10 @@ dependencies:
     path: ../../packages/core_signaling
   core_peer:
     path: ../../packages/core_peer
+  core_storage:
+    path: ../../packages/core_storage
+  core_sync:
+    path: ../../packages/core_sync
   platform_android:
     path: ../../packages/platform_android
   platform_linux:
@@ -28,6 +32,7 @@ dependencies:
   flutter_riverpod: ^2.5.1
 
 dev_dependencies:
+  drift: ^2.17.0
   flutter_test:
     sdk: flutter
   integration_test:

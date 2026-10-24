@@ -1,6 +1,6 @@
 library;
 
-/// SQL schema for OpenSink event store (current schema version 6).
+/// SQL schema for OpenSink event store (current schema version 7).
 ///
 /// All tables are created during database initialization. Migrations are
 /// handled alongside schema creation.
@@ -37,7 +37,7 @@ const String colValue = 'value';
 // -------------------------------------------------------------------------
 // Schema version
 // -------------------------------------------------------------------------
-const int schemaVersion = 6;
+const int schemaVersion = 7;
 
 // -------------------------------------------------------------------------
 // Migration DDL (applied in order, from current user_version to schemaVersion)
@@ -85,7 +85,6 @@ BEGIN
   SELECT RAISE(ABORT, 'events are append-only');
 END
 ''';
-
 
 /// Migration v5 → v6: remove the unused `seq` column.
 ///
@@ -176,6 +175,8 @@ final Map<int, List<String>> migrations = {
     migrateV5ToV6CreateUpdateTrigger,
     migrateV5ToV6CreateDeleteTrigger,
   ],
+  // v7: отдельная очередь pending-событий, переживающая рестарт движка.
+  7: [migrateV6ToV7PendingEvents, migrateV6ToV7PendingEventsIndex],
 };
 
 // -------------------------------------------------------------------------
@@ -252,6 +253,27 @@ CREATE TABLE IF NOT EXISTS sync_state (
 )
 ''';
 
+const String createPendingEvents = '''
+CREATE TABLE IF NOT EXISTS pending_events (
+  id TEXT NOT NULL PRIMARY KEY,
+  group_id TEXT NOT NULL,
+  author TEXT NOT NULL,
+  hlc INTEGER NOT NULL,
+  bytes BLOB NOT NULL,
+  signature TEXT NOT NULL,
+  channel_id TEXT
+)
+''';
+
+const String createPendingEventsIndex = '''
+CREATE INDEX IF NOT EXISTS idx_pending_events_group_hlc
+ON pending_events(group_id, hlc, id)
+''';
+
+const String migrateV6ToV7PendingEvents = createPendingEvents;
+
+const String migrateV6ToV7PendingEventsIndex = createPendingEventsIndex;
+
 const String createSchemaInfo = '''
 CREATE TABLE IF NOT EXISTS schema_info (
   id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
@@ -293,10 +315,12 @@ List<String> get allDdl => [
   createPeers,
   createBlobsMeta,
   createSyncState,
+  createPendingEvents,
   createSchemaInfo,
   createGroupSettings,
   ...indexes,
   createGroupSettingsIndex,
+  createPendingEventsIndex,
   migrateV4ToV5EventsNoUpdate,
   migrateV4ToV5EventsNoDelete,
 ];
