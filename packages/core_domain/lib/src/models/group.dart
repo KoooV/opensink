@@ -64,6 +64,20 @@ class Group {
         return _applyRenamed(e);
       case OwnerTransferred e:
         return _applyOwnerTransferred(e);
+      case MemberJoined e:
+        return copyWith(
+          memberIds: {...memberIds, e.authorId},
+          updatedAt: e.timestamp,
+        );
+      case MemberApproved e:
+        return copyWith(
+          memberIds: {...memberIds, e.userId},
+          updatedAt: e.timestamp,
+        );
+      case InviteIssued():
+      case RoleSet():
+      case KeyRotated():
+        return this;
     }
   }
 

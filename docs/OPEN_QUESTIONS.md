@@ -10,7 +10,6 @@
 |---|--------|--------|
 | TODO-01 | `packages/core_crypto/test/bip39_integrity_test.dart:55` | Q33 |
 | TODO-02 | `packages/core_crypto/test/bip39_integrity_test.dart:172` | Q33 |
-| TODO-03 | `packages/core_group/lib/core_group.dart:3` | Q12 |
 | TODO-04 | `packages/core_media/lib/core_media.dart:3` | Q13 |
 | TODO-05 | `packages/core_relay/lib/core_relay.dart:3` | Q16 |
 | TODO-06 | `packages/core_signaling/lib/src/nostr_signaling.dart:31` | Q17 |
@@ -35,11 +34,6 @@
 
 TTL SPK (предлагается 7 дней), grace period и распространение новой SPK без
 координатора остаются открытыми. Триггер ротации должен определить слой групп.
-
-## Q12 — `core_group`: права и проекция состояния
-
-`packages/core_group/lib/core_group.dart:3` содержит `TODO(verify)`. Нужно
-реализовать права/роли, `Group.apply` и валидацию инвариантов групповых событий.
 
 ## Q13 — `core_media`: звонки, экран, топологии
 
@@ -163,8 +157,38 @@ SHA-256 эталонного wordlist, строка 172 фиксирует от�
 | SIG-OPEN-07 | Персистентность replay-кэша | accepted-risk | Оценить угрозу рестарта в пределах clock skew; при необходимости хранить nonces в `core_storage`. |
 | SIG-OPEN-08 | Hardening `NostrEphemeralSigner` | open | Скрыть `privateKeyHex`, оставить test-only factory, исключить ключ из `toString`/логов. |
 
+## Q36 — Бэкдейтинг HLC первого события
+
+HLC/timestamp группового события самозаявляемы. `prevId` и неубывающий HLC
+закрывают бэкдейтинг для автора с историей, но новый участник (или автор без
+предыдущих событий) может указать join раньше истечения инвайта. Watermark на
+ingest отсекал бы поздние легитимные события; полное решение — trusted time или
+причинный DAG/квитанции. Решение poll (2026-10-24): оставить принятый риск;
+проверка опирается на `inviteProof` и срок по HLC события.
+
 ## Принятые допущения
 
+- HLC цепочки `prevId` неубывающий; равный HLC соседних событий автора допустим.
+- Дубликат `id` с разными телами разрешается детерминированным выбором тела
+  внутри группы; для genesis — меньшим валидным телом. События чужих `groupId`
+  отбрасываются до дедупликации. Прямой `apply` возвращает `EventIdCollision`,
+  контроллер выбирает тело из журнала.
+- `core_group` получает из `core_sync` события с проверенным
+  `id == SHA-256(canonical body)`; выбор тела не заменяет проверку id.
+- Корень группы обязателен: `expectedGroupId` и `genesisEventId` в
+  `GroupState.fromEvents` и конструкторе `GroupController`.
+- Форк цепочки: `fromEvents` выбирает меньшего HLC-валидного ребёнка;
+  `GroupController` хранит журнал и пересчитывает проекцию, поэтому порядок
+  доставки и форки сходятся.
+- `appliedEventIds`/fingerprints содержат только chain-валидные события;
+  снапшот с непустым `appliedEventIds` требует согласованные
+  курсоры/fingerprints и иначе отклоняется.
+- Журнал `GroupController` ограничен `maxJournalEvents`; конкурентные `apply`
+  сериализуются; поздний форк с откатом `keyEpoch` даёт `StateRegression`,
+  ротация атрибутируется событию, реально поднявшему эпоху.
+- `MemberJoined` требует HMAC `inviteProof`; production-адаптер —
+  `GroupInviteProofVerifier` в `apps/app` (SIG-OPEN-01 не переиспользует
+  payload-ключ группы).
 - `GroupSecret` = членство; отдельный invite-путь отложен (SIG-OPEN-01).
 - Публичные реле/трекеры остаются дефолтом с `TODO(verify)` (SIG-OPEN-02).
 - `neighbors` в hello — caller-supplied; signaling не ведёт топологию.

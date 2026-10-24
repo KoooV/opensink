@@ -24,7 +24,7 @@ riverpod, protobuf, `package:cryptography`, drift.
 | `core_signaling` | Nostr, WebTorrent-трекеры, пул реле | Реализовано; LAN/QR отсутствуют |
 | `core_peer` | WebRTC `PeerLink`/`Transport` | Реализовано |
 | `core_sync` | HLC-лог, anti-entropy, gossip | Реализовано |
-| `core_group` | Группы, права | Заглушка |
+| `core_group` | Группы, права, инвайты, проекция | Реализовано |
 | `core_relay` | Маршрутизация через участников | Заглушка |
 | `core_media` | Звонки, экран, топологии | Заглушка |
 | `platform_*` | SecureKeyStore и SQLite-фабрики | Реализовано |
@@ -79,7 +79,7 @@ Riverpod. Провайдеры в `apps/app/lib/di/providers.dart` подклю�
 
 ## Открытые вопросы
 Актуальный список — `docs/OPEN_QUESTIONS.md`. Ключевые блокеры: реализация
-`core_group`, `core_relay`, `core_media`; production DI для signaling/peer; LAN/QR;
+`core_relay`, `core_media`; интеграция `core_group` с `core_sync`; production DI для signaling/peer; LAN/QR;
 проверка runtime SQLite и публичных реле/трекеров.
 
 ## Критерии приёмки

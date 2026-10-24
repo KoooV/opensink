@@ -4,6 +4,7 @@ export 'src/models/identifiers.dart';
 export 'src/models/identity.dart';
 export 'src/models/user.dart';
 export 'src/models/group.dart';
+export 'src/models/group_role.dart';
 export 'src/models/channel.dart';
 export 'src/models/message.dart';
 export 'src/events/group_event.dart';

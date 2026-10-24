@@ -1,5 +1,5 @@
 name: core_group
-description: "OpenSink groups: membership, rights, signed event validation."
+description: "OpenSink groups: roles, invites, deterministic state projection."
 version: 0.1.0
 publish_to: 'none'
 resolution: workspace
@@ -8,10 +8,10 @@ environment:
   sdk: ^3.13.5
 
 dependencies:
+  collection: ^1.19.0
   core_domain:
     path: ../core_domain
-  core_crypto:
-    path: ../core_crypto
+  meta: ^1.15.0
 
 dev_dependencies:
   test: ^1.26.0
