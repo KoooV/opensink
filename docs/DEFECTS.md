@@ -43,6 +43,22 @@
 | R-14 | `packages/core_relay/lib/src/relay_transport.dart:90,302-315` | `_seen` защищает только 5 минут; после TTL повтор доставляется. Для group-sync покрыто sync-дедупом, для прочих payload контракт не зафиксирован. | minor; E2E nonce/replay-window или явная документация. |
 | R-15 | `packages/core_relay/test/relay_test.dart:241,255`; `packages/core_relay/DESIGN.md:25-26`; `docs/DESIGN.md:50` | Проверка непрозрачности тавтологична; нет тестов oversize/burst/malformed/close/source-disabled/dedupe-after-failure; DESIGN расходится с порядком проверок. | minor; усилить тесты и синхронизировать DESIGN. |
 
+## Группы и DI (ревью 2026-10-25)
+
+| id | Место | Риск | Проверка / статус |
+|----|-------|------|-------------------|
+| G-01 | `apps/app/lib/group/genesis_selection.dart:17`; `apps/app/lib/di/providers.dart:160` | Genesis выбирается по `(HLC,id)` без доверенного корня. `GroupCreated` от любого подписанта, включая бэкдейт с меньшим HLC, может стать корнем; не проверяются инварианты, `prevId`, owner и `groupId`. Дубли только логируются, проигравший genesis ретраится. | blocker; брать genesis из сохранённых метаданных/инвайта, валидировать кандидатов и падать при конфликте. |
+| G-02 | `apps/app/lib/di/providers.dart:150,172` | Фиксированный `GroupId('main')` и автосоздание при пустом логе: каждый узел создаёт свой genesis для одного id, что даёт форк группы. | blocker; генерировать и сохранять groupId при явном создании, присоединяться только по id из инвайта. |
+| G-03 | `apps/app/lib/di/providers.dart:160-198` | Создание группы не идемпотентно и не атомарно: TOCTOU между `allEvents` и `create`, при сбое после genesis restore не досоздаёт `MemberAdded` для `initialMembers`. | major; insert-if-absent/lock, перечитывание лога, идемпотентное восстановление участников. |
+| G-04 | `packages/core_group/lib/src/group_sync_bridge.dart:91`; `packages/core_group/test/group_sync_bridge_test.dart:79` | `publish` пишет, подписывает и gossip-ит событие до `apply`; при `Forbidden`/`InvalidKeyEpoch` оно остаётся в логе и уходит пирам. Тест не покрывает отказ после записи. | major; валидировать через replay/копию контроллера до `createEvent`, добавить негативный кейс. |
+| G-05 | `packages/core_sync/lib/src/sync_engine_impl.dart:526`; `apps/app/lib/di/providers.dart:160` | Restore-путь загружает записи из store без повторной проверки Ed25519-подписи, после чего bridge применяет их к state. | major; проверять подпись при загрузке либо хранить verified-флаг; тест с подменённой записью. |
+| G-06 | `apps/app/lib/di/providers.dart:184` | `GroupController` в DI создаётся без `InviteProofVerifier`: production-вход по инвайту всегда получает `InvalidInviteProof`. | major; подключить `GroupInviteProofVerifier` от `GroupSecret` либо явно запретить invite-сценарии до появления хранилища. |
+| G-07 | `apps/app/lib/di/providers.dart:156,197,201` | `ref.onDispose` регистрируется после `await`; при throw/dispose во время создания или старта bridge остаётся подписанным на `engine.changes`. Family без `autoDispose` держит все группы живыми. | major; cleanup сразу после появления bridge, закрытие при ошибке, рассмотреть `autoDispose`. |
+| G-08 | `packages/core_group/lib/src/group_event_codec.dart:264` | `userId`/`channelId` берутся из payload или envelope без сверки. `MembershipEvaluator` использует `targetId`, а группа — payload, поэтому расхождение даёт разный состав участников. | major; требовать согласованности payload/envelope и добавить negative-тесты. |
+| G-09 | `packages/core_group/test/support/fake_sync.dart:30`; `packages/core_group/test/group_event_codec_test.dart:134`; `packages/core_group/test/group_sync_bridge_test.dart:200` | Fake-подпись forgeable, `prevId` проверяется только на непустоту, «идемпотентный start» уходит в early return; provider-сценарии create/restore/конфликт/cleanup не покрыты. | minor; Ed25519 signer, точные утверждения и provider-тесты. |
+| G-10 | `packages/core_group/lib/src/group_event_codec.dart:454` | Пустой `inviteMode` декодируется как `InviteMode.open`, превращая malformed payload в open-инвайт. | minor; пустое значение — `MalformedGroupEvent`, добавить тест. |
+| G-11 | `packages/core_group/lib/src/group_state.dart:782` | Исключение из `InviteProofVerifier.verify` выходит из `apply` вместо `Err(InvalidInviteProof)`. | minor; try/catch и тест с throw-verifier. |
+
 ## Принятые ограничения
 
 - Android: root-доступ компрометирует хранилище; StrongBox не гарантирован; ключи

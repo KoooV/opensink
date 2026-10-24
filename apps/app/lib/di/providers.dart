@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 
 import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
+import 'package:core_group/core_group.dart';
 import 'package:core_storage/core_storage.dart';
 import 'package:core_sync/core_sync.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../group/genesis_selection.dart';
 import 'secure_key_store_platform.dart';
 import 'storage_backend_platform.dart';
 
@@ -137,17 +140,69 @@ final syncEngineProvider = FutureProvider<SyncEngineImpl>((ref) async {
   return engine;
 });
 
-final groupStateProvider = Provider<IGroupState>((ref) {
-  final initial = GroupState(
-    id: const GroupId('demo'),
-    name: 'Demo',
-    ownerId: const UserId('me'),
-    memberIds: {const UserId('me')},
-    channelIds: {},
-    createdAt: DateTime.now().millisecondsSinceEpoch,
-    updatedAt: DateTime.now().millisecondsSinceEpoch,
-  );
-  return FakeGroupState(initial);
+/// Доставка sender keys. Production-реализация появится вместе с E2E-личными
+/// сообщениями; пока используется in-memory fake из `core_group`.
+final groupKeyDistributorProvider = Provider<GroupKeyDistributor>((ref) {
+  return InMemoryGroupKeyDistributor();
+});
+
+/// Группа, открытая в UI (появится вместе с экраном списка групп).
+final activeGroupIdProvider = StateProvider<GroupId>(
+  (ref) => const GroupId('main'),
+);
+
+/// Мост группы: восстанавливает существующий genesis из лога либо создаёт
+/// группу с текущей identity как владельцем.
+final groupSyncBridgeProvider =
+    FutureProvider.family<GroupSyncBridge, GroupId>((ref, groupId) async {
+      final engine = await ref.watch(syncEngineProvider.future);
+      final distributor = ref.watch(groupKeyDistributorProvider);
+      final events = await engine.allEvents(groupId);
+      final selection = selectGenesis(events);
+      if (selection.duplicateCount > 0) {
+        developer.log(
+          'Найдено genesis-событий: ${selection.duplicateCount + 1}; '
+          'выбран самый ранний',
+          name: 'opensink.group',
+        );
+      }
+      final existingGenesis = selection.genesis;
+
+      final GroupSyncBridge bridge;
+      if (existingGenesis == null) {
+        final created = await GroupSyncBridge.create(
+          syncEngine: engine,
+          groupId: groupId,
+          name: 'Group ${groupId.value}',
+          distributor: distributor,
+        );
+        if (created.isErr) {
+          throw StateError('Не удалось создать группу: ${created.unwrapErr()}');
+        }
+        bridge = created.unwrap();
+      } else {
+        final controller = GroupController(
+          distributor: distributor,
+          expectedGroupId: groupId,
+          genesisEventId: existingGenesis.id,
+        );
+        bridge = GroupSyncBridge(
+          syncEngine: engine,
+          controller: controller,
+          groupId: groupId,
+        );
+        await bridge.start();
+      }
+
+      ref.onDispose(() => unawaited(bridge.close()));
+      return bridge;
+    });
+
+final groupStateProvider = FutureProvider.family<IGroupState, GroupId>((
+  ref,
+  groupId,
+) async {
+  return ref.watch(groupSyncBridgeProvider(groupId).future);
 });
 
 final screenCaptureSourceProvider = Provider<ScreenCaptureSource>((ref) {
