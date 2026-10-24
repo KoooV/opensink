@@ -1,7 +1,7 @@
 # Состояние
 ## Сделано
-- core_group: роли, инвайты, конфликты, ротация, genesis/цепочка в apply и GroupController, дедуп после фильтра группы; 52 теста + HMAC-адаптер в app.
+- core_group: журнал+replay, топопорядок, genesis-дубликаты, лимит журнала, snapshot-валидация, StateRegression, атрибуция ротации, сериализация apply; 69 тестов.
 ## Дальше
-- Ревью core_group: 2 blocker (reorder/fork в GroupController, курсор не двигается при семантическом Err) и 3 major (топопорядок fromEvents, курсоры в публичной фабрике, дедуп по телу в apply).
+- SyncEventKind и интеграция core_group с core_sync; minor: fingerprints как хэш, формат сериализации снапшота.
 ## Открытые вопросы
-- Legacy GroupState; trusted time (принятый риск Q36); сериализация genesis/cursors; ротация GroupSecret при удалении; затем SyncEventKind и интеграция.
+- Legacy GroupState; trusted time (Q36); аутентификация снапшота и fingerprints как хэш; ротация GroupSecret при удалении.

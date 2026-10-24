@@ -28,6 +28,18 @@ class EventChainBroken extends GroupError {
   const EventChainBroken();
 }
 
+class EventIdCollision extends GroupError {
+  const EventIdCollision();
+}
+
+class JournalFull extends GroupError {
+  const JournalFull();
+}
+
+class StateRegression extends GroupError {
+  const StateRegression();
+}
+
 class InvalidEvent extends GroupError {
   const InvalidEvent(this.error);
 

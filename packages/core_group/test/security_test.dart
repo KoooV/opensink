@@ -49,7 +49,7 @@ void main() {
       expect(state.name, 'Test group');
       expect(
         state.appliedEventIds.contains(const EventId('backdated')),
-        isTrue,
+        isFalse,
       );
     });
 
@@ -186,7 +186,10 @@ void main() {
       final state = stateOf([
         created(),
         inviteIssued(id: 'forbidden-invite', authorId: carol),
-        added(id: 'noop-add', userId: bob),
+        withPrevId(
+          added(id: 'noop-add', userId: bob, timestamp: 20),
+          const EventId('create'),
+        ),
       ]);
 
       expect(
