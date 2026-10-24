@@ -36,6 +36,9 @@ class GroupController {
 
   GroupState get state => _state;
 
+  /// Событие из журнала контроллера по id (для моста с `core_sync`).
+  GroupEvent? event(EventId id) => _events[id.value];
+
   Future<Result<GroupState, GroupError>> apply(
     GroupEvent event, {
     UserId? localPeerId,

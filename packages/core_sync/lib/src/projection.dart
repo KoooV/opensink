@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:collection/collection.dart';
+import 'package:core_protocol/core_protocol.dart' show GroupEvent;
 
 import 'hlc.dart';
 import 'sync_event.dart';
@@ -23,6 +24,7 @@ class MembershipEvaluator {
 
     final members = <String>{};
     final everMembers = <String>{};
+    final inviteModes = <String, bool>{};
     var sawGroup = false;
 
     for (final candidate in timeline) {
@@ -53,6 +55,33 @@ class MembershipEvaluator {
             members.add(user);
             everMembers.add(user);
           }
+        case SyncEventKind.inviteIssued:
+          sawGroup = true;
+          final invite = _decodeGroupEvent(candidate);
+          final inviteId = invite?.inviteId ?? candidate.targetId;
+          if (inviteId != null && inviteId.isNotEmpty) {
+            inviteModes[inviteId] = invite?.inviteMode == 'open';
+          }
+        case SyncEventKind.memberJoined:
+          sawGroup = true;
+          final inviteId = _inviteIdOf(candidate);
+          final isOpen = inviteId == null ? null : inviteModes[inviteId];
+          final author = candidate.authorId.value;
+          if (isOpen == true) {
+            members.add(author);
+            everMembers.add(author);
+          } else if (isOpen == false) {
+            everMembers.add(author);
+          }
+        case SyncEventKind.memberApproved:
+          sawGroup = true;
+          final user = candidate.targetId;
+          if (user != null) {
+            members.add(user);
+            everMembers.add(user);
+          }
+        case SyncEventKind.roleSet:
+        case SyncEventKind.keyRotated:
         case SyncEventKind.channelCreated:
         case SyncEventKind.channelDeleted:
         case SyncEventKind.groupRenamed:
@@ -63,11 +92,29 @@ class MembershipEvaluator {
       }
     }
 
+    if (event.kind == SyncEventKind.memberJoined && sawGroup) {
+      return MembershipStatus.member;
+    }
     if (!sawGroup) return MembershipStatus.unknown;
     final author = event.authorId.value;
     if (members.contains(author)) return MembershipStatus.member;
     if (everMembers.contains(author)) return MembershipStatus.notMember;
     return MembershipStatus.unknown;
+  }
+
+  GroupEvent? _decodeGroupEvent(SyncEvent event) {
+    try {
+      return GroupEvent.fromBytes(event.payload);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _inviteIdOf(SyncEvent event) {
+    final decoded = _decodeGroupEvent(event);
+    final inviteId = decoded?.inviteId;
+    if (inviteId != null && inviteId.isNotEmpty) return inviteId;
+    return event.targetId;
   }
 }
 
@@ -89,6 +136,7 @@ class GroupProjection {
   factory GroupProjection.fromEvents(Iterable<SyncEvent> events) {
     final sorted = events.toList()..sort((a, b) => a.compareTo(b));
     final members = <String>{};
+    final inviteModes = <String, bool>{};
     final created = <String, ProjectedMessage>{};
 
     for (final event in sorted) {
@@ -104,6 +152,20 @@ class GroupProjection {
         case SyncEventKind.ownerTransferred:
           final user = event.targetId;
           if (user != null) members.add(user);
+        case SyncEventKind.inviteIssued:
+          final invite = _decodeInvite(event);
+          final inviteId = invite?.inviteId ?? event.targetId;
+          if (inviteId != null && inviteId.isNotEmpty) {
+            inviteModes[inviteId] = invite?.inviteMode == 'open';
+          }
+        case SyncEventKind.memberJoined:
+          final inviteId = _decodeInvite(event)?.inviteId ?? event.targetId;
+          if (inviteId != null && inviteModes[inviteId] == true) {
+            members.add(event.authorId.value);
+          }
+        case SyncEventKind.memberApproved:
+          final user = event.targetId;
+          if (user != null) members.add(user);
         case SyncEventKind.messageCreated:
           created[event.id.value] = ProjectedMessage(
             id: event.id.value,
@@ -114,6 +176,8 @@ class GroupProjection {
             edited: false,
             hlc: event.hlc,
           );
+        case SyncEventKind.roleSet:
+        case SyncEventKind.keyRotated:
         case SyncEventKind.channelCreated:
         case SyncEventKind.channelDeleted:
         case SyncEventKind.groupRenamed:
@@ -147,6 +211,11 @@ class GroupProjection {
         case SyncEventKind.groupRenamed:
         case SyncEventKind.ownerTransferred:
         case SyncEventKind.messageCreated:
+        case SyncEventKind.inviteIssued:
+        case SyncEventKind.memberJoined:
+        case SyncEventKind.memberApproved:
+        case SyncEventKind.roleSet:
+        case SyncEventKind.keyRotated:
           break;
       }
     }
@@ -157,6 +226,14 @@ class GroupProjection {
       memberIds: members,
       messages: messages,
     );
+  }
+
+  static GroupEvent? _decodeInvite(SyncEvent event) {
+    try {
+      return GroupEvent.fromBytes(event.payload);
+    } catch (_) {
+      return null;
+    }
   }
 
   @override

@@ -24,7 +24,12 @@ enum SyncEventKind {
   ownerTransferred(7),
   messageCreated(8),
   messageEdited(9),
-  messageDeleted(10);
+  messageDeleted(10),
+  inviteIssued(11),
+  memberJoined(12),
+  memberApproved(13),
+  roleSet(14),
+  keyRotated(15);
 
   const SyncEventKind(this.code);
   final int code;
