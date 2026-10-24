@@ -162,3 +162,65 @@
 11. Журнал контроллера ограничен, конкурентные `apply` сериализованы, поздний
     форк не откатывает `keyEpoch`, а снапшот с несогласованными полями
     отклоняется.
+
+## 9. Интеграция с `core_sync` (design, 2026-10-24)
+
+**Цель.** Дать `core_group` мост, который публикует административные события в
+`SyncEngine` и применяет проверенные события из лога к `GroupController`,
+сохраняя детерминизм и защиту цепочки.
+
+**Варианты места моста.**
+1. `core_group` зависит от `core_sync` и содержит `GroupSyncBridge` и
+   `GroupEventCodec`. Плюсы: слои 8→7, мост рядом с проекцией. Минусы:
+   `core_group` транзитивно тянет `core_storage` и `core_protocol`.
+2. Новый пакет `core_group_sync`. Плюсы: чистое разделение. Минусы: новый
+   пакет, обновление docs/CI.
+3. Мост в `apps/app`. Плюсы: без новых зависимостей. Минусы: не тестируется на
+   уровне core, дублирование.
+
+**Выбрано:** вариант 1. `core_group` зависит от `core_sync` и `core_protocol`;
+`core_sync` не зависит от `core_group`.
+
+**Две цепочки.** `SyncEvent.prevId` — общая цепочка автора в группе (сообщения и
+админ-события), проверяется `core_sync`. Доменное `GroupEvent.prevId`
+(`domainPrevId` в payload) — только админ-события автора, проверяется
+`GroupController`. Это позволяет смешивать сообщения и админ-события, не ломая
+`_validChain` группы.
+
+**Публикация.** `GroupSyncBridge.publish(GroupEvent draft)`:
+- проверяет `groupId`, автора и `draft.prevId == controller.state.cursors[author]?.id`
+  (`null` для genesis);
+- кодирует payload, вызывает `SyncEngineImpl.createEvent(kind, targetId/channelId,
+  payload)`;
+- декодирует полученный `SyncEvent` обратно в доменное событие с `id = SyncEvent.id`;
+- для `GroupCreated` дополнительно публикует `MemberAdded` для `initialMembers`
+  (кроме владельца), потому что `core_sync` не парсит `initialMembers`;
+- применяет событие к `GroupController`, возвращает `Result<GroupEvent, GroupSyncError>`.
+
+**Приём.** `GroupSyncBridge.start()` подписывается на `SyncEngine.changes`,
+загружает события группы, фильтрует админ-типы, декодирует и применяет к
+`GroupController`. События, уже находящиеся в журнале с тем же id, пропускаются;
+постоянные ошибки инвариантов запоминаются. Семантические отказы остаются в
+журнале и пересчитываются replay-ем. Мост реализует `IGroupState`, отдавая
+сконвертированное `core_domain.GroupState` и поток изменений.
+
+**Безопасность.** Мост не проверяет подпись/id — это делает `core_sync` до
+вызова. `MemberJoined` без `inviteProof` отклоняется `GroupState.apply`.
+`domainPrevId` обязателен для админ-событий после genesis; отсутствие —
+`EventChainBroken`. Payload не содержит `group_secret`; `inviteProof` — HMAC.
+Утечка инвайта в approval-режиме не даёт членства до `MemberApproved`; sync-слой
+до подтверждения не считает автора членом.
+
+**Критерии приёмки.**
+1. `GroupEventCodec` round-trip 12 типов; `id` домена = `SyncEvent.id`.
+2. `publish` создаёт подписанное событие в `SyncEngine` и применяет его к
+   `GroupController`.
+3. `start` применяет входящие админ-события; порядок доставки не влияет на итог.
+4. Смешанный лог (сообщения и админ-события) не ломает цепочку `GroupController`.
+5. `MemberJoined` open добавляет члена; approval — нет до `MemberApproved`.
+6. `GroupCreated` публикует `MemberAdded` для начальных участников.
+7. `dart analyze` и тесты `core_group`/`core_sync` зелёные.
+
+**Открытые вопросы.** Сериализация снапшота `GroupState` и fingerprints как хэш
+(minor); версионирование payload при добавлении типов; подключение моста в DI
+приложения.

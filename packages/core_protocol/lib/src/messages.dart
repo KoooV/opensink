@@ -188,6 +188,17 @@ class GroupEvent {
     this.channelId = '',
     this.channelType = '',
     this.newOwnerId = '',
+    this.domainPrevId = '',
+    this.inviteId = '',
+    this.inviteMode = '',
+    this.maxUses = 0,
+    this.expiresAt = 0,
+    this.relayHint = '',
+    this.inviteProof = '',
+    this.role = '',
+    this.minViewRole = '',
+    this.minPostRole = '',
+    this.newEpoch = 0,
     this._unknownFields = const <int, Uint8List>{},
   });
 
@@ -196,7 +207,7 @@ class GroupEvent {
   final String authorId;
   final int timestamp; // Unix ms
   final String signature; // hex Ed25519
-  final int eventType; // 1 group_created ... 7 owner_transferred
+  final int eventType; // коды SyncEventKind: 1..7, 11..15
   final String name;
   final String ownerId;
   final List<String> initialMembers;
@@ -204,6 +215,19 @@ class GroupEvent {
   final String channelId;
   final String channelType;
   final String newOwnerId;
+
+  /// Цепочка административных событий автора (не общая цепочка сообщений).
+  final String domainPrevId;
+  final String inviteId;
+  final String inviteMode;
+  final int maxUses; // 0 = не задан
+  final int expiresAt; // 0 = не задан
+  final String relayHint;
+  final String inviteProof;
+  final String role;
+  final String minViewRole;
+  final String minPostRole;
+  final int newEpoch;
   final Map<int, Uint8List> _unknownFields;
 
   GroupEvent copyWith({
@@ -220,6 +244,17 @@ class GroupEvent {
     String? channelId,
     String? channelType,
     String? newOwnerId,
+    String? domainPrevId,
+    String? inviteId,
+    String? inviteMode,
+    int? maxUses,
+    int? expiresAt,
+    String? relayHint,
+    String? inviteProof,
+    String? role,
+    String? minViewRole,
+    String? minPostRole,
+    int? newEpoch,
     Map<int, Uint8List>? unknownFields,
   }) {
     return GroupEvent(
@@ -236,6 +271,17 @@ class GroupEvent {
       channelId: channelId ?? this.channelId,
       channelType: channelType ?? this.channelType,
       newOwnerId: newOwnerId ?? this.newOwnerId,
+      domainPrevId: domainPrevId ?? this.domainPrevId,
+      inviteId: inviteId ?? this.inviteId,
+      inviteMode: inviteMode ?? this.inviteMode,
+      maxUses: maxUses ?? this.maxUses,
+      expiresAt: expiresAt ?? this.expiresAt,
+      relayHint: relayHint ?? this.relayHint,
+      inviteProof: inviteProof ?? this.inviteProof,
+      role: role ?? this.role,
+      minViewRole: minViewRole ?? this.minViewRole,
+      minPostRole: minPostRole ?? this.minPostRole,
+      newEpoch: newEpoch ?? this.newEpoch,
       unknownFields: unknownFields ?? _unknownFields,
     );
   }
@@ -270,6 +316,39 @@ class GroupEvent {
     if (newOwnerId.isNotEmpty) {
       writer.writeStringField(13, newOwnerId);
     }
+    if (domainPrevId.isNotEmpty) {
+      writer.writeStringField(14, domainPrevId);
+    }
+    if (inviteId.isNotEmpty) {
+      writer.writeStringField(15, inviteId);
+    }
+    if (inviteMode.isNotEmpty) {
+      writer.writeStringField(16, inviteMode);
+    }
+    if (maxUses != 0) {
+      writer.writeVarintField(17, maxUses);
+    }
+    if (expiresAt != 0) {
+      writer.writeVarintField(18, expiresAt);
+    }
+    if (relayHint.isNotEmpty) {
+      writer.writeStringField(19, relayHint);
+    }
+    if (inviteProof.isNotEmpty) {
+      writer.writeStringField(20, inviteProof);
+    }
+    if (role.isNotEmpty) {
+      writer.writeStringField(21, role);
+    }
+    if (minViewRole.isNotEmpty) {
+      writer.writeStringField(22, minViewRole);
+    }
+    if (minPostRole.isNotEmpty) {
+      writer.writeStringField(23, minPostRole);
+    }
+    if (newEpoch != 0) {
+      writer.writeVarintField(24, newEpoch);
+    }
     writer.writeUnknownFields(_unknownFields);
   }
 
@@ -297,6 +376,17 @@ class GroupEvent {
     String channelId = '';
     String channelType = '';
     String newOwnerId = '';
+    String domainPrevId = '';
+    String inviteId = '';
+    String inviteMode = '';
+    int maxUses = 0;
+    int expiresAt = 0;
+    String relayHint = '';
+    String inviteProof = '';
+    String role = '';
+    String minViewRole = '';
+    String minPostRole = '';
+    int newEpoch = 0;
     final unknown = <int, Uint8List>{};
 
     while (true) {
@@ -344,6 +434,39 @@ class GroupEvent {
         case 13:
           newOwnerId = reader.readStringField();
           break;
+        case 14:
+          domainPrevId = reader.readStringField();
+          break;
+        case 15:
+          inviteId = reader.readStringField();
+          break;
+        case 16:
+          inviteMode = reader.readStringField();
+          break;
+        case 17:
+          maxUses = reader.readVarint();
+          break;
+        case 18:
+          expiresAt = reader.readVarint();
+          break;
+        case 19:
+          relayHint = reader.readStringField();
+          break;
+        case 20:
+          inviteProof = reader.readStringField();
+          break;
+        case 21:
+          role = reader.readStringField();
+          break;
+        case 22:
+          minViewRole = reader.readStringField();
+          break;
+        case 23:
+          minPostRole = reader.readStringField();
+          break;
+        case 24:
+          newEpoch = reader.readVarint();
+          break;
         default:
           reader.consumeField(wireType);
           unknown[fieldNumber] = reader.slice(start, reader.position);
@@ -365,6 +488,17 @@ class GroupEvent {
       channelId: channelId,
       channelType: channelType,
       newOwnerId: newOwnerId,
+      domainPrevId: domainPrevId,
+      inviteId: inviteId,
+      inviteMode: inviteMode,
+      maxUses: maxUses,
+      expiresAt: expiresAt,
+      relayHint: relayHint,
+      inviteProof: inviteProof,
+      role: role,
+      minViewRole: minViewRole,
+      minPostRole: minPostRole,
+      newEpoch: newEpoch,
       unknownFields: unknown,
     );
   }
@@ -387,6 +521,17 @@ class GroupEvent {
           channelId == other.channelId &&
           channelType == other.channelType &&
           newOwnerId == other.newOwnerId &&
+          domainPrevId == other.domainPrevId &&
+          inviteId == other.inviteId &&
+          inviteMode == other.inviteMode &&
+          maxUses == other.maxUses &&
+          expiresAt == other.expiresAt &&
+          relayHint == other.relayHint &&
+          inviteProof == other.inviteProof &&
+          role == other.role &&
+          minViewRole == other.minViewRole &&
+          minPostRole == other.minPostRole &&
+          newEpoch == other.newEpoch &&
           _mapEquals(_unknownFields, other._unknownFields);
 
   @override
@@ -404,6 +549,17 @@ class GroupEvent {
     result ^= channelId.hashCode;
     result ^= channelType.hashCode;
     result ^= newOwnerId.hashCode;
+    result ^= domainPrevId.hashCode;
+    result ^= inviteId.hashCode;
+    result ^= inviteMode.hashCode;
+    result ^= maxUses.hashCode;
+    result ^= expiresAt.hashCode;
+    result ^= relayHint.hashCode;
+    result ^= inviteProof.hashCode;
+    result ^= role.hashCode;
+    result ^= minViewRole.hashCode;
+    result ^= minPostRole.hashCode;
+    result ^= newEpoch.hashCode;
     result ^= _unknownFields.hashCode;
     return result;
   }

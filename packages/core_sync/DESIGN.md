@@ -118,3 +118,51 @@ tombstone-ы после создания сообщений, поэтому по
 | Подпись в 1000 прогонах | Реальный Ed25519 (ключи кэшируются между прогонами) |
 | Backpressure | Одна страница на диапазон + лимит исходящей очереди |
 | Обнаружение групп | Явный `registerGroup` приложением |
+
+## 9. Групповые события в `SyncEventKind` (design, 2026-10-24)
+
+**Цель.** Расширить `SyncEventKind` всеми административными событиями `core_group` и
+зафиксировать канонический payload, чтобы `core_sync` принимал, хранил и
+распространял их как обычные события лога.
+
+**Варианты payload.**
+1. Расширить существующий `core_protocol.GroupEvent` плоскими полями
+   `domainPrevId`, `inviteId`, `inviteMode`, `maxUses`, `expiresAt`, `relayHint`,
+   `inviteProof`, `role`, `minViewRole`, `minPostRole`, `newEpoch`.
+   Плюсы: переиспользует protobuf, версионирование и лимиты. Минусы: много
+   полей в одном сообщении, слабая типизация.
+2. Отдельное protobuf-сообщение на каждый тип события. Плюсы: строгая схема.
+   Минусы: больше кода и диспетчеризации, сложнее прямая совместимость.
+3. Канонический JSON из `GroupEvent.toCanonicalMap()`. Плюсы: минимум кода.
+   Минусы: не protobuf, размер, отдельная канонизация.
+
+**Выбрано:** вариант 1. `eventType` = код `SyncEventKind`; поля
+`id/groupId/authorId/timestamp/signature` в payload не заполняются и
+восстанавливаются из `SyncEvent`. `domainPrevId` — отдельная цепочка
+административных событий автора, не пересекается с общей цепочкой сообщений.
+
+**Коды:** `inviteIssued(11)`, `memberJoined(12)`, `memberApproved(13)`,
+`roleSet(14)`, `keyRotated(15)`. Существующие 1–10 не меняются.
+
+**Членство.** `MembershipEvaluator` декодирует payload только для `inviteIssued`
+и `memberJoined`, чтобы понять режим инвайта:
+- `memberJoined` при `open` добавляет автора в члены; при `approval` — только в
+  «когда-либо видел», до `memberApproved`;
+- сам `memberJoined` разрешён от неизвестного автора при наличии группы;
+- `memberApproved` добавляет `targetId` в члены;
+- `inviteIssued`, `roleSet`, `keyRotated` членство не меняют;
+- `groupCreated` по-прежнему добавляет только автора; начальные участники
+  приходят отдельными `memberAdded`.
+
+**Сеть и крипта.** Подпись и id проверяются в `core_sync` до записи; `core_group`
+доверяет проверенному `SyncEvent`. Payload не содержит секретов; `inviteProof`
+— HMAC, не секрет. `domainPrevId` не заменяет проверку `SyncEvent.prevId`.
+
+**Критерии приёмки.**
+1. `SyncEventKind.fromCode` знает 1–15; неизвестный код отклоняется.
+2. `GroupEventCodec` делает round-trip каждого из 12 типов.
+3. `MembershipEvaluator` различает open/approval join и обрабатывает
+   `memberApproved`.
+4. `memberJoined` от неизвестного автора принимается как заявка.
+5. Поведение для кодов 1–10 не меняется.
+6. `dart analyze packages/core_sync` — чисто.

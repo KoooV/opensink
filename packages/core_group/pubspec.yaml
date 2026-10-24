@@ -11,6 +11,10 @@ dependencies:
   collection: ^1.19.0
   core_domain:
     path: ../core_domain
+  core_protocol:
+    path: ../core_protocol
+  core_sync:
+    path: ../core_sync
   meta: ^1.15.0
 
 dev_dependencies:
