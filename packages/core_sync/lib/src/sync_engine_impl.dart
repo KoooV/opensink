@@ -38,6 +38,7 @@ class SyncEngineImpl implements SyncEngine {
       store: store,
       signer: signer,
       membershipCheck: _membershipStatus,
+      rootCheck: _checkRoot,
       nowMs: _nowMs,
     );
     if (antiEntropyInterval != null) {
@@ -68,6 +69,7 @@ class SyncEngineImpl implements SyncEngine {
   final Map<GroupId, SplayTreeSet<SyncEvent>> _events = {};
   final Map<GroupId, Map<String, SyncEvent>> _lastAuthorEvent = {};
   final Set<GroupId> _groupIds = {};
+  final Map<GroupId, EventId> _trustedRoots = {};
   final Set<GroupId> _loadedGroups = {};
   final Map<GroupId, Future<void>> _loadFutures = {};
   final Map<String, _LinkSession> _links = {};
@@ -93,6 +95,29 @@ class SyncEngineImpl implements SyncEngine {
   Future<void> registerGroup(GroupId groupId) async {
     _groupIds.add(groupId);
     await _ensureGroup(groupId);
+  }
+
+  /// Закрепляет доверенный `groupCreated` за группой.
+  ///
+  /// Корень неизменяем: повторный вызов с другим id возвращает
+  /// [ForeignGroupRoot], а события `groupCreated` с другим id не принимаются
+  /// конвейером приёма. Если группа уже загружена, чужие корни удаляются из
+  /// индекса, чтобы не блокировать восстановление рабочей группы.
+  Future<Result<void, SyncError>> pinGroupRoot(
+    GroupId groupId,
+    EventId genesisEventId,
+  ) async {
+    final existing = _trustedRoots[groupId];
+    if (existing != null) {
+      if (existing.value == genesisEventId.value) return const Ok(null);
+      return Err(ForeignGroupRoot(existing.value, genesisEventId.value));
+    }
+    _trustedRoots[groupId] = genesisEventId;
+    final current = _events[groupId];
+    if (current != null && current.isNotEmpty) {
+      _reindexGroup(groupId, current.toList());
+    }
+    return const Ok(null);
   }
 
   /// Подключает соседа. При появлении линка сразу отправляются приоритетные
@@ -254,7 +279,9 @@ class SyncEngineImpl implements SyncEngine {
     final record = await store.eventById(id);
     if (record == null) return null;
     final decoded = _eventCodec.fromRecord(record);
-    return decoded.isOk ? decoded.unwrap() : null;
+    if (decoded.isErr) return null;
+    final event = decoded.unwrap();
+    return _checkRoot(event) == null ? event : null;
   }
 
   Future<Result<SyncEvent, SyncError>> createGroup(
@@ -429,6 +456,9 @@ class SyncEngineImpl implements SyncEngine {
     final result = await _pipeline.ingest(event);
     if (result.isErr) return result;
 
+    final lateRootError = _checkRoot(event);
+    if (lateRootError != null) return Err(lateRootError);
+
     final outcome = result.unwrap().outcome;
     switch (outcome) {
       case IngestOutcome.inserted:
@@ -509,6 +539,41 @@ class SyncEngineImpl implements SyncEngine {
     return _membershipEvaluator.evaluate(event, timeline);
   }
 
+  SyncError? _checkRoot(SyncEvent event) {
+    if (event.kind != SyncEventKind.groupCreated) return null;
+    final trusted = _trustedRoots[event.groupId];
+    if (trusted == null || trusted.value == event.id.value) return null;
+    return ForeignGroupRoot(trusted.value, event.id.value);
+  }
+
+  /// Пересобирает индекс группы, оставляя только историю, достижимую от
+  /// закреплённого корня. События, чьё членство выводится только из чужого
+  /// корня, в набор не попадают.
+  void _reindexGroup(GroupId groupId, Iterable<SyncEvent> source) {
+    final trusted = _trustedRoots[groupId];
+    if (trusted == null) return;
+    final sorted = source.toList()..sort(_compare);
+    final set = SplayTreeSet<SyncEvent>(_compare);
+    for (final event in sorted) {
+      if (event.kind == SyncEventKind.groupCreated) {
+        if (event.id.value != trusted.value) continue;
+      } else if (_membershipEvaluator.evaluate(event, set) !=
+          MembershipStatus.member) {
+        continue;
+      }
+      set.add(event);
+    }
+    _events[groupId] = set;
+    final byAuthor = <String, SyncEvent>{};
+    for (final event in set) {
+      final previous = byAuthor[event.authorId.value];
+      if (previous == null || previous.compareTo(event) < 0) {
+        byAuthor[event.authorId.value] = event;
+      }
+    }
+    _lastAuthorEvent[groupId] = byAuthor;
+  }
+
   Future<void> _ensureGroup(GroupId groupId) {
     if (_loadedGroups.contains(groupId)) return Future<void>.value();
     final inFlight = _loadFutures[groupId];
@@ -522,14 +587,26 @@ class SyncEngineImpl implements SyncEngine {
 
   Future<void> _loadGroup(GroupId groupId) async {
     final records = await store.groupEvents(groupId);
+    final loaded = <SyncEvent>[];
     for (final record in records) {
       final decoded = _eventCodec.fromRecord(record);
-      if (decoded.isOk) _addToIndex(decoded.unwrap());
+      if (decoded.isOk) loaded.add(decoded.unwrap());
     }
     final pending = await store.pendingEvents(groupId, limit: maxPendingEvents);
     for (final record in pending) {
       final decoded = _eventCodec.fromRecord(record);
-      if (decoded.isOk) _pending[record.id] = decoded.unwrap();
+      if (decoded.isErr) continue;
+      final event = decoded.unwrap();
+      if (_checkRoot(event) != null) continue;
+      _pending[record.id] = event;
+    }
+    final trusted = _trustedRoots[groupId];
+    if (trusted != null) {
+      _reindexGroup(groupId, loaded);
+    } else {
+      for (final event in loaded) {
+        _addToIndex(event);
+      }
     }
     _loadedGroups.add(groupId);
     _groupIds.add(groupId);
@@ -537,6 +614,12 @@ class SyncEngineImpl implements SyncEngine {
   }
 
   void _addToIndex(SyncEvent event) {
+    final trusted = _trustedRoots[event.groupId];
+    if (trusted != null &&
+        event.kind == SyncEventKind.groupCreated &&
+        event.id.value != trusted.value) {
+      return;
+    }
     final set = _events.putIfAbsent(
       event.groupId,
       () => SplayTreeSet<SyncEvent>(_compare),
@@ -672,7 +755,10 @@ class SyncEngineImpl implements SyncEngine {
     final events = <SyncEvent>[];
     for (final record in records) {
       final decoded = _eventCodec.fromRecord(record);
-      if (decoded.isOk) events.add(decoded.unwrap());
+      if (decoded.isErr) continue;
+      final event = decoded.unwrap();
+      if (_checkRoot(event) != null) continue;
+      events.add(event);
     }
     final cursor = events.isEmpty ? null : events.last;
     session.enqueue(
@@ -700,7 +786,10 @@ class SyncEngineImpl implements SyncEngine {
     final events = <SyncEvent>[];
     for (final record in records) {
       final decoded = _eventCodec.fromRecord(record);
-      if (decoded.isOk) events.add(decoded.unwrap());
+      if (decoded.isErr) continue;
+      final event = decoded.unwrap();
+      if (_checkRoot(event) != null) continue;
+      events.add(event);
     }
     events.sort((a, b) => a.compareTo(b));
     session.enqueue(

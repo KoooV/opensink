@@ -302,10 +302,21 @@ class GroupLifecycle {
   ) async {
     if (metadata.isReady) return const Ok(null);
     final events = await _syncEngine.allEvents(metadata.groupId);
-    final candidates = events
+    final roots = events
         .where((event) => event.kind == SyncEventKind.groupCreated)
         .toList();
+    final candidates = roots
+        .where((event) => event.authorId == _syncEngine.localAuthor)
+        .toList();
     if (candidates.isEmpty) {
+      if (roots.isNotEmpty) {
+        return Err(
+          GroupRootConflict(
+            metadata.groupId,
+            'foreign genesis without local root',
+          ),
+        );
+      }
       final deleted = await _metadataStore.delete(metadata.groupId);
       if (deleted.isErr) {
         return Err(GroupMetadataUnavailable(deleted.unwrapErr()));

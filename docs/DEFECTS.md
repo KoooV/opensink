@@ -46,7 +46,9 @@
 ## Группы и DI (ревью 2026-10-25)
 
 Повторное ревью 2026-10-25 (reviewer + crypto-review): G-12…G-20.
-G-01/G-02 закрыты, их история — в `git log`.
+G-01/G-02/G-12/G-13/G-14 закрыты, их история — в `git log`. Повторное ревью
+исправлений (reviewer + crypto-review, 2026-10-25): блокеров нет, остаточные
+G-21…G-24.
 
 | id | Место | Риск | Проверка / статус |
 |----|-------|------|-------------------|
@@ -59,15 +61,21 @@ G-01/G-02 закрыты, их история — в `git log`.
 | G-09 | `packages/core_group/test/support/fake_sync.dart:30`; `packages/core_group/test/group_event_codec_test.dart:134`; `packages/core_group/test/group_sync_bridge_test.dart:200` | Fake-подпись forgeable, `prevId` проверяется только на непустоту, «идемпотентный start» уходит в early return; не покрыты конфликт после start, publish после `_fatalError`, исключение в start, невалидный/двойной pending, очистка активной группы, негативный invite после старта. | minor; Ed25519 signer, точные утверждения и provider-тесты. |
 | G-10 | `packages/core_group/lib/src/group_event_codec.dart:484-486` | Пустой `inviteMode` декодируется как `InviteMode.open`, превращая malformed payload в open-инвайт. | minor; пустое значение — `MalformedGroupEvent`, добавить тест. |
 | G-11 | `packages/core_group/lib/src/group_state.dart:782` | Исключение из `InviteProofVerifier.verify` выходит из `apply` вместо `Err(InvalidInviteProof)`. | minor; try/catch и тест с throw-verifier. |
-| G-12 | `packages/core_group/lib/src/group_sync_bridge.dart:71-108`; `apps/app/lib/di/providers.dart:211-219` | Fail-open после genesis-конфликта: `_started = true` до валидации, параллельный `start()` получает `Ok`; `publish()` не проверяет `_fatalError`, поэтому после `GenesisConflict`/`GenesisMissing` события продолжают подписываться, писаться в лог, gossip-иться и применяться к замороженному контроллеру. | blocker; `Ok` только после валидации; `publish()` требует `_fatalError == null`; отдельный путь для create. |
-| G-13 | `packages/core_group/lib/src/group_sync_bridge.dart:232-254`; `packages/core_sync/lib/src/projection.dart:20-22` | Чужой `GroupCreated` принимается `core_sync` от любого подписанта; bridge молча ставит `_fatalError` и навсегда останавливает `_refresh`, не публикуя ошибку в `watch()`. Рабочая группа замирает, restore блокируется — удалённый DoS по groupId. | blocker; не принимать чужие корни на ingest или явно сигналить конфликт в UI и давать repair/delete. |
-| G-14 | `packages/core_group/lib/src/group_sync_bridge.dart:71-100`; `packages/core_group/lib/src/group_lifecycle.dart:210-215` | `start()` не exception-safe: исключение из `registerGroup`/`signer.verify`/`allEvents` оставляет `_started=true` без подписки, повторный `start()` возвращает `Ok`, исключения выходят наружу вместо `Result`. | major; try/catch, сброс `_started`, `_fatalError` и `Err`. |
 | G-15 | `packages/core_group/lib/src/group_sync_bridge.dart:191-229`; `packages/core_storage/lib/src/group_metadata_store_impl.dart:64-77` | Для `origin.created` проверяется только `author == owner`, но не `author == localAuthor`; метаданные не аутентифицированы. Подмена локальной БД позволяет подложить валидно подписанный чужим ключом genesis с тем же `groupId`, и `open()` покажет атакующего владельцем. | major; требовать `authorId == localAuthor` для created; аутентифицировать метаданные. |
 | G-16 | `packages/core_group/lib/src/group_sync_bridge.dart:312-326`; `packages/core_group/lib/src/group_lifecycle.dart:324-328` | `create()` не нормализует `initialMembers` и не валидирует draft до `createEvent`: набор без owner или пустой `name` создаёт genesis, который новая валидация отвергает, pending-метаданные остаются навсегда. | major; валидировать draft до записи, всегда добавлять owner, чистить genesis/метаданные при ошибке. |
 | G-17 | `packages/core_group/lib/src/group_lifecycle.dart:219-235,300-334`; `packages/core_storage/lib/src/group_metadata_store_impl.dart:48-57` | Одна невалидная/двойная pending-группа блокирует загрузку всех: `recoverPendingGroups` обрывается, `loadActiveGroup` падает. `list()` не сверяет `row.group_id` с JSON, в отличие от `load()`. | major; изолировать ошибки по группам, карантинить невалидные pending, проверять `group_id` в `list()`. |
 | G-18 | `packages/core_group/lib/src/invite_link.dart:55-108`; `packages/core_group/lib/src/group_lifecycle.dart:147-183,207` | Корень инвайта не аутентифицирован: нет подписи инвайтера над `(gid, gen, iid, срок)`, `inviterId` не проверяется и не сохраняется; `gen` принимается любой непустой строкой, группа активируется до проверки. Подмена ссылки навязывает корень, битый `gen` даёт вечный `GenesisConflict`. | major; подпись инвайтера, `gen` как 64-hex, не активировать до валидации, предусмотреть delete/repair. |
 | G-19 | `packages/core_group/lib/src/group_sync_bridge.dart:89-100,232-254` | Гонка подписки: `changes.listen` ставится после первичного `_refresh`, событие между `allEvents` и `listen` теряется до следующего изменения. Invite-путь не перепроверяет genesis при его появлении: при не-permanent отказе `apply` мост остаётся started с пустым состоянием. | minor; подписаться до refresh и повторить refresh; при появлении ожидаемого `genesisId` прогонять `_validateGenesis`, отказ применения считать фатальным. |
 | G-20 | `packages/core_group/lib/src/group_sync_bridge.dart:191-229` | Payload декадируется в protobuf до проверки `id == SHA-256(canonical)` и Ed25519. Применения нет, но недоверенные данные разбираются раньше криптопроверки. | minor; сначала id и подпись, затем `_codec.decode`. |
+
+### Остаточные пункты после исправления G-12/G-13/G-14
+
+| id | Место | Риск | Проверка / статус |
+|----|-------|------|-------------------|
+| G-21 | `packages/core_sync/lib/src/sync_engine_impl.dart:106-121,437-479` | До `pinGroupRoot` движок принимает любой валидно подписанный `groupCreated` и его потомков для ещё не открытой группы; возможен рост store/pending. Pin и reindex закрывают влияние на рабочую группу, но не накопление мусора. | minor; карантин/лимит событий для незакреплённых `groupId`, очистка недостижимых записей. |
+| G-22 | `packages/core_group/lib/src/group_sync_bridge.dart:407-415` | `create()` вызывает `pinGroupRoot` уже после `createEvent`; при ошибке pin подписанный genesis остаётся в логе и метаданные не откатываются. | minor; пин до записи либо компенсация/повторная проверка при следующем open. |
+| G-23 | `packages/core_sync/lib/src/sync_engine_impl.dart:551-573,478-529` | После reindex потомки чужого корня остаются в `_pending`; `_retryPending` перебирает их на каждом ingest (до 8 проходов), пока их не вытеснит лимит. | minor; удалять недостижимые pending при pin/reindex. |
+| G-24 | `packages/core_group/lib/src/group_sync_bridge.dart:174-215`; `sync_engine_impl.dart` | `publish()` и `_refresh()` не сериализованы: `_fatalError` проверяется до `await createEvent`. Сейчас fatal возникает только при невалидном закреплённом genesis, поэтому путь латентен. | latent; общая очередь/mutex либо повторная проверка перед apply. |
 
 ## Принятые ограничения
 

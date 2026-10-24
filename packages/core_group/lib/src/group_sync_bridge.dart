@@ -43,8 +43,10 @@ class GroupSyncBridge implements domain.IGroupState {
 
   StreamSubscription<void>? _subscription;
   Future<void> _refreshTail = Future<void>.value();
+  Future<domain.Result<void, GroupSyncError>>? _startAttempt;
   bool _started = false;
   bool _closed = false;
+  bool _genesisValidated = false;
   GroupSyncError? _fatalError;
 
   @override
@@ -65,47 +67,117 @@ class GroupSyncBridge implements domain.IGroupState {
 
   /// Подписывается на изменения `SyncEngine` и применяет текущую историю.
   ///
-  /// До применения событий проверяет доверенный genesis. Если в логе есть
-  /// другой `GroupCreated`, возвращает [GenesisConflict] и не применяет
-  /// историю. Для invite-пути отсутствие genesis допустимо.
+  /// До применения событий закрепляет доверенный genesis в движке и проверяет
+  /// его. Чужие `GroupCreated` не принимаются конвейером и не блокируют группу.
+  /// Для invite-пути отсутствие genesis допустимо до первого sync.
+  ///
+  /// `Ok` возвращается только после успешной проверки и применения истории;
+  /// параллельные вызовы ожидают один и тот же результат.
   Future<domain.Result<void, GroupSyncError>> start() async {
-    if (_fatalError != null) {
-      return domain.Err(_fatalError!);
+    if (_closed) {
+      return const domain.Err(MalformedGroupEvent('bridge is closed'));
+    }
+    final fatal = _fatalError;
+    if (fatal != null) {
+      return domain.Err(fatal);
     }
     if (_started) {
       return const domain.Ok(null);
     }
-    if (_closed) {
-      return const domain.Err(MalformedGroupEvent('bridge is closed'));
+    final inFlight = _startAttempt;
+    if (inFlight != null) {
+      return inFlight;
     }
-    _started = true;
-    await _syncEngine.registerGroup(_groupId);
-    final validated = await _validateGenesis();
-    if (validated.isErr) {
-      _started = false;
-      _fatalError = validated.unwrapErr();
-      return domain.Err(_fatalError!);
+    final attempt = _start();
+    _startAttempt = attempt;
+    try {
+      return await attempt;
+    } finally {
+      if (!_started) _startAttempt = null;
     }
-    await _refresh();
-    if (_fatalError != null) {
-      _started = false;
-      return domain.Err(_fatalError!);
+  }
+
+  Future<domain.Result<void, GroupSyncError>> _start() async {
+    try {
+      if (_fatalError != null) {
+        return domain.Err(_fatalError!);
+      }
+      final pinned = await _syncEngine.pinGroupRoot(
+        _groupId,
+        _controller.genesisEventId,
+      );
+      if (pinned.isErr) {
+        final error = pinned.unwrapErr();
+        _fatalError = error is ForeignGroupRoot
+            ? GenesisConflict(
+                _controller.genesisEventId,
+                domain.EventId(error.expected),
+              )
+            : SyncEngineFailure(error);
+        return domain.Err(_fatalError!);
+      }
+      await _syncEngine.registerGroup(_groupId);
+      final validated = await _validateGenesis();
+      if (validated.isErr) {
+        _fatalError = validated.unwrapErr();
+        return domain.Err(_fatalError!);
+      }
+      _genesisValidated = validated.unwrap();
+
+      _subscription = _syncEngine.changes.listen((_) {
+        _refreshTail = _refreshTail.then((_) => _refresh());
+      });
+      await _refresh();
+      if (_closed) {
+        await _stopSubscription();
+        return const domain.Err(MalformedGroupEvent('bridge is closed'));
+      }
+      if (_fatalError != null) {
+        await _stopSubscription();
+        return domain.Err(_fatalError!);
+      }
+      _started = true;
+      return const domain.Ok(null);
+    } on Object catch (error) {
+      await _stopSubscription();
+      return domain.Err(SyncEngineFailure(error));
     }
-    _subscription = _syncEngine.changes.listen((_) {
-      _refreshTail = _refreshTail.then((_) => _refresh());
-    });
-    return const domain.Ok(null);
+  }
+
+  Future<void> _stopSubscription() async {
+    await _subscription?.cancel();
+    _subscription = null;
   }
 
   /// Публикует доменное событие и применяет его к контроллеру.
   ///
-  /// Для `GroupCreated` дополнительно публикует `MemberAdded` для начальных
+  /// Требует успешного [start] и отсутствия неустранимой ошибки корня. Для
+  /// `GroupCreated` дополнительно публикует `MemberAdded` для начальных
   /// участников, потому что `core_sync` не разбирает `initialMembers`.
   Future<domain.Result<domain.GroupEvent, GroupSyncError>> publish(
     domain.GroupEvent draft,
-  ) async {
+  ) {
+    return _publish(draft, requireStarted: true);
+  }
+
+  Future<domain.Result<domain.GroupEvent, GroupSyncError>> _publish(
+    domain.GroupEvent draft, {
+    required bool requireStarted,
+  }) async {
     if (_closed) {
       return const domain.Err(MalformedGroupEvent('bridge is closed'));
+    }
+    final fatal = _fatalError;
+    if (fatal != null) {
+      return domain.Err(fatal);
+    }
+    if (requireStarted && !_started) {
+      return const domain.Err(MalformedGroupEvent('bridge is not started'));
+    }
+    if (requireStarted && !_genesisValidated) {
+      return const domain.Err(
+        MalformedGroupEvent('trusted genesis is not validated'),
+      );
     }
     if (draft.groupId != _groupId) {
       return domain.Err(GroupIdMismatchError(_groupId, draft.groupId));
@@ -160,16 +232,20 @@ class GroupSyncBridge implements domain.IGroupState {
           prevId: prev,
           userId: member,
         );
-        await publish(memberDraft);
+        await _publish(memberDraft, requireStarted: requireStarted);
       }
     }
 
     return domain.Ok(event);
   }
 
-  Future<domain.Result<void, GroupSyncError>> _validateGenesis() async {
+  /// Возвращает `true`, если доверенный genesis найден и проверен, и `false`
+  /// если он ещё не пришёл (допустимо только для invite-пути).
+  Future<domain.Result<bool, GroupSyncError>> _validateGenesis([
+    List<SyncEvent>? cached,
+  ]) async {
     final expectedId = _controller.genesisEventId;
-    final events = await _syncEngine.allEvents(_groupId);
+    final events = cached ?? await _syncEngine.allEvents(_groupId);
     SyncEvent? expected;
     domain.EventId? conflict;
     for (final event in events) {
@@ -184,7 +260,7 @@ class GroupSyncBridge implements domain.IGroupState {
       return domain.Err(GenesisConflict(expectedId, conflict));
     }
     if (expected == null) {
-      if (_allowMissingGenesis) return const domain.Ok(null);
+      if (_allowMissingGenesis) return const domain.Ok(false);
       return domain.Err(GenesisMissing(_groupId, expectedId));
     }
 
@@ -226,7 +302,7 @@ class GroupSyncBridge implements domain.IGroupState {
     if (!signatureValid) {
       return const domain.Err(InvalidGenesis('invalid signature'));
     }
-    return const domain.Ok(null);
+    return const domain.Ok(true);
   }
 
   Future<void> _refresh() async {
@@ -238,20 +314,29 @@ class GroupSyncBridge implements domain.IGroupState {
       if (!_codec.isGroupEventKind(syncEvent.kind)) continue;
       if (syncEvent.kind == SyncEventKind.groupCreated &&
           syncEvent.id != genesisId) {
-        _fatalError = GenesisConflict(genesisId, syncEvent.id);
-        return;
+        continue;
       }
       final decoded = _codec.decode(syncEvent);
       if (decoded.isErr) continue;
       groupEvents.add(decoded.unwrap());
     }
+    if (!_genesisValidated &&
+        events.any(
+          (event) =>
+              event.kind == SyncEventKind.groupCreated && event.id == genesisId,
+        )) {
+      final validated = await _validateGenesis(events);
+      if (validated.isErr) {
+        _fatalError = validated.unwrapErr();
+        await _emit();
+        return;
+      }
+      _genesisValidated = true;
+    }
     groupEvents.sort(GroupState.compareEvents);
     for (final event in groupEvents) {
       if (_closed || _fatalError != null) return;
-      if (event is domain.GroupCreated && event.id != genesisId) {
-        _fatalError = GenesisConflict(genesisId, event.id);
-        return;
-      }
+      if (event is domain.GroupCreated && event.id != genesisId) continue;
       final existing = _controller.event(event.id);
       if (existing != null && GroupState.compareBodies(event, existing) >= 0) {
         continue;
@@ -288,6 +373,8 @@ class GroupSyncBridge implements domain.IGroupState {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    _started = false;
+    _startAttempt = null;
     await _subscription?.cancel();
     _subscription = null;
     await _changes.close();
@@ -333,6 +420,10 @@ class GroupSyncBridge implements domain.IGroupState {
       return domain.Err(SyncEngineFailure(created.unwrapErr()));
     }
     final syncEvent = created.unwrap();
+    final pinned = await syncEngine.pinGroupRoot(groupId, syncEvent.id);
+    if (pinned.isErr) {
+      return domain.Err(SyncEngineFailure(pinned.unwrapErr()));
+    }
     final controller = GroupController(
       distributor: distributor,
       expectedGroupId: groupId,
@@ -367,7 +458,7 @@ class GroupSyncBridge implements domain.IGroupState {
         prevId: prev,
         userId: member,
       );
-      final result = await bridge.publish(memberDraft);
+      final result = await bridge._publish(memberDraft, requireStarted: false);
       if (result.isErr) {
         await bridge.close();
         return domain.Err(result.unwrapErr());

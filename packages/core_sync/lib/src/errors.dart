@@ -54,7 +54,6 @@ class EventIdMismatch extends SyncError {
   String toString() => 'EventIdMismatch(claimed=$claimed)';
 }
 
-
 class HlcTooFarInFuture extends SyncError {
   const HlcTooFarInFuture(this.eventHlc, this.nowMs, this.limitMs);
 
@@ -97,6 +96,16 @@ class NotAMember extends SyncError {
 
   @override
   String toString() => 'NotAMember(author=$authorId, group=$groupId)';
+}
+
+/// Событие `groupCreated`, не совпадающее с доверенным корнем группы.
+class ForeignGroupRoot extends SyncError {
+  const ForeignGroupRoot(this.expected, this.claimed);
+  final String expected;
+  final String claimed;
+
+  @override
+  String toString() => 'ForeignGroupRoot(expected=$expected, claimed=$claimed)';
 }
 
 class StorageWriteFailure extends SyncError {

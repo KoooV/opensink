@@ -240,6 +240,121 @@ void main() {
       },
     );
 
+    test(
+      'pending create игнорирует чужой genesis при восстановлении',
+      () async {
+        final owner = FakeIdentity(testUserId(1));
+        final attacker = FakeIdentity(testUserId(9));
+        final engine = SyncEngineImpl(
+          store: MemorySyncEventStore(),
+          signer: owner.signer,
+          localAuthor: owner.author,
+        );
+        addTearDown(engine.close);
+        const groupId = GroupId('pending-foreign');
+        const codec = GroupEventCodec();
+        final payload = codec
+            .encode(
+              GroupCreated(
+                id: const EventId(''),
+                groupId: groupId,
+                authorId: owner.author,
+                timestamp: 0,
+                name: 'Recovered by owner',
+                ownerId: owner.author,
+                initialMembers: {owner.author},
+              ),
+            )
+            .unwrap();
+        final local = await engine.createEvent(
+          groupId: groupId,
+          kind: SyncEventKind.groupCreated,
+          payload: payload,
+        );
+        final foreign = await signedEventWith(
+          identity: attacker,
+          draft: GroupCreated(
+            id: const EventId(''),
+            groupId: groupId,
+            authorId: attacker.author,
+            timestamp: 0,
+            name: 'Foreign',
+            ownerId: attacker.author,
+            initialMembers: {attacker.author},
+          ),
+          hlc: Hlc(engine.lastHlc.physicalMs + 1, 0),
+        );
+        expect((await engine.ingest(foreign)).isOk, isTrue);
+
+        final metadataStore = MemoryGroupMetadataStore();
+        await metadataStore.save(
+          const GroupMetadata(
+            groupId: groupId,
+            origin: GroupOrigin.created,
+            createdAt: 1,
+          ),
+        );
+        final lifecycle = lifecycleFor(
+          engine: engine,
+          metadataStore: metadataStore,
+        );
+
+        final recovered = await lifecycle.recoverPendingGroups();
+
+        expect(recovered.isOk, isTrue);
+        final metadata = (await metadataStore.load(groupId)).unwrap()!;
+        expect(metadata.genesisEventId, local.unwrap().id);
+        final opened = await lifecycle.open(groupId);
+        expect(opened.isOk, isTrue);
+        final bridge = opened.unwrap();
+        addTearDown(bridge.close);
+        expect(bridge.state.name, 'Recovered by owner');
+      },
+    );
+
+    test('pending create с чужим корнем не удаляет метаданные', () async {
+      final owner = FakeIdentity(testUserId(1));
+      final attacker = FakeIdentity(testUserId(9));
+      final engine = SyncEngineImpl(
+        store: MemorySyncEventStore(),
+        signer: owner.signer,
+        localAuthor: owner.author,
+      );
+      addTearDown(engine.close);
+      const groupId = GroupId('pending-foreign-only');
+      final foreign = await signedEventWith(
+        identity: attacker,
+        draft: GroupCreated(
+          id: const EventId(''),
+          groupId: groupId,
+          authorId: attacker.author,
+          timestamp: 0,
+          name: 'Foreign',
+          ownerId: attacker.author,
+          initialMembers: {attacker.author},
+        ),
+        hlc: const Hlc(1, 0),
+      );
+      expect((await engine.ingest(foreign)).isOk, isTrue);
+      final metadataStore = MemoryGroupMetadataStore();
+      await metadataStore.save(
+        const GroupMetadata(
+          groupId: groupId,
+          origin: GroupOrigin.created,
+          createdAt: 1,
+        ),
+      );
+
+      final recovered = await lifecycleFor(
+        engine: engine,
+        metadataStore: metadataStore,
+      ).recoverPendingGroups();
+
+      expect(recovered.isErr, isTrue);
+      expect(recovered.unwrapErr(), isA<GroupRootConflict>());
+      expect((await metadataStore.load(groupId)).unwrap(), isNotNull);
+    });
+
     test('pending create без событий удаляется', () async {
       final owner = FakeIdentity(testUserId(1));
       final engine = SyncEngineImpl(
