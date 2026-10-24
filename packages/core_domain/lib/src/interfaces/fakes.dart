@@ -13,6 +13,8 @@ import '../interfaces/transport.dart';
 import '../interfaces/relay.dart';
 import '../interfaces/media_topology.dart';
 import '../interfaces/event_store.dart';
+import '../interfaces/group_metadata_store.dart';
+import '../models/group_metadata.dart';
 import '../interfaces/sync_engine.dart';
 import '../interfaces/group_state.dart';
 import '../interfaces/secure_key_store.dart';
@@ -284,6 +286,55 @@ class FakeEventStore implements EventStore {
 
   @override
   Future<void> close() async => await _controller.close();
+}
+
+// ---------------------------------------------------------------------------
+// GroupMetadataStore
+// ---------------------------------------------------------------------------
+
+class MemoryGroupMetadataStore implements GroupMetadataStore {
+  final Map<String, GroupMetadata> _groups = {};
+  GroupId? _active;
+
+  @override
+  Future<Result<GroupMetadata?, GroupMetadataError>> load(
+    GroupId groupId,
+  ) async {
+    return Ok(_groups[groupId.value]);
+  }
+
+  @override
+  Future<Result<List<GroupMetadata>, GroupMetadataError>> list() async {
+    final result = _groups.values.toList()
+      ..sort((a, b) => a.groupId.value.compareTo(b.groupId.value));
+    return Ok(result);
+  }
+
+  @override
+  Future<Result<void, GroupMetadataError>> save(GroupMetadata metadata) async {
+    _groups[metadata.groupId.value] = metadata;
+    return const Ok(null);
+  }
+
+  @override
+  Future<Result<void, GroupMetadataError>> delete(GroupId groupId) async {
+    _groups.remove(groupId.value);
+    if (_active == groupId) _active = null;
+    return const Ok(null);
+  }
+
+  @override
+  Future<Result<GroupId?, GroupMetadataError>> loadActiveGroup() async {
+    return Ok(_active);
+  }
+
+  @override
+  Future<Result<void, GroupMetadataError>> saveActiveGroup(
+    GroupId? groupId,
+  ) async {
+    _active = groupId;
+    return const Ok(null);
+  }
 }
 
 // ---------------------------------------------------------------------------

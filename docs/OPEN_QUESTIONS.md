@@ -168,14 +168,6 @@ ingest отсекал бы поздние легитимные события; �
 проверкой в `core_signaling`, затем передавать проверенные анонсы в
 `RelayTopology`.
 
-## Q38 — Доверенный genesis и создание groupId
-
-Ревью 2026-10-25 (G-01, G-02): выбор genesis по локальному `(HLC,id)` и
-автосоздание `GroupId('main')` позволяют закрепить чужой/бэкдейтнутый корень или
-получить форк. Нужно решить источник доверия: сохранённые метаданные группы,
-инвайт или отдельный authorizer; когда генерируется groupId; как UI показывает
-конфликт genesis. До решения restore должен быть fail-closed.
-
 ## Q39 — Персистентность GroupSecret
 
 Ревью 2026-10-25 (G-06): без сохранённого `GroupSecret` production-DI не может
@@ -193,7 +185,10 @@ Vault) и политику ротации при удалении участни
 - `core_group` получает из `core_sync` события с проверенным
   `id == SHA-256(canonical body)`; выбор тела не заменяет проверку id.
 - Корень группы обязателен: `expectedGroupId` и `genesisEventId` в
-  `GroupState.fromEvents` и конструкторе `GroupController`.
+  `GroupState.fromEvents` и конструкторе `GroupController`. Доверенный корень
+  хранится в `GroupMetadataStore`: create генерирует `groupId` до genesis,
+  инвайт несёт `gen`; restore/join при отсутствии или конфликте — fail-closed
+  (`apps/app` больше не выбирает genesis по HLC).
 - Форк цепочки: `fromEvents` выбирает меньшего HLC-валидного ребёнка;
   `GroupController` хранит журнал и пересчитывает проекцию, поэтому порядок
   доставки и форки сходятся.

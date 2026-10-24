@@ -128,6 +128,7 @@ void main() {
   test('InviteLink не раскрывает секрет в toString и восстанавливается', () {
     const link = InviteLink(
       groupId: testGroupId,
+      genesisEventId: EventId('genesis-1'),
       inviteId: 'inv-1',
       secret: 'secret-token',
       inviterId: owner,
@@ -140,10 +141,21 @@ void main() {
     expect(decoded.isOk, isTrue);
     final parsed = decoded.unwrap();
     expect(parsed.groupId, testGroupId);
+    expect(parsed.genesisEventId, const EventId('genesis-1'));
     expect(parsed.inviteId, 'inv-1');
     expect(parsed.secret, 'secret-token');
     expect(parsed.inviterId, owner);
     expect(parsed.relayHint, 'wss://relay.example');
     expect(link.toString(), isNot(contains('secret-token')));
+  });
+
+  test('инвайт без genesis отклоняется', () {
+    final decoded = InviteLink.parse(
+      'opensink://invite?gid=group&iid=inv-1&s=secret&admin=$owner',
+    );
+
+    expect(decoded.isErr, isTrue);
+    expect(decoded.unwrapErr(), isA<MissingInviteField>());
+    expect((decoded.unwrapErr() as MissingInviteField).field, 'gen');
   });
 }

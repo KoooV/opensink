@@ -27,7 +27,8 @@ class MissingInviteField extends InviteLinkError {
   String toString() => 'MissingInviteField($field)';
 }
 
-/// Инвайт-ссылка: gid, inviteId, group_secret, публичный ключ админа, relay hint.
+/// Инвайт-ссылка: gid, genesis id, inviteId, group_secret, публичный ключ
+/// админа, relay hint.
 ///
 /// [secret] не попадает в [toString]. Утечка ссылки раскрывает секрет темы
 /// signaling; для чувствительных групп нужен режим approval и ротация ключей.
@@ -35,6 +36,7 @@ class MissingInviteField extends InviteLinkError {
 class InviteLink {
   const InviteLink({
     required this.groupId,
+    required this.genesisEventId,
     required this.inviteId,
     required this.secret,
     required this.inviterId,
@@ -42,6 +44,9 @@ class InviteLink {
   });
 
   final GroupId groupId;
+
+  /// Доверенный корень группы из ссылки.
+  final EventId genesisEventId;
   final String inviteId;
   final String secret;
   final UserId inviterId;
@@ -53,6 +58,7 @@ class InviteLink {
       host: 'invite',
       queryParameters: {
         'gid': groupId.value,
+        'gen': genesisEventId.value,
         'iid': inviteId,
         's': secret,
         'admin': inviterId.value,
@@ -68,12 +74,16 @@ class InviteLink {
     }
     final params = uri.queryParameters;
     final groupId = params['gid'];
+    final genesis = params['gen'];
     final inviteId = params['iid'];
     final secret = params['s'];
     final admin = params['admin'];
 
     if (groupId == null || groupId.isEmpty) {
       return const Err(MissingInviteField('gid'));
+    }
+    if (genesis == null || genesis.isEmpty) {
+      return const Err(MissingInviteField('gen'));
     }
     if (inviteId == null || inviteId.isEmpty) {
       return const Err(MissingInviteField('iid'));
@@ -88,6 +98,7 @@ class InviteLink {
     return Ok(
       InviteLink(
         groupId: GroupId(groupId),
+        genesisEventId: EventId(genesis),
         inviteId: inviteId,
         secret: secret,
         inviterId: UserId(admin),
@@ -98,6 +109,7 @@ class InviteLink {
 
   @override
   String toString() =>
-      'InviteLink(groupId=$groupId, inviteId=$inviteId, '
-      'secret=<hidden>, inviterId=$inviterId, relayHint=$relayHint)';
+      'InviteLink(groupId=$groupId, genesisEventId=$genesisEventId, '
+      'inviteId=$inviteId, secret=<hidden>, inviterId=$inviterId, '
+      'relayHint=$relayHint)';
 }

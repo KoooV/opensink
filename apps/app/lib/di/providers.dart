@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:developer' as developer;
 
 import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
@@ -9,7 +8,6 @@ import 'package:core_storage/core_storage.dart';
 import 'package:core_sync/core_sync.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../group/genesis_selection.dart';
 import 'secure_key_store_platform.dart';
 import 'storage_backend_platform.dart';
 
@@ -146,54 +144,78 @@ final groupKeyDistributorProvider = Provider<GroupKeyDistributor>((ref) {
   return InMemoryGroupKeyDistributor();
 });
 
-/// Группа, открытая в UI (появится вместе с экраном списка групп).
-final activeGroupIdProvider = StateProvider<GroupId>(
-  (ref) => const GroupId('main'),
-);
+/// Доверенные метаданные групп (genesis, активная группа).
+final groupMetadataStoreProvider = FutureProvider<GroupMetadataStore>((
+  ref,
+) async {
+  final db = await ref.watch(appDatabaseProvider.future);
+  return DriftGroupMetadataStore(db);
+});
 
-/// Мост группы: восстанавливает существующий genesis из лога либо создаёт
-/// группу с текущей identity как владельцем.
-final groupSyncBridgeProvider =
-    FutureProvider.family<GroupSyncBridge, GroupId>((ref, groupId) async {
-      final engine = await ref.watch(syncEngineProvider.future);
-      final distributor = ref.watch(groupKeyDistributorProvider);
-      final events = await engine.allEvents(groupId);
-      final selection = selectGenesis(events);
-      if (selection.duplicateCount > 0) {
-        developer.log(
-          'Найдено genesis-событий: ${selection.duplicateCount + 1}; '
-          'выбран самый ранний',
-          name: 'opensink.group',
-        );
+/// Создание, join и открытие групп по сохранённому корню.
+final groupLifecycleProvider = FutureProvider<GroupLifecycle>((ref) async {
+  final engine = await ref.watch(syncEngineProvider.future);
+  final metadataStore = await ref.watch(groupMetadataStoreProvider.future);
+  return GroupLifecycle(
+    syncEngine: engine,
+    metadataStore: metadataStore,
+    distributor: ref.watch(groupKeyDistributorProvider),
+  );
+});
+
+/// Активная группа. Загружается из метаданных, по умолчанию отсутствует.
+class ActiveGroupController extends AsyncNotifier<GroupId?> {
+  @override
+  Future<GroupId?> build() async {
+    final lifecycle = await ref.watch(groupLifecycleProvider.future);
+    final loaded = await lifecycle.loadActiveGroup();
+    if (loaded.isErr) {
+      throw StateError(
+        'Не удалось загрузить активную группу: ${loaded.unwrapErr()}',
+      );
+    }
+    return loaded.unwrap();
+  }
+
+  Future<void> select(GroupId? groupId) async {
+    final lifecycle = await ref.read(groupLifecycleProvider.future);
+    final saved = await lifecycle.setActiveGroup(groupId);
+    if (saved.isErr) {
+      throw StateError(
+        'Не удалось сохранить активную группу: ${saved.unwrapErr()}',
+      );
+    }
+    state = AsyncData(groupId);
+  }
+}
+
+final activeGroupIdProvider =
+    AsyncNotifierProvider<ActiveGroupController, GroupId?>(
+      ActiveGroupController.new,
+    );
+
+/// Ошибка открытия группы для UI.
+class GroupOpenException implements Exception {
+  const GroupOpenException(this.error);
+
+  final GroupLifecycleError error;
+
+  @override
+  String toString() => 'GroupOpenException($error)';
+}
+
+/// Мост группы, открытый по доверенным метаданным.
+///
+/// Никакого выбора genesis из лога и автосоздания: группа должна быть
+/// создана через `GroupLifecycle.createGroup` или открыта по инвайту.
+final groupSyncBridgeProvider = FutureProvider.autoDispose
+    .family<GroupSyncBridge, GroupId>((ref, groupId) async {
+      final lifecycle = await ref.watch(groupLifecycleProvider.future);
+      final opened = await lifecycle.open(groupId);
+      if (opened.isErr) {
+        throw GroupOpenException(opened.unwrapErr());
       }
-      final existingGenesis = selection.genesis;
-
-      final GroupSyncBridge bridge;
-      if (existingGenesis == null) {
-        final created = await GroupSyncBridge.create(
-          syncEngine: engine,
-          groupId: groupId,
-          name: 'Group ${groupId.value}',
-          distributor: distributor,
-        );
-        if (created.isErr) {
-          throw StateError('Не удалось создать группу: ${created.unwrapErr()}');
-        }
-        bridge = created.unwrap();
-      } else {
-        final controller = GroupController(
-          distributor: distributor,
-          expectedGroupId: groupId,
-          genesisEventId: existingGenesis.id,
-        );
-        bridge = GroupSyncBridge(
-          syncEngine: engine,
-          controller: controller,
-          groupId: groupId,
-        );
-        await bridge.start();
-      }
-
+      final bridge = opened.unwrap();
       ref.onDispose(() => unawaited(bridge.close()));
       return bridge;
     });

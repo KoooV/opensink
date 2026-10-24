@@ -14,5 +14,6 @@ export 'src/database/schema.dart';
 export 'src/models/event_data.dart';
 export 'src/models/storage_info.dart';
 export 'src/event_store_impl.dart';
+export 'src/group_metadata_store_impl.dart';
 export 'src/retention.dart';
 export 'src/platform/storage_backend_result.dart';

@@ -80,6 +80,40 @@ class ControllerFailure extends GroupSyncError {
   String toString() => 'ControllerFailure($error)';
 }
 
+/// Доверенный genesis отсутствует в логе.
+class GenesisMissing extends GroupSyncError {
+  const GenesisMissing(this.groupId, this.genesisEventId);
+
+  final GroupId groupId;
+  final EventId genesisEventId;
+
+  @override
+  String toString() =>
+      'GenesisMissing(${groupId.value}, ${genesisEventId.value})';
+}
+
+/// В логе найден `GroupCreated`, отличный от доверенного корня.
+class GenesisConflict extends GroupSyncError {
+  const GenesisConflict(this.expected, this.actual);
+
+  final EventId expected;
+  final EventId actual;
+
+  @override
+  String toString() =>
+      'GenesisConflict(expected=${expected.value}, actual=${actual.value})';
+}
+
+/// Доверенный genesis не прошёл проверку тела, автора или подписи.
+class InvalidGenesis extends GroupSyncError {
+  const InvalidGenesis(this.reason);
+
+  final String reason;
+
+  @override
+  String toString() => 'InvalidGenesis($reason)';
+}
+
 /// Канонический кодек групповых событий в payload `SyncEvent`.
 ///
 /// Payload — плоский `core_protocol.GroupEvent`. Поля `id/groupId/authorId/
@@ -231,10 +265,7 @@ class GroupEventCodec {
         role: e.role.name,
         domainPrevId: prev,
       ),
-      KeyRotated e => base.copyWith(
-        newEpoch: e.newEpoch,
-        domainPrevId: prev,
-      ),
+      KeyRotated e => base.copyWith(newEpoch: e.newEpoch, domainPrevId: prev),
     };
     return Ok(encoded);
   }

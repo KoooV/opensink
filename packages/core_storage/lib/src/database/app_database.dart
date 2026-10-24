@@ -779,6 +779,44 @@ class AppDatabase implements QueryExecutorUser {
     });
   }
 
+  Future<Map<String, Object?>?> selectGroupSetting({
+    required String groupId,
+    required String key,
+  }) async {
+    return await _open(() async {
+      final rows = await _executor.runSelect(
+        'SELECT id, group_id, key, value, updated_at FROM group_settings '
+        'WHERE group_id = ? AND key = ?',
+        [groupId, key],
+      );
+      return rows.isEmpty ? null : rows.first;
+    });
+  }
+
+  Future<List<Map<String, Object?>>> selectGroupSettingsByKey(
+    String key,
+  ) async {
+    return await _open(() async {
+      return await _executor.runSelect(
+        'SELECT id, group_id, key, value, updated_at FROM group_settings '
+        'WHERE key = ?',
+        [key],
+      );
+    });
+  }
+
+  Future<int> deleteGroupSetting({
+    required String groupId,
+    required String key,
+  }) async {
+    return await _open(() async {
+      return await _executor.runDelete(
+        'DELETE FROM group_settings WHERE group_id = ? AND key = ?',
+        [groupId, key],
+      );
+    });
+  }
+
   // -------------------------------------------------------------------------
   // Blobs meta
   // -------------------------------------------------------------------------
