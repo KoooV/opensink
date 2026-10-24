@@ -46,7 +46,7 @@ OpenSink — кроссплатформенный P2P-мессенджер (Linu
 | `core_signaling` | Nostr (NIP-01), WebTorrent-трекеры, пул реле, защищённый signaling-кодек | Реализовано; LAN/QR отсутствуют |
 | `core_peer` | WebRTC `PeerLink`/`Transport`, perfect negotiation, каналы, статистика | Реализовано |
 | `core_sync` | HLC-лог, anti-entropy, gossip, приоритетная загрузка, tombstones, pending | Реализовано |
-| `core_group` | Права, роли, чистая проекция групповых событий | Заглушка (`TODO(verify)`) |
+| `core_group` | Роли, права, инвайты, конфликты, чистая проекция группы | Реализовано |
 | `core_relay` | Маршрутизация через участников группы | Заглушка (`TODO(verify)`) |
 | `core_media` | Звонки, демонстрация экрана, топологии | Заглушка (`TODO(verify)`) |
 | `platform_android` | SecureKeyStore (Keystore), SQLite-фабрика | Реализовано |
@@ -144,7 +144,7 @@ Drift-схема v7. Основные таблицы: `events`, `groups`, `membe
 
 ## 10. Ограничения и открытые риски
 
-- `core_group`, `core_relay` и `core_media` не реализованы.
+- `core_relay` и `core_media` не реализованы; `core_group` ещё не подключён к `core_sync`.
 - UI не покрывает продуктовые сценарии из `docs/UI_UX.md`.
 - Runtime-версия SQLite в собранных Android/Linux приложениях не подтверждена.
 - Открытые дефекты и остаточные риски: `D-14`, `D-21`, `D-22`, `D-23` в

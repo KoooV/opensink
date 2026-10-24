@@ -10,7 +10,6 @@
 |---|--------|--------|
 | TODO-01 | `packages/core_crypto/test/bip39_integrity_test.dart:55` | Q33 |
 | TODO-02 | `packages/core_crypto/test/bip39_integrity_test.dart:172` | Q33 |
-| TODO-03 | `packages/core_group/lib/core_group.dart:3` | Q12 |
 | TODO-04 | `packages/core_media/lib/core_media.dart:3` | Q13 |
 | TODO-05 | `packages/core_relay/lib/core_relay.dart:3` | Q16 |
 | TODO-06 | `packages/core_signaling/lib/src/nostr_signaling.dart:31` | Q17 |
@@ -35,11 +34,6 @@
 
 TTL SPK (предлагается 7 дней), grace period и распространение новой SPK без
 координатора остаются открытыми. Триггер ротации должен определить слой групп.
-
-## Q12 — `core_group`: права и проекция состояния
-
-`packages/core_group/lib/core_group.dart:3` содержит `TODO(verify)`. Нужно
-реализовать права/роли, `Group.apply` и валидацию инвариантов групповых событий.
 
 ## Q13 — `core_media`: звонки, экран, топологии
 
