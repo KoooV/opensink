@@ -14,6 +14,8 @@ dependencies:
     path: ../../packages/core_domain
   core_crypto:
     path: ../../packages/core_crypto
+  core_group:
+    path: ../../packages/core_group
   core_signaling:
     path: ../../packages/core_signaling
   core_peer:
@@ -30,6 +32,7 @@ dependencies:
     path: ../../packages/platform_web
   riverpod: ^2.5.1
   flutter_riverpod: ^2.5.1
+  cryptography: ^2.9.0
 
 dev_dependencies:
   drift: ^2.17.0

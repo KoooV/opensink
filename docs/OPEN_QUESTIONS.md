@@ -157,8 +157,23 @@ SHA-256 эталонного wordlist, строка 172 фиксирует от�
 | SIG-OPEN-07 | Персистентность replay-кэша | accepted-risk | Оценить угрозу рестарта в пределах clock skew; при необходимости хранить nonces в `core_storage`. |
 | SIG-OPEN-08 | Hardening `NostrEphemeralSigner` | open | Скрыть `privateKeyHex`, оставить test-only factory, исключить ключ из `toString`/логов. |
 
+## Q36 — Бэкдейтинг HLC первого события
+
+HLC/timestamp группового события самозаявляемы. `prevId` и неубывающий HLC
+закрывают бэкдейтинг для автора с историей, но новый участник (или автор без
+предыдущих событий) может указать join раньше истечения инвайта. Watermark на
+ingest отсекал бы поздние легитимные события; полное решение — trusted time или
+причинный DAG/квитанции. Пока принято как риск: `inviteProof` + проверка срока по
+HLC события.
+
 ## Принятые допущения
 
+- HLC цепочки `prevId` неубывающий; равный HLC соседних событий автора допустим.
+- Дубликат `id` с разными телами разрешается детерминированным выбором тела.
+- Корень группы обязателен: `expectedGroupId` и `genesisEventId`.
+- `MemberJoined` требует HMAC `inviteProof`; production-адаптер —
+  `GroupInviteProofVerifier` в `apps/app` (SIG-OPEN-01 не переиспользует
+  payload-ключ группы).
 - `GroupSecret` = членство; отдельный invite-путь отложен (SIG-OPEN-01).
 - Публичные реле/трекеры остаются дефолтом с `TODO(verify)` (SIG-OPEN-02).
 - `neighbors` в hello — caller-supplied; signaling не ведёт топологию.
