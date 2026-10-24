@@ -201,7 +201,7 @@ void main() {
     test('валидный proof добавляет участника', () {
       final state = stateOf([
         created(initialMembers: {owner, alice}),
-        inviteIssued(maxUses: 2),
+        inviteIssued(maxUses: 2, prevId: const EventId('create')),
         joined(userId: carol, inviteProof: 'valid-carol'),
       ], inviteProofVerifier: proofVerifier);
 
@@ -213,7 +213,7 @@ void main() {
       final result = stateOf(
         [
           created(initialMembers: {owner, alice}),
-          inviteIssued(),
+          inviteIssued(prevId: const EventId('create')),
         ],
         inviteProofVerifier: proofVerifier,
       ).apply(joined(userId: carol, inviteProof: ''));
@@ -225,12 +225,18 @@ void main() {
     test('proof от другого инвайта отклоняется', () {
       final state = stateOf([
         created(initialMembers: {owner, alice}),
-        inviteIssued(id: 'invite-one', inviteId: 'inv-1', maxUses: 5),
+        inviteIssued(
+          id: 'invite-one',
+          inviteId: 'inv-1',
+          maxUses: 5,
+          prevId: const EventId('create'),
+        ),
         inviteIssued(
           id: 'invite-two',
           inviteId: 'inv-2',
           maxUses: 5,
           timestamp: 11,
+          prevId: const EventId('invite-one'),
         ),
         joined(userId: carol, inviteId: 'inv-2', inviteProof: 'valid-carol'),
       ], inviteProofVerifier: proofVerifier);
@@ -255,7 +261,11 @@ void main() {
 
       final state = stateOf([
         created(initialMembers: {owner, alice}),
-        inviteIssued(maxUses: 5, expiresAt: 100),
+        inviteIssued(
+          maxUses: 5,
+          expiresAt: 100,
+          prevId: const EventId('create'),
+        ),
         late,
         backdated,
       ], inviteProofVerifier: proofVerifier);
@@ -266,7 +276,11 @@ void main() {
     test('просроченный инвайт отклоняется даже с валидным proof', () {
       final state = stateOf([
         created(initialMembers: {owner, alice}),
-        inviteIssued(maxUses: 5, expiresAt: 100),
+        inviteIssued(
+          maxUses: 5,
+          expiresAt: 100,
+          prevId: const EventId('create'),
+        ),
         joined(userId: carol, inviteProof: 'valid-carol', timestamp: 101),
       ], inviteProofVerifier: proofVerifier);
 

@@ -1,7 +1,7 @@
 # Состояние
 ## Сделано
-- core_group: роли, инвайты, конфликты, ротация, обязательный genesis, invite-proof; 42 теста + HMAC-адаптер в app.
+- core_group: роли, инвайты, конфликты, ротация, genesis/цепочка в apply и GroupController, дедуп после фильтра группы; 52 теста + HMAC-адаптер в app.
 ## Дальше
-- Закрыть 3 blocker ревью: цепочка/genesis в apply и GroupController, дедуп до фильтра группы.
+- Ревью core_group: 2 blocker (reorder/fork в GroupController, курсор не двигается при семантическом Err) и 3 major (топопорядок fromEvents, курсоры в публичной фабрике, дедуп по телу в apply).
 ## Открытые вопросы
-- Legacy GroupState; trusted time; ротация GroupSecret при удалении; затем SyncEventKind и интеграция.
+- Legacy GroupState; trusted time (принятый риск Q36); сериализация genesis/cursors; ротация GroupSecret при удалении; затем SyncEventKind и интеграция.

@@ -20,6 +20,14 @@ class GroupIdMismatch extends GroupError {
   const GroupIdMismatch();
 }
 
+class GenesisMismatch extends GroupError {
+  const GenesisMismatch();
+}
+
+class EventChainBroken extends GroupError {
+  const EventChainBroken();
+}
+
 class InvalidEvent extends GroupError {
   const InvalidEvent(this.error);
 

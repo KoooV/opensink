@@ -79,10 +79,15 @@ void main() {
         inviteIssued(mode: InviteMode.approval, maxUses: 1),
         joined(userId: carol),
       ];
-      final result = buildState(
-        setup,
-        inviteProofVerifier: allowAllProofs,
-      ).apply(approved(userId: carol, authorId: carol, timestamp: 30));
+      final result = buildState(setup, inviteProofVerifier: allowAllProofs)
+          .apply(
+            approved(
+              userId: carol,
+              authorId: carol,
+              timestamp: 30,
+              prevId: const EventId('join-1'),
+            ),
+          );
 
       expect(result.isErr, isTrue);
       expect(result.unwrapErr(), isA<Forbidden>());
@@ -93,10 +98,14 @@ void main() {
         created(initialMembers: {owner, alice}),
         inviteIssued(mode: InviteMode.approval, maxUses: 1),
       ];
-      final result = buildState(
-        setup,
-        inviteProofVerifier: allowAllProofs,
-      ).apply(approved(userId: carol, timestamp: 30));
+      final result = buildState(setup, inviteProofVerifier: allowAllProofs)
+          .apply(
+            approved(
+              userId: carol,
+              timestamp: 30,
+              prevId: const EventId('invite-1'),
+            ),
+          );
 
       expect(result.isErr, isTrue);
       expect(result.unwrapErr(), isA<JoinNotPending>());

@@ -110,7 +110,13 @@ void main() {
         isA<Forbidden>(),
       );
       final deleted = state
-          .apply(channelDeleted(authorId: owner, timestamp: 50))
+          .apply(
+            channelDeleted(
+              authorId: owner,
+              timestamp: 50,
+              prevId: const EventId('channel-1'),
+            ),
+          )
           .unwrap();
       expect(deleted.channels, isEmpty);
     });

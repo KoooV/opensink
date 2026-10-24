@@ -6,17 +6,29 @@ import 'package:test/test.dart';
 
 import 'support/fixtures.dart';
 
+GroupController createController(InMemoryGroupKeyDistributor distributor) =>
+    GroupController(
+      distributor: distributor,
+      expectedGroupId: testGroupId,
+      genesisEventId: const EventId('create'),
+    );
+
 void main() {
   test(
     'удаление участника повышает эпоху и рассылает ключ оставшимся',
     () async {
       final distributor = InMemoryGroupKeyDistributor();
-      final controller = GroupController(distributor: distributor);
+      final controller = createController(distributor);
       final keyPackage = Uint8List.fromList([1, 2, 3]);
 
       await controller.apply(created());
       await controller.apply(
-        roleSet(id: 'role-alice', userId: alice, role: GroupRole.admin),
+        roleSet(
+          id: 'role-alice',
+          userId: alice,
+          role: GroupRole.admin,
+          prevId: const EventId('create'),
+        ),
       );
       final result = await controller.apply(
         removed(id: 'kick-bob', authorId: alice, userId: bob),
@@ -41,11 +53,16 @@ void main() {
 
   test('ручная KeyRotated двигает эпоху вперёд', () async {
     final distributor = InMemoryGroupKeyDistributor();
-    final controller = GroupController(distributor: distributor);
+    final controller = createController(distributor);
 
     await controller.apply(created());
     final result = await controller.apply(
-      keyRotated(id: 'rotate-manual', newEpoch: 5, timestamp: 20),
+      keyRotated(
+        id: 'rotate-manual',
+        newEpoch: 5,
+        timestamp: 20,
+        prevId: const EventId('create'),
+      ),
       localPeerId: owner,
     );
 
@@ -57,11 +74,16 @@ void main() {
 
   test('эпоху нельзя откатить назад', () async {
     final distributor = InMemoryGroupKeyDistributor();
-    final controller = GroupController(distributor: distributor);
+    final controller = createController(distributor);
 
     await controller.apply(created());
     final result = await controller.apply(
-      keyRotated(id: 'rotate-back', newEpoch: 1, timestamp: 20),
+      keyRotated(
+        id: 'rotate-back',
+        newEpoch: 1,
+        timestamp: 20,
+        prevId: const EventId('create'),
+      ),
     );
 
     expect(result.isErr, isTrue);

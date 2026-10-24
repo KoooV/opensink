@@ -110,6 +110,31 @@ class InviteRecord {
       'InviteRecord(id=$inviteId, mode=$mode, uses=$uses, maxUses=$maxUses)';
 }
 
+/// Последнее принятое событие автора для проверки цепочки `prevId`.
+@immutable
+class _AuthorCursor {
+  const _AuthorCursor({
+    required this.id,
+    required this.timestamp,
+    required this.counter,
+  });
+
+  final EventId id;
+  final int timestamp;
+  final int counter;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _AuthorCursor &&
+          id == other.id &&
+          timestamp == other.timestamp &&
+          counter == other.counter;
+
+  @override
+  int get hashCode => Object.hash(id, timestamp, counter);
+}
+
 /// Чистая проекция административных событий группы.
 @immutable
 class GroupState {
@@ -125,6 +150,8 @@ class GroupState {
     required this.createdAt,
     required this.updatedAt,
     required this.appliedEventIds,
+    required this.genesisEventId,
+    required this._cursors,
   });
 
   factory GroupState({
@@ -139,6 +166,7 @@ class GroupState {
     required int createdAt,
     required int updatedAt,
     required Set<EventId> appliedEventIds,
+    EventId? genesisEventId,
   }) {
     return GroupState._(
       id: id,
@@ -152,6 +180,8 @@ class GroupState {
       createdAt: createdAt,
       updatedAt: updatedAt,
       appliedEventIds: Set.unmodifiable(appliedEventIds),
+      genesisEventId: genesisEventId,
+      cursors: const {},
     );
   }
 
@@ -168,6 +198,8 @@ class GroupState {
         createdAt: 0,
         updatedAt: 0,
         appliedEventIds: const {},
+        genesisEventId: null,
+        cursors: const {},
       );
 
   final GroupId id;
@@ -181,6 +213,8 @@ class GroupState {
   final int createdAt;
   final int updatedAt;
   final Set<EventId> appliedEventIds;
+  final EventId? genesisEventId;
+  final Map<UserId, _AuthorCursor> _cursors;
 
   bool get isInitialized => ownerId.value.isNotEmpty;
 
@@ -200,7 +234,8 @@ class GroupState {
     required EventId genesisEventId,
     InviteProofVerifier? inviteProofVerifier,
   }) {
-    final unique = _resolveDuplicates(events);
+    final sameGroup = events.where((event) => event.groupId == expectedGroupId);
+    final unique = _resolveDuplicates(sameGroup);
     final sorted = unique.values.toList()..sort(compareEvents);
 
     final creations =
@@ -219,7 +254,11 @@ class GroupState {
     GroupCreated? chosenCreation;
 
     for (final creation in creations) {
-      final applied = state.apply(creation);
+      final applied = state.apply(
+        creation,
+        expectedGroupId: expectedGroupId,
+        genesisEventId: genesisEventId,
+      );
       if (applied.isOk) {
         state = applied.unwrap();
         chosenCreation = creation;
@@ -386,6 +425,8 @@ class GroupState {
   Result<GroupState, GroupError> apply(
     GroupEvent event, {
     InviteProofVerifier? inviteProofVerifier,
+    GroupId? expectedGroupId,
+    EventId? genesisEventId,
   }) {
     if (event is RoleSet && event.role == GroupRole.owner) {
       return const Err(OwnerRoleNotAssignable());
@@ -396,8 +437,16 @@ class GroupState {
       return Err(InvalidEvent(invariants.unwrapErr()));
     }
     if (!isInitialized) {
-      if (event is GroupCreated) return _applyCreated(event);
-      return const Err(NotInitialized());
+      if (event is! GroupCreated) return const Err(NotInitialized());
+      if (expectedGroupId == null ||
+          genesisEventId == null ||
+          event.groupId != expectedGroupId ||
+          event.id != genesisEventId) {
+        return const Err(GenesisMismatch());
+      }
+      final created = _applyCreated(event);
+      if (created.isErr) return created;
+      return Ok(created.unwrap()._advance(event));
     }
     if (event.groupId != id) {
       return const Err(GroupIdMismatch());
@@ -408,8 +457,10 @@ class GroupState {
     if (appliedEventIds.contains(event.id)) {
       return Ok(this);
     }
+    final chain = _validateChain(event);
+    if (chain.isErr) return Err(chain.unwrapErr());
 
-    return switch (event) {
+    final result = switch (event) {
       InviteIssued e => _applyInviteIssued(e),
       MemberJoined e => _applyMemberJoined(e, inviteProofVerifier),
       MemberApproved e => _applyMemberApproved(e),
@@ -423,6 +474,51 @@ class GroupState {
       KeyRotated e => _applyKeyRotated(e),
       GroupCreated e => _applyCreated(e),
     };
+    if (result.isErr) return result;
+    return Ok(result.unwrap()._advance(event));
+  }
+
+  Result<void, GroupError> _validateChain(GroupEvent event) {
+    final cursor = _cursors[event.authorId];
+    if (cursor == null) {
+      return event.prevId == null
+          ? const Ok(null)
+          : const Err(EventChainBroken());
+    }
+    if (event.prevId != cursor.id) return const Err(EventChainBroken());
+    if (event.timestamp < cursor.timestamp ||
+        (event.timestamp == cursor.timestamp &&
+            event.counter < cursor.counter)) {
+      return const Err(EventChainBroken());
+    }
+    return const Ok(null);
+  }
+
+  /// Фиксирует принятое событие как вершину цепочки его автора.
+  GroupState _advance(GroupEvent event) {
+    return GroupState._(
+      id: id,
+      name: name,
+      ownerId: ownerId,
+      members: members,
+      channels: channels,
+      invites: invites,
+      pendingJoins: pendingJoins,
+      keyEpoch: keyEpoch,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      appliedEventIds: appliedEventIds,
+      genesisEventId:
+          genesisEventId ?? (event is GroupCreated ? event.id : null),
+      cursors: {
+        ..._cursors,
+        event.authorId: _AuthorCursor(
+          id: event.id,
+          timestamp: event.timestamp,
+          counter: event.counter,
+        ),
+      },
+    );
   }
 
   Result<GroupState, GroupError> _applyCreated(GroupCreated event) {
@@ -681,7 +777,7 @@ class GroupState {
 
   /// Помечает событие обработанным без изменения содержимого состояния.
   GroupState _withApplied(Set<EventId> ids) {
-    return GroupState(
+    return GroupState._(
       id: id,
       name: name,
       ownerId: ownerId,
@@ -693,6 +789,8 @@ class GroupState {
       createdAt: createdAt,
       updatedAt: updatedAt,
       appliedEventIds: {...appliedEventIds, ...ids},
+      genesisEventId: genesisEventId,
+      cursors: _cursors,
     );
   }
 
@@ -706,7 +804,7 @@ class GroupState {
     Map<UserId, String>? pendingJoins,
     int? keyEpoch,
   }) {
-    return GroupState(
+    return GroupState._(
       id: id,
       name: name ?? this.name,
       ownerId: ownerId ?? this.ownerId,
@@ -718,6 +816,8 @@ class GroupState {
       createdAt: createdAt,
       updatedAt: math.max(updatedAt, event.timestamp),
       appliedEventIds: {...appliedEventIds, event.id},
+      genesisEventId: genesisEventId,
+      cursors: _cursors,
     );
   }
 
@@ -758,6 +858,11 @@ class GroupState {
           const SetEquality<EventId>().equals(
             appliedEventIds,
             other.appliedEventIds,
+          ) &&
+          genesisEventId == other.genesisEventId &&
+          const MapEquality<UserId, _AuthorCursor>().equals(
+            _cursors,
+            other._cursors,
           );
 
   @override
@@ -773,6 +878,8 @@ class GroupState {
     createdAt,
     updatedAt,
     const SetEquality<EventId>().hash(appliedEventIds),
+    genesisEventId,
+    const MapEquality<UserId, _AuthorCursor>().hash(_cursors),
   );
 
   @override

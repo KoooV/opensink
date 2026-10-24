@@ -11,9 +11,16 @@ import 'key_distributor.dart';
 ///
 /// Сама проекция остаётся чистой; контроллер лишь реагирует на рост эпохи.
 class GroupController {
-  GroupController({required this.distributor, this.inviteProofVerifier});
+  GroupController({
+    required this.distributor,
+    required this.expectedGroupId,
+    required this.genesisEventId,
+    this.inviteProofVerifier,
+  });
 
   final GroupKeyDistributor distributor;
+  final GroupId expectedGroupId;
+  final EventId genesisEventId;
   final InviteProofVerifier? inviteProofVerifier;
 
   GroupState _state = const GroupState.empty();
@@ -29,6 +36,8 @@ class GroupController {
     final result = before.apply(
       event,
       inviteProofVerifier: inviteProofVerifier,
+      expectedGroupId: expectedGroupId,
+      genesisEventId: genesisEventId,
     );
     if (result.isErr) return result;
 

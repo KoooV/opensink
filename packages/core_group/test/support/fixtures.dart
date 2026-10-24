@@ -224,6 +224,7 @@ InviteIssued inviteIssued({
   int? expiresAt,
   int timestamp = 10,
   int counter = 0,
+  EventId? prevId,
 }) {
   return InviteIssued(
     id: EventId(id),
@@ -231,6 +232,7 @@ InviteIssued inviteIssued({
     authorId: authorId,
     timestamp: timestamp,
     counter: counter,
+    prevId: prevId,
     inviteId: inviteId,
     mode: mode,
     maxUses: maxUses,
@@ -266,6 +268,7 @@ MemberApproved approved({
   UserId authorId = owner,
   int timestamp = 30,
   int counter = 0,
+  EventId? prevId,
 }) {
   return MemberApproved(
     id: EventId(id),
@@ -273,6 +276,7 @@ MemberApproved approved({
     authorId: authorId,
     timestamp: timestamp,
     counter: counter,
+    prevId: prevId,
     userId: userId,
     inviteId: inviteId,
   );
@@ -305,6 +309,7 @@ MemberRemoved removed({
   UserId authorId = owner,
   int timestamp = 40,
   int counter = 0,
+  EventId? prevId,
 }) {
   return MemberRemoved(
     id: EventId(id),
@@ -312,6 +317,7 @@ MemberRemoved removed({
     authorId: authorId,
     timestamp: timestamp,
     counter: counter,
+    prevId: prevId,
     userId: userId,
   );
 }
@@ -362,6 +368,7 @@ ChannelDeleted channelDeleted({
   UserId authorId = owner,
   int timestamp = 50,
   int counter = 0,
+  EventId? prevId,
 }) {
   return ChannelDeleted(
     id: EventId(id),
@@ -369,6 +376,7 @@ ChannelDeleted channelDeleted({
     authorId: authorId,
     timestamp: timestamp,
     counter: counter,
+    prevId: prevId,
     channelId: ChannelId(channelId),
   );
 }
@@ -398,6 +406,7 @@ KeyRotated keyRotated({
   UserId authorId = owner,
   int timestamp = 70,
   int counter = 0,
+  EventId? prevId,
 }) {
   return KeyRotated(
     id: EventId(id),
@@ -405,6 +414,7 @@ KeyRotated keyRotated({
     authorId: authorId,
     timestamp: timestamp,
     counter: counter,
+    prevId: prevId,
     newEpoch: newEpoch,
   );
 }
