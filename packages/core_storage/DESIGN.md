@@ -1,6 +1,9 @@
-# Design doc: core_storage — drift event store (слой 4, этапы F4.1–F4.4)
+# Design doc: core_storage — drift event store
 
-Статус: документ пересобран по коду этапов F4.1–F4.4. Источник фактов — `packages/core_storage/lib`, платформенные фабрики `packages/platform_*`, `pubspec.lock` (закреплены `drift` 2.19.1+1, `sqlite3` 2.4.5, `sqlite3_flutter_libs` 0.5.41) и выполненные проверки из `docs/LAYER4_ACCEPTANCE.md`. Утверждения о несуществующем пакете `drift_wasm`, «web stub» и «AC3 откладывается» удалены как не соответствующие коду.
+Статус: документ соответствует текущему коду. Источник фактов —
+`packages/core_storage/lib`, платформенные фабрики `packages/platform_*` и
+`pubspec.lock` (закреплены `drift` 2.31.0, `sqlite3` 2.9.4,
+`sqlite3_flutter_libs` 0.5.41).
 
 ## 1. Границы пакетов
 
@@ -87,7 +90,13 @@ abstract interface class StorageBackend {
 
 Для `events` `INSERT OR REPLACE`/`DO UPDATE` запрещены: событие неизменяемо, правки моделируются новым событием с новым `id`.
 
-**Источник SQLite.** Android: `sqlite3_flutter_libs` 0.5.41 и `sqlite3` 2.4.5, bundled-библиотека 3.51.1 по данным пакета. Linux: тот же пакет в Flutter-сборке; вне Flutter-приложения загрузчик `sqlite3` использует системную `libsqlite3.so`, её отсутствие преобразуется в `ResourceMissing` с инструкцией по установке `libsqlite3-dev`. Web: `sqlite3.wasm` релиза `sqlite3` 2.4.5. Runtime-версия и фактически загруженная библиотека в собранных Android/Linux приложениях не подтверждены (Q25, Q28).
+**Источник SQLite.** Android: `sqlite3_flutter_libs` 0.5.41 и `sqlite3` 2.9.4,
+bundled-библиотека 3.51.1 по данным пакета. Linux: тот же пакет в Flutter-сборке;
+вне Flutter-приложения загрузчик `sqlite3` использует системную `libsqlite3.so`, её
+отсутствие преобразуется в `ResourceMissing` с инструкцией по установке
+`libsqlite3-dev`. Web: `sqlite3.wasm` релиза `sqlite3` 2.9.4. Runtime-версия и
+фактически загруженная библиотека в собранных Android/Linux приложениях не
+подтверждены (Q25, Q28).
 
 **Настройки native-подключения.** Для файла и памяти выполняются `PRAGMA foreign_keys = ON`, `PRAGMA journal_mode = WAL`, `PRAGMA synchronous = FULL`. В DDL внешние ключи не объявлены, поэтому `foreign_keys` — страховка на будущее, а не текущая ссылочная целостность. `WAL` и `FULL` выбраны как более строгий режим, но не являются обещанием сохранности последнего commit при потере питания (Q27).
 
@@ -118,8 +127,8 @@ abstract interface class StorageBackend {
 
 | Ресурс | Источник | SHA-256 |
 |--------|----------|---------|
-| `drift_worker.js` | релиз Drift 2.19.1 | `a1bd312c6ed74199ee877e4e22e69d45176f0f729bea7548dc882d2bc5b94360` |
-| `sqlite3.wasm` | релиз `sqlite3` 2.4.5 | `6082c7bc2c537ab59cf915c3dcb56b4c054751bef54d16fae2ad25560cd4f8d0` |
+| `drift_worker.js` | релиз Drift 2.31.0 | `f0a9b87085f732fd7b6ee7eb34d3858c556f05d221eb1febfc443649cd365752` |
+| `sqlite3.wasm` | релиз `sqlite3` 2.9.4 | `922a76b182b6af69b030c8e2fdd3283ecc8e827248b20e4b1f3f3db170b52117` |
 
 Версии и теги закреплены в `tool/web_assets.lock`, суммы — в `tool/web_assets.sha256`, загрузка и проверка — `tool/fetch_web_assets.sh`. Ресурсы генерируются локально/в CI и не хранятся в Git.
 
@@ -151,7 +160,10 @@ abstract interface class StorageBackend {
 | platform_linux (native) | `flutter test` в `packages/platform_linux` | 7 пройдено, 0 провалов |
 | platform_web (Chrome) | `bash tool/test_web_full_chrome.sh` | 30 пройдено, 0 провалов |
 
-Фактический VM-замер из полного прогона (одна in-memory БД, 100k вставок одной транзакцией, 10 страниц по 50 записей): `VM_STORAGE_PERF events=100000 insert_ms=2064 pagination_p95_ms=6` при порогах < 30 000 мс / < 200 мс. Chrome-замер из полного прогона: `WEB_STORAGE_PERF events=100000 insert_ms=4974 pagination_p95_ms=5`; Chrome также в пороге. Подробности и команды — `docs/LAYER4_ACCEPTANCE.md`.
+Бюджет: вставка 100k событий < 30 000 мс, p95 пагинации < 200 мс. Замеры
+выполняются тестами `packages/core_storage/test/performance_test.dart` (VM) и
+`packages/platform_web/test/storage_performance_web_test.dart` (Chrome); актуальные
+цифры печатаются в выводе тестов.
 
 ## 8. Остаточные ограничения
 
@@ -160,5 +172,5 @@ abstract interface class StorageBackend {
 - Q29: `sqlite3_flutter_libs` 0.5.41 помечен upstream как устаревающий; стратегия перехода не определена.
 - Q30: dart2wasm не проверен.
 - Q31: reload страницы и две вкладки не автоматизированы.
-- S4-11/S4-15: дефекты соседних платформенных файлов, закрыты в F4.5.
-- S4-12: автоматизация Android runtime не требуется; проверка вынесена в ручной QA (`docs/MANUAL_QA.md`) и остаётся непроверенной до выполнения чек-листа.
+- S4-12: автоматизация Android runtime не настроена; проверка вынесена в ручной QA
+  (`docs/MANUAL_QA.md`) и остаётся непроверенной до выполнения чек-листа.
