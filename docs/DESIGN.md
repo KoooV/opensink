@@ -52,7 +52,7 @@ OpenSink — кроссплатформенный P2P-мессенджер (Linu
 | `platform_android` | SecureKeyStore (Keystore), SQLite-фабрика | Реализовано |
 | `platform_linux` | SecureKeyStore (libsecret), SQLite-фабрика | Реализовано |
 | `platform_web` | SecureKeyStore (IndexedDB + Web Crypto), SQLite WASM-фабрика | Реализовано |
-| `apps/app` | Flutter-шелл и DI | Минимальный UI; подключены storage, sync и identity |
+| `apps/app` | Flutter-шелл и DI | Минимальный UI; подключены storage, sync, identity, signaling, WebRTC-транспорт по группе и relay |
 
 ## 4. Криптография (`core_crypto`)
 
@@ -137,14 +137,16 @@ Drift-схема v7. Основные таблицы: `events`, `groups`, `membe
 ## 9. Приложение
 
 `apps/app` пока содержит минимальный Flutter-шелл. Через Riverpod подключены
-платформенное хранилище, `DriftEventStore`, Ed25519-identity, `CryptoSigner` и
-`SyncEngineImpl` и `Relay`. Остальные порты (`SignalingChannel`, `Transport`,
-`MediaTopology`, `IGroupState`, `ScreenCaptureSource`) остаются fakes или
-заглушками до реализации соответствующих слоёв.
+платформенное хранилище, `DriftEventStore`, Ed25519-identity, `CryptoSigner`,
+`SyncEngineImpl`, `SignalingChannel` (Nostr + трекеры), `WebRtcTransport` по
+группе (тема из `GroupSecret`), `Relay` и `GroupSyncBridge`. `GroupSecret`
+хранится в `SecureKeyStore`, реестр invite-verifier заполняется до создания,
+входа и открытия группы. `MediaTopology`, `ScreenCaptureSource` и отдельный
+`PeerLink` остаются заглушками.
 
 ## 10. Ограничения и открытые риски
 
-- `core_media` не реализован; `core_relay` подключён в DI вместе с подписью и каналом `relay`, остальные сетевые порты — fakes (`Q2`); `core_group` ещё не подключён к `core_sync`.
+- `core_media` не реализован; `core_group` подключён к `core_sync`, signaling/transport/relay — к production-реализациям; настройки STUN/реле и UI остаются открытыми (`Q2`).
 - UI не покрывает продуктовые сценарии из `docs/UI_UX.md`.
 - Runtime-версия SQLite в собранных Android/Linux приложениях не подтверждена.
 - Открытые дефекты и остаточные риски: `D-14`, `D-21`, `D-22`, `D-23` в

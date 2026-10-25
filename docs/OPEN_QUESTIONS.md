@@ -18,12 +18,11 @@
 
 ## Q2 — Production DI для неподключённых портов
 
-Хранилище, identity, `SyncEngineImpl` и `Relay` (через `RelayTransport` +
-`MemberRelay`, с подписью кадров и каналом `relay`) подключены к реальным
-реализациям. Для `SignalingChannel`, `PeerLink`, `Transport`, `MediaTopology`,
-`IGroupState` и `ScreenCaptureSource` в `apps/app` пока используются fakes или
-заглушки. Нужно определить composition root и конфигурацию (STUN, реле,
-трекеры) для каждого слоя.
+Хранилище, identity, `SyncEngineImpl`, `SignalingChannel` (Nostr + трекеры),
+`Transport` (`WebRtcTransport` по группе) и `Relay` (через `RelayTransport` +
+`MemberRelay`) подключены к реальным реализациям. Для `PeerLink`,
+`MediaTopology` и `ScreenCaptureSource` в `apps/app` пока используются fakes
+или заглушки. Остаётся конфигурация STUN/реле/трекеров через настройки и UI.
 
 ## Q7 — Обоснование MAX_SKIP и TTL пропущенных ключей
 
@@ -164,12 +163,11 @@ ingest отсекал бы поздние легитимные события; �
 
 ## Q39 — Персистентность GroupSecret
 
-Ревью 2026-10-25 (G-06): без сохранённого `GroupSecret` production-DI не может
-подключить `GroupInviteProofVerifier`, а после рестарта invite-члены не
-восстанавливаются. Нужно выбрать хранилище секрета группы (SecureKeyStore,
-Vault) и политику ротации при удалении участника. Решение poll (2026-10-25):
-оставить invite-вход отключённым (`GroupInviteUnsupported`) до отдельной
-задачи по персистентности `GroupSecret`.
+Хранилище выбрано: `GroupSecretStore` поверх `SecureKeyStore` (32 байта,
+hex-токен в инвайте), реестр `GroupInviteProofVerifier` заполняется при
+создании/входе/открытии группы. Остаются политика ротации при удалении
+участника, миграция групп без сохранённого секрета (fail-closed) и UI выдачи
+инвайтов.
 
 ## Принятые допущения
 
@@ -217,5 +215,5 @@ Vault) и политику ротации при удалении участни
   payload)`, идут по отдельному `PeerChannels.relay` и проверяются на каждом
   хопе; `RelayTransport` подписывается на `relayIncoming`. `MemberRelay`
   origin-only. Nonce отсекает replay в пределах seen-окна.
-- Production-сборка `RelayTransport` и opt-in — в `apps/app` DI; остальные
-  порты (`SignalingChannel`, `PeerLink`, `Transport`) всё ещё fakes (Q2).
+- Production-сборка `RelayTransport` и opt-in — в `apps/app` DI; `PeerLink`
+  всё ещё не отдельный production-порт (Q2).

@@ -63,20 +63,26 @@ class _StatsTransport implements Transport {
 }
 
 void main() {
-  test('без измерений статистика неизвестна', () {
-    final container = ProviderContainer();
+  const groupId = GroupId('di-relay');
+
+  test('без измерений статистика неизвестна', () async {
+    final direct = _StatsTransport(<PeerId, PeerLinkStats>{});
+    addTearDown(direct.close);
+    final container = ProviderContainer(
+      overrides: <Override>[
+        transportProvider(groupId).overrideWith((ref) async => direct),
+      ],
+    );
     addTearDown(container.dispose);
 
-    final lookup = container.read(relayLinkStatsProvider);
+    final lookup = await container.read(relayLinkStatsProvider(groupId).future);
 
     expect(lookup(_peer(1)), isNull);
   });
 
   test('relayTransportProvider использует RTT из statsFor', () async {
     final identity = await generateIdentity();
-    final local = PeerId(
-      Uint8List.fromList(hexToBytes(identity.userId.value)),
-    );
+    final local = PeerId(Uint8List.fromList(hexToBytes(identity.userId.value)));
     final relayPeer = _peer(10);
     final destination = _peer(11);
     final measured = _stats(5);
@@ -96,8 +102,8 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: <Override>[
-        transportProvider.overrideWithValue(direct),
-        relayTopologyProvider.overrideWithValue(topology),
+        transportProvider(groupId).overrideWith((ref) async => direct),
+        relayTopologyProvider(groupId).overrideWith((ref) async => topology),
         relayConfigProvider.overrideWithValue(
           const RelayConfig(relayEnabled: true),
         ),
@@ -111,7 +117,7 @@ void main() {
     );
     addTearDown(container.dispose);
 
-    final relay = await container.read(relayTransportProvider.future);
+    final relay = await container.read(relayTransportProvider(groupId).future);
 
     expect(relay.linkStats, isNotNull);
     expect(relay.linkStats!(relayPeer), measured);
@@ -122,9 +128,6 @@ void main() {
     expect(result, isA<RelayedSent>());
     expect((result as RelayedSent).relay, relayPeer);
     expect(direct.relayed, <PeerId>[relayPeer]);
-    expect(
-      topology.infoFor(relayPeer)?.rtt,
-      const Duration(milliseconds: 5),
-    );
+    expect(topology.infoFor(relayPeer)?.rtt, const Duration(milliseconds: 5));
   });
 }

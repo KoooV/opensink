@@ -1,6 +1,8 @@
 import 'package:app/group/group_invite_proof_verifier.dart';
 import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
+import 'package:core_group/core_group.dart';
+import 'package:cryptography/cryptography.dart' show SecretKeyData;
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -87,5 +89,44 @@ void main() {
     );
 
     expect(verifier.toString(), 'GroupInviteProofVerifier(<secret>)');
+  });
+
+  test('реестр загружает секрет из store и забывает группу', () async {
+    final bytes = List<int>.generate(32, (index) => index);
+    final store = MemoryGroupSecretStore();
+    await store.save(groupId, bytes);
+    final registry = GroupInviteProofVerifierRegistry(store);
+    await registry.preload(groupId);
+
+    final verifier = await GroupInviteProofVerifier.create(
+      GroupSecret(SecretKeyData(bytes)),
+    );
+    final proof = verifier.computeProof(
+      groupId: groupId,
+      inviteId: inviteId,
+      userId: userId,
+    );
+
+    expect(
+      registry.verify(
+        groupId: groupId,
+        inviteId: inviteId,
+        userId: userId,
+        proof: proof,
+      ),
+      isTrue,
+    );
+
+    registry.forget(groupId);
+
+    expect(
+      registry.verify(
+        groupId: groupId,
+        inviteId: inviteId,
+        userId: userId,
+        proof: proof,
+      ),
+      isFalse,
+    );
   });
 }

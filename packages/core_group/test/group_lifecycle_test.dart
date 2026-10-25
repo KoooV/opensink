@@ -10,12 +10,16 @@ GroupLifecycle lifecycleFor({
   required SyncEngineImpl engine,
   required GroupMetadataStore metadataStore,
   InviteProofVerifier? inviteProofVerifier,
+  GroupSecretStore? groupSecretStore,
+  Future<void> Function(GroupId groupId, List<int> secret)? onGroupSecret,
 }) {
   return GroupLifecycle(
     syncEngine: engine,
     metadataStore: metadataStore,
     distributor: InMemoryGroupKeyDistributor(),
     inviteProofVerifier: inviteProofVerifier ?? allowAllProofs,
+    groupSecretStore: groupSecretStore,
+    onGroupSecret: onGroupSecret,
   );
 }
 

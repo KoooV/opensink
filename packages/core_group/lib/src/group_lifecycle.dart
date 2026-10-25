@@ -7,6 +7,7 @@ import 'package:core_sync/core_sync.dart';
 
 import 'group_controller.dart';
 import 'group_event_codec.dart';
+import 'group_secret_store.dart';
 import 'group_sync_bridge.dart';
 import 'invite_link.dart';
 import 'invite_proof.dart';
@@ -85,6 +86,16 @@ class GroupInviteRejected extends GroupLifecycleError {
   String toString() => 'GroupInviteRejected($reason)';
 }
 
+/// Секрет группы не удалось сохранить или прочитать.
+class GroupSecretStorageFailed extends GroupLifecycleError {
+  const GroupSecretStorageFailed(this.error);
+
+  final GroupSecretError error;
+
+  @override
+  String toString() => 'GroupSecretStorageFailed($error)';
+}
+
 /// Создание, join и открытие группы по доверенным метаданным.
 ///
 /// `groupId` и `genesisEventId` не выводятся из лога. Создание генерирует
@@ -95,6 +106,9 @@ class GroupLifecycle {
     required GroupMetadataStore metadataStore,
     required GroupKeyDistributor distributor,
     InviteProofVerifier? inviteProofVerifier,
+    GroupSecretStore? groupSecretStore,
+    List<int> Function()? newGroupSecret,
+    Future<void> Function(GroupId groupId, List<int> secret)? onGroupSecret,
     GroupEventCodec codec = const GroupEventCodec(),
     int maxJournalEvents = 4096,
     Random? random,
@@ -103,6 +117,9 @@ class GroupLifecycle {
        _metadataStore = metadataStore,
        _distributor = distributor,
        _inviteProofVerifier = inviteProofVerifier,
+       _groupSecretStore = groupSecretStore,
+       _newGroupSecret = newGroupSecret,
+       _onGroupSecret = onGroupSecret,
        _codec = codec,
        _maxJournalEvents = maxJournalEvents,
        _random = random ?? Random.secure(),
@@ -112,6 +129,10 @@ class GroupLifecycle {
   final GroupMetadataStore _metadataStore;
   final GroupKeyDistributor _distributor;
   final InviteProofVerifier? _inviteProofVerifier;
+  final GroupSecretStore? _groupSecretStore;
+  final List<int> Function()? _newGroupSecret;
+  final Future<void> Function(GroupId groupId, List<int> secret)?
+  _onGroupSecret;
   final GroupEventCodec _codec;
   final int _maxJournalEvents;
   final Random _random;
@@ -210,6 +231,12 @@ class GroupLifecycle {
   }) {
     return _serialized(() async {
       final groupId = GroupId(_newGroupId());
+      final secret = _generateGroupSecret();
+      final secretError = await _persistGroupSecret(groupId, secret);
+      if (secretError != null) {
+        return Err(GroupSecretStorageFailed(secretError));
+      }
+
       final pending = GroupMetadata(
         groupId: groupId,
         origin: GroupOrigin.created,
@@ -217,6 +244,7 @@ class GroupLifecycle {
       );
       final saved = await _saveMetadata(pending);
       if (saved.isErr) {
+        await _deleteGroupSecret(groupId);
         return Err(GroupMetadataUnavailable(saved.unwrapErr()));
       }
 
@@ -290,6 +318,8 @@ class GroupLifecycle {
           GroupRootConflict(link.groupId, 'group metadata has no genesis'),
         );
       }
+      final secretError = await _storeInviteSecret(link);
+      if (secretError != null) return Err(secretError);
       final saved = await _saveMetadata(metadata);
       if (saved.isErr) {
         return Err(GroupMetadataUnavailable(saved.unwrapErr()));
@@ -351,6 +381,7 @@ class GroupLifecycle {
       final verified = await _verifyMetadata(metadata);
       if (verified.isErr) {
         await _metadataStore.delete(metadata.groupId);
+        await _deleteGroupSecret(metadata.groupId);
         continue;
       }
       final valid = verified.unwrap();
@@ -384,6 +415,7 @@ class GroupLifecycle {
       final error = metadata.unwrapErr();
       if (error is CorruptedGroupMetadata) {
         await _metadataStore.delete(groupId);
+        await _deleteGroupSecret(groupId);
         final cleared = await _metadataStore.saveActiveGroup(null);
         if (cleared.isErr) {
           return Err(GroupMetadataUnavailable(cleared.unwrapErr()));
@@ -393,6 +425,7 @@ class GroupLifecycle {
       return Err(GroupMetadataUnavailable(error));
     }
     if (metadata.unwrap() == null) {
+      await _deleteGroupSecret(groupId);
       final cleared = await _metadataStore.saveActiveGroup(null);
       if (cleared.isErr) {
         return Err(GroupMetadataUnavailable(cleared.unwrapErr()));
@@ -432,6 +465,10 @@ class GroupLifecycle {
       final deleted = await _metadataStore.delete(groupId);
       if (deleted.isErr) {
         return Err(GroupMetadataUnavailable(deleted.unwrapErr()));
+      }
+      final secretError = await _deleteGroupSecret(groupId);
+      if (secretError != null) {
+        return Err(GroupSecretStorageFailed(secretError));
       }
       if (active.unwrap() == groupId) {
         final cleared = await _metadataStore.saveActiveGroup(null);
@@ -491,6 +528,7 @@ class GroupLifecycle {
       if (deleted.isErr) {
         return Err(GroupMetadataUnavailable(deleted.unwrapErr()));
       }
+      await _deleteGroupSecret(metadata.groupId);
       return const Ok(null);
     }
     if (candidates.length > 1) {
@@ -586,6 +624,82 @@ class GroupLifecycle {
       event.signature,
       PeerId(authorBytes),
     );
+  }
+
+  List<int> _generateGroupSecret() {
+    final custom = _newGroupSecret;
+    if (custom != null) {
+      final secret = custom();
+      if (secret.length != 32) {
+        throw StateError('newGroupSecret must return 32 bytes');
+      }
+      return secret;
+    }
+    return List<int>.generate(32, (_) => _random.nextInt(256));
+  }
+
+  Future<GroupSecretError?> _persistGroupSecret(
+    GroupId groupId,
+    List<int> secret,
+  ) async {
+    final store = _groupSecretStore;
+    if (store != null) {
+      final saved = await store.save(groupId, secret);
+      if (saved.isErr) return saved.unwrapErr();
+    }
+    final notify = _onGroupSecret;
+    if (notify != null) {
+      await notify(groupId, List<int>.unmodifiable(secret));
+    }
+    return null;
+  }
+
+  Future<GroupLifecycleError?> _storeInviteSecret(InviteLink link) async {
+    final store = _groupSecretStore;
+    final notify = _onGroupSecret;
+    if (store == null && notify == null) return null;
+
+    final secret = decodeGroupSecretToken(link.secret);
+    if (secret == null) {
+      return const GroupInviteRejected('invalid group secret');
+    }
+    if (store != null) {
+      final loaded = await store.load(link.groupId);
+      if (loaded.isErr) {
+        return GroupSecretStorageFailed(loaded.unwrapErr());
+      }
+      final existing = loaded.unwrap();
+      if (existing != null) {
+        if (!_secretEquals(existing, secret)) {
+          return const GroupInviteRejected('group secret mismatch');
+        }
+      } else {
+        final saved = await store.save(link.groupId, secret);
+        if (saved.isErr) {
+          return GroupSecretStorageFailed(saved.unwrapErr());
+        }
+      }
+    }
+    if (notify != null) {
+      await notify(link.groupId, List<int>.unmodifiable(secret));
+    }
+    return null;
+  }
+
+  Future<GroupSecretError?> _deleteGroupSecret(GroupId groupId) async {
+    final store = _groupSecretStore;
+    if (store == null) return null;
+    final deleted = await store.delete(groupId);
+    return deleted.isErr ? deleted.unwrapErr() : null;
+  }
+
+  bool _secretEquals(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    var difference = 0;
+    for (var i = 0; i < a.length; i++) {
+      difference |= a[i] ^ b[i];
+    }
+    return difference == 0;
   }
 
   String _newGroupId() {

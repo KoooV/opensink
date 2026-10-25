@@ -5,32 +5,115 @@ import 'dart:typed_data';
 import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:core_group/core_group.dart';
+import 'package:core_peer/core_peer.dart' show WebRtcTransport;
+import 'package:core_peer/core_peer_flutter.dart' show FlutterRtcPeerFactory;
 import 'package:core_relay/core_relay.dart';
-import 'package:core_signaling/core_signaling.dart' show RichSignalingChannel;
+import 'package:core_signaling/core_signaling.dart';
 import 'package:core_storage/core_storage.dart';
 import 'package:core_sync/core_sync.dart';
+import 'package:cryptography/cryptography.dart' show SecretKeyData;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../group/group_invite_proof_verifier.dart';
+import '../group/group_secret_store.dart';
 import 'secure_key_store_platform.dart';
 import 'storage_backend_platform.dart';
 
 /// DI-контейнер приложения.
 ///
-/// Слой синхронизации подключён к реальным `DriftEventStore`,
-/// `CryptoSigner` и платформенной SQLite. Остальные интерфейсы, для которых
-/// ещё нет production-реализации/конфигурации, остаются fakes.
-
-final signalingChannelProvider = Provider<SignalingChannel>((ref) {
-  return FakeSignalingChannel();
-});
+/// Storage, identity, sync и сетевые порты подключены к production-реализациям.
+/// `Transport` строится для конкретной группы: тема signaling выводится из её
+/// `GroupSecret`, поэтому без сохранённого секрета сеть fail-closed.
 
 final peerLinkProvider = Provider<PeerLink>((ref) {
   throw UnimplementedError('PeerLink требует установленного core_peer');
 });
 
-final transportProvider = Provider<Transport>((ref) {
-  return FakeTransport();
+/// Секрет активной группы: загружается из платформенного `SecureKeyStore`.
+final groupSecretProvider = FutureProvider.autoDispose
+    .family<GroupSecret, GroupId>((ref, groupId) async {
+      final loaded = await ref.watch(groupSecretStoreProvider).load(groupId);
+      if (loaded.isErr) {
+        throw StateError(
+          'Не удалось загрузить GroupSecret: ${loaded.unwrapErr()}',
+        );
+      }
+      final secret = loaded.unwrap();
+      if (secret == null) {
+        throw StateError('GroupSecret отсутствует для группы ${groupId.value}');
+      }
+      return GroupSecret(SecretKeyData(Uint8List.fromList(secret)));
+    });
+
+/// Тема signaling выводится из секрета, а не из открытого `GroupId`.
+final groupTopicProvider = FutureProvider.autoDispose.family<String, GroupId>((
+  ref,
+  groupId,
+) async {
+  return (await ref.watch(groupSecretProvider(groupId).future)).topicHex();
 });
+
+final signalingSecurityProvider = FutureProvider.autoDispose
+    .family<SignalingSecurityConfig, GroupId>((ref, groupId) async {
+      final identity = await ref.watch(localIdentityProvider.future);
+      final secret = await ref.watch(groupSecretProvider(groupId).future);
+      return SignalingSecurityConfig(
+        peerId: PeerId(Uint8List.fromList(hexToBytes(identity.userId.value))),
+        signer: identity.signer,
+        groupSecret: secret,
+      );
+    });
+
+/// Реальные каналы signaling: Nostr + WebTorrent-трекеры через общий пул.
+final signalingChannelProvider = FutureProvider.autoDispose
+    .family<RichSignalingChannel, GroupId>((ref, groupId) async {
+      final security = await ref.watch(
+        signalingSecurityProvider(groupId).future,
+      );
+      final relayEnabled = ref.watch(relayOptInProvider);
+      final capabilities = NodeCapabilities(
+        platform: _signalingPlatform(),
+        canRelay: relayEnabled,
+        capacityBytesPerSecond: relayEnabled
+            ? ref.watch(relayConfigProvider).perSourceBytesPerSecond * 4
+            : 0,
+      );
+      final pool = SignalingChannelPool(
+        channels: <RichSignalingChannel>[
+          NostrSignaling(security: security, capabilities: capabilities),
+          TrackerSignaling(security: security, capabilities: capabilities),
+        ],
+      );
+      ref.onDispose(() => unawaited(pool.close()));
+      return pool;
+    });
+
+/// Прямой WebRTC-транспорт группы. `start()` подписывает на входящие offer.
+final transportProvider = FutureProvider.autoDispose.family<Transport, GroupId>(
+  (ref, groupId) async {
+    final identity = await ref.watch(localIdentityProvider.future);
+    final channel = await ref.watch(signalingChannelProvider(groupId).future);
+    final topic = await ref.watch(groupTopicProvider(groupId).future);
+    final transport = WebRtcTransport(
+      localPeerId: PeerId(
+        Uint8List.fromList(hexToBytes(identity.userId.value)),
+      ),
+      signaling: channel,
+      topic: topic,
+      factory: const FlutterRtcPeerFactory(),
+    );
+    ref.onDispose(() => unawaited(transport.close()));
+    try {
+      await transport.start();
+    } catch (_) {
+      await transport.close();
+      rethrow;
+    }
+    return transport;
+  },
+);
 
 /// Согласие пользователя на ретрансляцию (opt-in). По умолчанию выключено.
 final relayOptInProvider = Provider<bool>((ref) => false);
@@ -40,50 +123,80 @@ final relayConfigProvider = Provider<RelayConfig>((ref) {
 });
 
 /// Топология доверяет только presence из подписанного signaling-конверта.
-final relayTopologyProvider = Provider<RelayTopology>((ref) {
-  final topology = RelayTopology();
-  final channel = ref.watch(signalingChannelProvider);
-  if (channel is RichSignalingChannel) {
-    final subscription = channel.presence.listen((presence) {
-      final capabilities = presence.capabilities;
-      topology.applyPresence(
-        presence.peerId,
-        neighbors: capabilities.neighbors,
-        canRelay: capabilities.canRelay,
-        capacityBytesPerSecond: capabilities.capacityBytesPerSecond,
-      );
+final relayTopologyProvider = FutureProvider.autoDispose
+    .family<RelayTopology, GroupId>((ref, groupId) async {
+      final channel = await ref.watch(signalingChannelProvider(groupId).future);
+      final topology = RelayTopology();
+      final subscription = channel.presence.listen((presence) {
+        final capabilities = presence.capabilities;
+        topology.applyPresence(
+          presence.peerId,
+          neighbors: capabilities.neighbors,
+          canRelay: capabilities.canRelay,
+          capacityBytesPerSecond: capabilities.capacityBytesPerSecond,
+        );
+      });
+      ref.onDispose(() => unawaited(subscription.cancel()));
+      return topology;
     });
-    ref.onDispose(() => unawaited(subscription.cancel()));
-  }
-  return topology;
-});
 
 /// Локальная статистика прямого линка для оценки RTT в релейной топологии.
-final relayLinkStatsProvider = Provider<PeerLinkStats? Function(PeerId)>((ref) {
-  return ref.watch(transportProvider).statsFor;
+final relayLinkStatsProvider = FutureProvider.autoDispose
+    .family<PeerLinkStats? Function(PeerId), GroupId>((ref, groupId) async {
+      final transport = await ref.watch(transportProvider(groupId).future);
+      return transport.statsFor;
+    });
+
+final relayTransportProvider = FutureProvider.autoDispose
+    .family<RelayTransport, GroupId>((ref, groupId) async {
+      final identity = await ref.watch(localIdentityProvider.future);
+      final direct = await ref.watch(transportProvider(groupId).future);
+      final topology = await ref.watch(relayTopologyProvider(groupId).future);
+      final linkStats = await ref.watch(relayLinkStatsProvider(groupId).future);
+      final initialNeighbors = direct is WebRtcTransport
+          ? direct.links.keys.toSet()
+          : const <PeerId>{};
+      final relay = RelayTransport(
+        localPeerId: PeerId(
+          Uint8List.fromList(hexToBytes(identity.userId.value)),
+        ),
+        direct: _BorrowedTransport(direct),
+        topology: topology,
+        signer: identity.signer,
+        config: ref.watch(relayConfigProvider),
+        initialLocalNeighbors: initialNeighbors,
+        linkStats: linkStats,
+      );
+      ref.onDispose(() => unawaited(relay.close()));
+      return relay;
+    });
+
+final relayProvider = FutureProvider.autoDispose.family<Relay, GroupId>((
+  ref,
+  groupId,
+) async {
+  final transport = await ref.watch(relayTransportProvider(groupId).future);
+  final topology = await ref.watch(relayTopologyProvider(groupId).future);
+  return MemberRelay(transport: transport, topology: topology);
 });
 
-final relayTransportProvider = FutureProvider<RelayTransport>((ref) async {
-  final identity = await ref.watch(localIdentityProvider.future);
-  final relay = RelayTransport(
-    localPeerId: PeerId(Uint8List.fromList(hexToBytes(identity.userId.value))),
-    direct: ref.watch(transportProvider),
-    topology: ref.watch(relayTopologyProvider),
-    signer: identity.signer,
-    config: ref.watch(relayConfigProvider),
-    linkStats: ref.watch(relayLinkStatsProvider),
-  );
-  ref.onDispose(() => unawaited(relay.close()));
-  return relay;
+/// Транспорт активной группы; `null`, если группа не выбрана.
+final activeTransportProvider = FutureProvider.autoDispose<Transport?>((
+  ref,
+) async {
+  final groupId = await ref.watch(activeGroupIdProvider.future);
+  if (groupId == null) return null;
+  return ref.watch(transportProvider(groupId).future);
 });
 
-final relayProvider = FutureProvider<Relay>((ref) async {
-  final transport = await ref.watch(relayTransportProvider.future);
-  return MemberRelay(
-    transport: transport,
-    topology: ref.watch(relayTopologyProvider),
-  );
-});
+SignalingPlatform _signalingPlatform() {
+  if (kIsWeb) return SignalingPlatform.web;
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.android => SignalingPlatform.android,
+    TargetPlatform.linux => SignalingPlatform.linux,
+    _ => SignalingPlatform.unknown,
+  };
+}
 
 final mediaTopologyProvider = Provider<MediaTopology>((ref) {
   return FakeMediaTopology();
@@ -119,6 +232,17 @@ final eventStoreProvider = FutureProvider<SyncEventStore>((ref) async {
 final secureKeyStoreProvider = Provider<SecureKeyStore>((ref) {
   return createPlatformSecureKeyStore();
 });
+
+final groupSecretStoreProvider = Provider<GroupSecretStore>((ref) {
+  return SecureGroupSecretStore(ref.watch(secureKeyStoreProvider));
+});
+
+final groupInviteProofVerifierRegistryProvider =
+    Provider<GroupInviteProofVerifierRegistry>((ref) {
+      return GroupInviteProofVerifierRegistry(
+        ref.watch(groupSecretStoreProvider),
+      );
+    });
 
 /// Локальная идентичность: Ed25519 seed в SecureKeyStore, подписчик в памяти.
 class LocalIdentity {
@@ -206,15 +330,20 @@ final groupMetadataStoreProvider = FutureProvider<GroupMetadataStore>((
 
 /// Создание, join и открытие групп по сохранённому корню.
 ///
-/// `inviteProofVerifier` не подключён до появления хранилища `GroupSecret`
-/// (Q39): `joinFromInvite` явно возвращает `GroupInviteUnsupported`.
+/// Секрет группы сохраняется в `SecureKeyStore`; реестр проверяющих
+/// заполняется до создания/входа и перед открытием моста.
 final groupLifecycleProvider = FutureProvider<GroupLifecycle>((ref) async {
   final engine = await ref.watch(syncEngineProvider.future);
   final metadataStore = await ref.watch(groupMetadataStoreProvider.future);
+  final secretStore = ref.watch(groupSecretStoreProvider);
+  final verifiers = ref.watch(groupInviteProofVerifierRegistryProvider);
   return GroupLifecycle(
     syncEngine: engine,
     metadataStore: metadataStore,
     distributor: ref.watch(groupKeyDistributorProvider),
+    groupSecretStore: secretStore,
+    inviteProofVerifier: verifiers,
+    onGroupSecret: verifiers.rememberBytes,
   );
 });
 
@@ -270,6 +399,8 @@ class GroupOpenException implements Exception {
 final groupSyncBridgeProvider = FutureProvider.autoDispose
     .family<GroupSyncBridge, GroupId>((ref, groupId) async {
       final lifecycle = await ref.watch(groupLifecycleProvider.future);
+      final verifiers = ref.watch(groupInviteProofVerifierRegistryProvider);
+      await verifiers.preload(groupId);
       GroupSyncBridge? bridge;
       var disposed = false;
       ref.onDispose(() {
@@ -299,3 +430,32 @@ final groupStateProvider = FutureProvider.autoDispose
 final screenCaptureSourceProvider = Provider<ScreenCaptureSource>((ref) {
   return FakeScreenCaptureSource();
 });
+
+/// Не закрывает общий `WebRtcTransport`, которым владеет `transportProvider`.
+class _BorrowedTransport implements Transport {
+  const _BorrowedTransport(this._inner);
+
+  final Transport _inner;
+
+  @override
+  Stream<PeerLinkEvent> get events => _inner.events;
+
+  @override
+  Stream<RelayDatagram> get relayIncoming => _inner.relayIncoming;
+
+  @override
+  PeerLinkStats? statsFor(PeerId peerId) => _inner.statsFor(peerId);
+
+  @override
+  Future<PeerLink> connect(PeerId peerId) => _inner.connect(peerId);
+
+  @override
+  Future<void> send(PeerId dst, List<int> bytes) => _inner.send(dst, bytes);
+
+  @override
+  Future<void> sendRelay(PeerId dst, List<int> bytes) =>
+      _inner.sendRelay(dst, bytes);
+
+  @override
+  Future<void> close() async {}
+}

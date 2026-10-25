@@ -9,9 +9,10 @@
 - G-15…G-24 закрыты: подпись метаданных и инвайт-ссылок, pin до genesis, изоляция pending, verify-before-decode, сериализация refresh/publish, лимит и очистка незакреплённых групп; 125 core_group, core_sync group_root/drift зелёные.
 - core_relay poll 2026-10-26: load = скорость от source, `linkStats` callback, seed только при создании, окно 10 с, RTT=0 игнорируется.
 - core_relay linkStats в DI: `Transport.statsFor` (WebRTC → `linkFor().stats`), `relayLinkStatsProvider` → `RelayTransport.linkStats`; сквозной тест RTT.
+- apps/app: `SecureGroupSecretStore` + реестр invite-verifier; `transportProvider`/`relay*` по группе строят `WebRtcTransport` (Nostr+Tracker, тема из `GroupSecret`), тесты зелёные.
 - toolchain: melos 8 `run` исполнялся только в корне, а regex терял двойной пробел; `test` переведён на `exec` с `[[:space:]]`, platform_web исключён (web-jobs CI), корневой шаблонный widget_test удалён, apps/app тесты зелёные.
 ## Дальше
-- `apps/app`: реальный `WebRtcTransport` в `transportProvider` (linkStats уже готов).
-- `core_group`: production GroupKeyDistributor/InviteProofVerifier. Follow-up poll 2026-10-25: verified-кэш restore, карантин невалидных записей store.
+- `apps/app`: UI создания/join группы и выдача инвайтов с `GroupSecret` (секрет уже хранится).
+- `core_group`: production GroupKeyDistributor. Follow-up poll 2026-10-25: verified-кэш restore, карантин невалидных записей store.
 ## Открытые вопросы
-- Legacy GroupState; trusted time (Q36); аутентификация снапшота и fingerprints как хэш; ротация GroupSecret при удалении; Q39 (хранение GroupSecret).
+- Legacy GroupState; trusted time (Q36); аутентификация снапшота и fingerprints как хэш; ротация GroupSecret при удалении; Q39 (invite UX и ротация).

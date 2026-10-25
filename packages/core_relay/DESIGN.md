@@ -152,7 +152,7 @@ real-Ed25519 auth.
 | Частота обновления RTT | Только в `_observeTopology` при `deliver`/`accept`; события `'stats'` не подписываются. |
 | `RelayTransport.statsFor` | Делегирует `direct`; собственные relay-метрики не смешиваются с RTT. |
 | `FakeTransport.statsFor` | Отдаёт `stats` fake-линков, как `WebRtcTransport`. |
-| `transportProvider` | Остаётся fake; подключение `WebRtcTransport` — отдельная задача. |
+| `transportProvider` | Production: `WebRtcTransport` по группе (тема из `GroupSecret`); `RelayTransport` получает non-closing обёртку, владелец — провайдер транспорта. |
 | Смена `transportProvider` | `relayLinkStatsProvider` использует `watch`: callback и relay пересоздаются вместе с транспортом. |
 
 ## Остаточное
