@@ -128,10 +128,20 @@ real-Ed25519 auth.
 | Вопрос | Решение |
 |---|---|
 | ACK на уровне релея | Не вводим. `RelayedSent` означает передачу следующему хопу; потерю догоняет `core_sync`. |
-| RTT/load в production | Локальные измерения: RTT из `PeerLinkStats`, нагрузка из `RelayMetrics`; presence-кодек не расширяем. |
-| Линки, установленные до `RelayTransport` | Добавить seed `initialLocalNeighbors` в `RelayTransport`/`RelayTopology`, дальше обновлять из `direct.events`. |
+| RTT/load в production | Реализовано: RTT из `PeerLinkStats` через `RelayTransport.linkStats`, нагрузка — наблюдаемая скорость `RelayMetrics.observedLoadBytesPerSecond`; presence-кодек не расширяем. |
+| Линки, установленные до `RelayTransport` | Реализовано: `RelayTransport.initialLocalNeighbors` → `RelayTopology.seedLocalNeighbors`, дальше обновлять из `direct.events`. |
 | Семантика `maxHops` | `maxHops` — бюджет `originTtl`; второй релей допустим только как failover в `accept`. |
 | Гарантия E2E | Ответственность вызывающего слоя; `core_relay` не содержит ключей и не проверяет формат ciphertext. |
+
+## Решения poll по наблюдениям (2026-10-26)
+
+| Вопрос | Решение |
+|---|---|
+| Нагрузка кандидата | Наблюдаемая скорость пересылки от этого source; удалённая нагрузка недоступна без изменения presence. |
+| RTT в production | `linkStats` callback; подключение к `WebRtcTransport` — когда `transportProvider` перестанет быть fake. |
+| Seed при смене local peer | Только при создании транспорта; повторный `setLocalPeer` очищает seeded-линки. |
+| Окно нагрузки | 10 с, константа `RelayMetrics`; в `RelayConfig` не выносим. |
+| Нулевой RTT | Не считается измерением, используется presence-RTT. |
 
 ## Остаточное
 

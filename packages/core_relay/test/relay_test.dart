@@ -3,11 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:core_crypto/core_crypto.dart'
-    show
-        CryptoSigner,
-        XChaCha20Poly1305Aead,
-        generateAeadKey,
-        generateIdentity;
+    show CryptoSigner, XChaCha20Poly1305Aead, generateAeadKey, generateIdentity;
 import 'package:core_domain/core_domain.dart' hide RelayFrame;
 import 'package:core_domain/core_domain.dart' as domain show RelayFrame;
 import 'package:core_protocol/core_protocol.dart' show ProtoWriter, RelayFrame;
@@ -19,6 +15,9 @@ PeerId peer(int value) {
   bytes[0] = value;
   return PeerId(bytes);
 }
+
+PeerLinkStats linkStats(Duration rtt) =>
+    PeerLinkStats(rtt: rtt, bytesSent: 0, bytesReceived: 0, loss: 0);
 
 Uint8List frameNonce(int value) {
   final bytes = Uint8List(16);
@@ -172,6 +171,8 @@ class SimNode {
     DateTime Function()? clock,
     Duration Function()? monotonicClock,
     Signer? signer,
+    Iterable<PeerId> initialLocalNeighbors = const <PeerId>[],
+    PeerLinkStats? Function(PeerId)? linkStats,
   }) {
     direct = ScriptedTransport(id);
     this.signer = signer ?? TestSigner(id);
@@ -183,6 +184,8 @@ class SimNode {
       config: config,
       clock: clock,
       monotonicClock: monotonicClock,
+      initialLocalNeighbors: initialLocalNeighbors,
+      linkStats: linkStats,
     );
   }
 
@@ -2101,48 +2104,234 @@ void main() {
       },
     );
 
-    test('A→C→B: релей видит только ciphertext и не может расшифровать', () async {
+    test(
+      'A→C→B: релей видит только ciphertext и не может расшифровать',
+      () async {
+        final topology = RelayTopology();
+        final a = SimNode(id: peer(1), topology: topology);
+        final b = SimNode(id: peer(2), topology: topology);
+        final c = SimNode(id: peer(3), topology: topology);
+
+        announce(topology, c.id, neighbors: [a.id, b.id]);
+        a.direct.reachable.add(c.id);
+        c.direct.reachable.add(b.id);
+
+        final aead = XChaCha20Poly1305Aead();
+        final toBob = await generateAeadKey();
+        final toCarol = await generateAeadKey();
+        final plaintext = Uint8List.fromList(utf8.encode('layer-9-secret'));
+        final ciphertext = (await aead.encrypt(
+          key: toBob,
+          plaintext: plaintext,
+        )).unwrap();
+
+        final received = b.relay.incoming.first;
+        final result = await a.relay.deliver(b.id, ciphertext);
+        expect(result, isA<RelayedSent>());
+        await pump([a, b, c]);
+
+        final forwarded = decodeFrame(c.direct.sent.single.bytes)!;
+        expect(forwarded.payload, ciphertext);
+        expect(forwarded.payload, isNot(plaintext));
+
+        final inbound = await received;
+        expect(inbound.payload, ciphertext);
+        final decrypted = (await aead.decrypt(
+          key: toBob,
+          data: Uint8List.fromList(inbound.payload),
+        )).unwrap();
+        expect(decrypted, plaintext);
+
+        final relayAttempt = await aead.decrypt(
+          key: toCarol,
+          data: Uint8List.fromList(forwarded.payload),
+        );
+        expect(relayAttempt.isErr, isTrue);
+      },
+    );
+  });
+
+  group('Layer-9: seed и локальные измерения', () {
+    test(
+      'seed local neighbor пересылает без presence и connected-события',
+      () async {
+        final topoA = RelayTopology();
+        final topoB = RelayTopology();
+        final topoC = RelayTopology();
+        final a = SimNode(id: peer(1), topology: topoA);
+        final b = SimNode(id: peer(2), topology: topoB);
+        final c = SimNode(
+          id: peer(3),
+          topology: topoC,
+          initialLocalNeighbors: [b.id],
+        );
+
+        expect(topoC.linked(c.id, b.id), isTrue);
+        announce(topoA, c.id, neighbors: [a.id, b.id]);
+        a.direct.reachable.add(c.id);
+        c.direct.reachable.add(b.id);
+
+        final received = b.relay.incoming.first.timeout(
+          const Duration(seconds: 1),
+        );
+        final result = await a.relay.deliver(b.id, [7, 8, 9]);
+
+        expect(result, isA<RelayedSent>());
+        await pump([a, b, c]);
+        expect((await received).payload, [7, 8, 9]);
+        expect(c.direct.sent.single.dst, b.id);
+
+        c.direct.emitEvent('disconnected', b.id);
+        await Future<void>.delayed(Duration.zero);
+        expect(topoC.linked(c.id, b.id), isFalse);
+      },
+    );
+
+    test('seed игнорирует self и не действует до setLocalPeer', () {
       final topology = RelayTopology();
-      final a = SimNode(id: peer(1), topology: topology);
-      final b = SimNode(id: peer(2), topology: topology);
-      final c = SimNode(id: peer(3), topology: topology);
+      final a = peer(1);
+      final b = peer(2);
 
-      announce(topology, c.id, neighbors: [a.id, b.id]);
-      a.direct.reachable.add(c.id);
-      c.direct.reachable.add(b.id);
+      topology.seedLocalNeighbors([a, b]);
+      expect(topology.localNeighbors, isEmpty);
 
-      final aead = XChaCha20Poly1305Aead();
-      final toBob = await generateAeadKey();
-      final toCarol = await generateAeadKey();
-      final plaintext = Uint8List.fromList(utf8.encode('layer-9-secret'));
-      final ciphertext = (await aead.encrypt(
-        key: toBob,
-        plaintext: plaintext,
-      )).unwrap();
-
-      final received = b.relay.incoming.first;
-      final result = await a.relay.deliver(b.id, ciphertext);
-      expect(result, isA<RelayedSent>());
-      await pump([a, b, c]);
-
-      final forwarded = decodeFrame(c.direct.sent.single.bytes)!;
-      expect(forwarded.payload, ciphertext);
-      expect(forwarded.payload, isNot(plaintext));
-
-      final inbound = await received;
-      expect(inbound.payload, ciphertext);
-      final decrypted = (await aead.decrypt(
-        key: toBob,
-        data: Uint8List.fromList(inbound.payload),
-      )).unwrap();
-      expect(decrypted, plaintext);
-
-      final relayAttempt = await aead.decrypt(
-        key: toCarol,
-        data: Uint8List.fromList(forwarded.payload),
-      );
-      expect(relayAttempt.isErr, isTrue);
+      topology.setLocalPeer(a);
+      topology.seedLocalNeighbors([a, b, b]);
+      expect(topology.localNeighbors, {b});
     });
+
+    test('измеренный RTT из PeerLinkStats перекрывает presence', () async {
+      final topology = RelayTopology();
+      final b = SimNode(id: peer(2), topology: topology);
+      final advertisedFast = peer(3);
+      final advertisedSlow = peer(4);
+      final stats = <PeerId, PeerLinkStats>{
+        advertisedFast: linkStats(const Duration(milliseconds: 80)),
+        advertisedSlow: linkStats(const Duration(milliseconds: 5)),
+      };
+      final measured = SimNode(
+        id: peer(5),
+        topology: topology,
+        linkStats: (id) => stats[id],
+      );
+
+      announce(
+        topology,
+        advertisedFast,
+        neighbors: [measured.id, b.id],
+        rtt: const Duration(milliseconds: 10),
+      );
+      announce(
+        topology,
+        advertisedSlow,
+        neighbors: [measured.id, b.id],
+        rtt: const Duration(milliseconds: 50),
+      );
+      measured.direct.reachable.add(advertisedFast);
+      measured.direct.reachable.add(advertisedSlow);
+
+      final result = await measured.relay.deliver(b.id, [1]);
+
+      expect(result, isA<RelayedSent>());
+      expect((result as RelayedSent).relay, advertisedSlow);
+      expect(measured.direct.sent.single.dst, advertisedSlow);
+    });
+
+    test('нулевой RTT не перекрывает presence', () async {
+      final topology = RelayTopology();
+      final b = SimNode(id: peer(2), topology: topology);
+      final fast = peer(3);
+      final slow = peer(4);
+      final a = SimNode(
+        id: peer(1),
+        topology: topology,
+        linkStats: (_) => linkStats(Duration.zero),
+      );
+
+      announce(
+        topology,
+        fast,
+        neighbors: [a.id, b.id],
+        rtt: const Duration(milliseconds: 10),
+      );
+      announce(
+        topology,
+        slow,
+        neighbors: [a.id, b.id],
+        rtt: const Duration(milliseconds: 50),
+      );
+      a.direct.reachable.add(fast);
+      a.direct.reachable.add(slow);
+
+      final result = await a.relay.deliver(b.id, [1]);
+
+      expect(result, isA<RelayedSent>());
+      expect((result as RelayedSent).relay, fast);
+    });
+
+    test('нагрузка из RelayMetrics перекрывает presence-load', () async {
+      final clock = FakeClock(DateTime.utc(2026));
+      final topology = RelayTopology(clock: clock.call);
+      final b = SimNode(id: peer(2), topology: topology);
+      final fast = peer(3);
+      final slow = peer(4);
+      final a = SimNode(id: peer(1), topology: topology, clock: clock.call);
+
+      announce(
+        topology,
+        fast,
+        neighbors: [a.id, b.id],
+        capacityBytesPerSecond: 1000,
+        rtt: const Duration(milliseconds: 10),
+      );
+      announce(
+        topology,
+        slow,
+        neighbors: [a.id, b.id],
+        capacityBytesPerSecond: 1000,
+        rtt: const Duration(milliseconds: 20),
+      );
+      a.direct.reachable.add(fast);
+      a.direct.reachable.add(slow);
+      a.relay.metrics.recordForward(fast, 1000);
+      clock.advance(const Duration(seconds: 1));
+
+      final result = await a.relay.deliver(b.id, [1]);
+
+      expect(result, isA<RelayedSent>());
+      expect((result as RelayedSent).relay, slow);
+      expect(a.direct.sent.single.dst, slow);
+    });
+
+    test(
+      'локальные измерения не продлевают жизнь устаревшего presence',
+      () async {
+        final clock = FakeClock(DateTime.utc(2026));
+        final topology = RelayTopology(
+          clock: clock.call,
+          maxAge: const Duration(minutes: 1),
+        );
+        final a = SimNode(
+          id: peer(1),
+          topology: topology,
+          clock: clock.call,
+          linkStats: (_) => linkStats(const Duration(milliseconds: 1)),
+        );
+        final b = SimNode(id: peer(2), topology: topology);
+        final relay = peer(3);
+        final receivedAt = clock();
+
+        announce(topology, relay, neighbors: [a.id, b.id]);
+        a.direct.reachable.add(relay);
+        clock.advance(const Duration(minutes: 2));
+
+        final result = await a.relay.deliver(b.id, [1]);
+
+        expect(result, isA<RelaySendFailed>());
+        expect((result as RelaySendFailed).reason, RelayFailureReason.noRoute);
+        expect(topology.infoFor(relay)?.updatedAt, receivedAt);
+      },
+    );
   });
 
   test('MemberRelay реализует доменный Relay', () async {

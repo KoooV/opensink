@@ -67,6 +67,8 @@ class RelayTransport implements Transport {
     required this.topology,
     required this.signer,
     this.config = const RelayConfig(),
+    this.initialLocalNeighbors = const <PeerId>[],
+    this.linkStats,
     DateTime Function()? clock,
     Duration Function()? monotonicClock,
     Random? random,
@@ -74,8 +76,12 @@ class RelayTransport implements Transport {
        // ignore: prefer_initializing_formals
        _monotonicClock = monotonicClock,
        _random = random ?? Random.secure(),
-       metrics = RelayMetrics(maxTrackedSources: config.maxTrackedSources) {
+       metrics = RelayMetrics(
+         maxTrackedSources: config.maxTrackedSources,
+         clock: clock ?? DateTime.now,
+       ) {
     topology.setLocalPeer(localPeerId);
+    topology.seedLocalNeighbors(initialLocalNeighbors);
     _incoming = StreamController<RelayInbound>.broadcast(
       onListen: _scheduleFlush,
     );
@@ -106,6 +112,13 @@ class RelayTransport implements Transport {
   final RelayTopology topology;
   final Signer signer;
   final RelayConfig config;
+
+  /// Линки, установленные до создания транспорта.
+  final Iterable<PeerId> initialLocalNeighbors;
+
+  /// Локальная статистика прямого линка (RTT, битрейт).
+  final PeerLinkStats? Function(PeerId peerId)? linkStats;
+
   final DateTime Function() _clock;
   final Duration Function()? _monotonicClock;
   final Stopwatch _monotonicWatch = Stopwatch()..start();
@@ -202,6 +215,7 @@ class RelayTransport implements Transport {
       return const RelaySendFailed(RelayFailureReason.frameTooLarge);
     }
 
+    _observeTopology();
     final attempted = <PeerId>{};
     while (true) {
       final relay = topology.selectRelay(
@@ -364,6 +378,7 @@ class RelayTransport implements Transport {
         return;
       }
 
+      _observeTopology();
       final attempted = <PeerId>{};
       while (true) {
         final nextHop = topology.nextHop(
@@ -459,6 +474,25 @@ class RelayTransport implements Transport {
     }
     if (!_events.isClosed) {
       await _events.close();
+    }
+  }
+
+  /// Обновляет RTT/нагрузку в presence-графе локальными измерениями.
+  void _observeTopology() {
+    for (final peerId in topology.knownPeerIds) {
+      final stats = linkStats?.call(peerId);
+      final measuredRtt = stats != null && stats.rtt > Duration.zero
+          ? stats.rtt
+          : null;
+      final load = metrics.observedLoadBytesPerSecond(peerId);
+      if (measuredRtt == null && load <= 0) {
+        continue;
+      }
+      topology.observeLink(
+        peerId,
+        rtt: measuredRtt,
+        loadBytesPerSecond: load > 0 ? load : null,
+      );
     }
   }
 

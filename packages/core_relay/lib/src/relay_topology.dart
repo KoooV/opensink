@@ -104,13 +104,21 @@ class RelayTopology {
     _localNeighbors.add(peerId);
   }
 
+  /// Засевает линки, установленные до создания релейного транспорта.
+  ///
+  /// Вызывается после [setLocalPeer]; до него метод ничего не делает.
+  void seedLocalNeighbors(Iterable<PeerId> peerIds) {
+    for (final peerId in peerIds) {
+      addLocalNeighbor(peerId);
+    }
+  }
+
   /// Убирает локальный линк после разрыва или ошибки транспорта.
   void removeLocalNeighbor(PeerId peerId) {
     _localNeighbors.remove(peerId);
   }
 
-  Set<PeerId> get localNeighbors =>
-      Set<PeerId>.unmodifiable(_localNeighbors);
+  Set<PeerId> get localNeighbors => Set<PeerId>.unmodifiable(_localNeighbors);
 
   void applyPresence(
     PeerId peerId, {
@@ -175,6 +183,24 @@ class RelayTopology {
   }
 
   RelayPeer? infoFor(PeerId peerId) => _peers[peerId];
+
+  /// Узлы, для которых есть presence-анонс.
+  Set<PeerId> get knownPeerIds => Set<PeerId>.unmodifiable(_peers.keys);
+
+  /// Перекрывает метрики анонса локальными измерениями.
+  ///
+  /// [RelayPeer.updatedAt] намеренно не меняется: наблюдение не продлевает
+  /// жизнь presence-анонса, а лишь уточняет его RTT/нагрузку.
+  void observeLink(PeerId peerId, {Duration? rtt, int? loadBytesPerSecond}) {
+    final peer = _peers[peerId];
+    if (peer == null || (rtt == null && loadBytesPerSecond == null)) {
+      return;
+    }
+    _peers[peerId] = peer.copyWith(
+      rtt: rtt,
+      loadBytesPerSecond: loadBytesPerSecond,
+    );
+  }
 
   Set<PeerId> neighborsOf(PeerId peerId) {
     if (peerId == _localPeerId) {
