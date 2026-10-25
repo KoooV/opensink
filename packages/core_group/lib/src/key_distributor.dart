@@ -1,7 +1,13 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:core_domain/core_domain.dart';
+import 'package:core_sync/core_sync.dart' show hexDecode;
 import 'package:meta/meta.dart';
+
+/// Домен подписи sender-key пакета.
+const String senderKeyPackageSigningDomain =
+    'opensink/group/sender-key-package/v1';
 
 /// Пакет нового sender key для доставки оставшимся участникам.
 @immutable
@@ -12,6 +18,7 @@ class GroupKeyRotation {
     required this.sender,
     required this.recipients,
     required this.keyPackage,
+    this.signature,
   });
 
   final GroupId groupId;
@@ -19,6 +26,10 @@ class GroupKeyRotation {
   final UserId sender;
   final Set<UserId> recipients;
   final Uint8List keyPackage;
+
+  /// Подпись пакета для конкретного получателя; заполняется при приёме
+  /// удалённой ротации. Локальная рассылка подписывает каждый пакет отдельно.
+  final String? signature;
 
   @override
   String toString() =>
@@ -52,6 +63,7 @@ class SenderKeyPackage {
     required this.sender,
     required this.recipient,
     required this.keyPackage,
+    this.signature,
   });
 
   final GroupId groupId;
@@ -60,8 +72,62 @@ class SenderKeyPackage {
   final UserId recipient;
   final Uint8List keyPackage;
 
+  /// Ed25519-подпись [signingBytes] ключом отправителя.
+  final String? signature;
+
   /// Стабильный ключ дедупликации в кэше/карантине.
   String get id => '${groupId.value}/$epoch/${sender.value}/${recipient.value}';
+
+  /// Канонические байты для Ed25519-подписи.
+  ///
+  /// Поля кодируются с префиксом длины, поэтому подпись связывает группу,
+  /// эпоху, отправителя, получателя и сам ключевой пакет.
+  Uint8List signingBytes() {
+    final builder = BytesBuilder(copy: false);
+    void addField(List<int> bytes) {
+      final length = ByteData(4)..setUint32(0, bytes.length);
+      builder.add(length.buffer.asUint8List());
+      builder.add(bytes);
+    }
+
+    addField(utf8.encode(senderKeyPackageSigningDomain));
+    addField(utf8.encode(groupId.value));
+    final epochBytes = ByteData(8)..setInt64(0, epoch);
+    addField(epochBytes.buffer.asUint8List());
+    addField(utf8.encode(sender.value));
+    addField(utf8.encode(recipient.value));
+    addField(keyPackage);
+    return builder.toBytes();
+  }
+
+  SenderKeyPackage withSignature(String signature) {
+    return SenderKeyPackage(
+      groupId: groupId,
+      epoch: epoch,
+      sender: sender,
+      recipient: recipient,
+      keyPackage: Uint8List.fromList(keyPackage),
+      signature: signature,
+    );
+  }
+
+  SenderKeyPackage copyWith({
+    GroupId? groupId,
+    int? epoch,
+    UserId? sender,
+    UserId? recipient,
+    Uint8List? keyPackage,
+    String? signature,
+  }) {
+    return SenderKeyPackage(
+      groupId: groupId ?? this.groupId,
+      epoch: epoch ?? this.epoch,
+      sender: sender ?? this.sender,
+      recipient: recipient ?? this.recipient,
+      keyPackage: keyPackage ?? Uint8List.fromList(this.keyPackage),
+      signature: signature ?? this.signature,
+    );
+  }
 
   /// Проверяет структурные инварианты пакета до проверки подписи/сессии.
   SenderKeyPackageError? validate({int maxPackageBytes = 64 * 1024}) {
@@ -275,6 +341,7 @@ class SenderKeyRetryReport {
 class ProductionGroupKeyDistributor implements GroupKeyDistributor {
   ProductionGroupKeyDistributor({
     required this.localUser,
+    this.signer,
     required this.delivery,
     required this.store,
     required this.verifier,
@@ -282,6 +349,10 @@ class ProductionGroupKeyDistributor implements GroupKeyDistributor {
   });
 
   final UserId localUser;
+
+  /// Подписчик локальной identity. Без него рассылка и приём подписанных
+  /// пакетов fail-closed: пакеты не подписываются и не попадают в verified.
+  final Signer? signer;
   final SenderKeyDelivery delivery;
   final SenderKeyPackageStore store;
   final SenderKeyPackageVerifier verifier;
@@ -334,9 +405,12 @@ class ProductionGroupKeyDistributor implements GroupKeyDistributor {
       }
       if (await _isDelivered(package)) continue;
 
+      final signed = await _signSafely(package);
+      if (signed == null) continue;
+
       final saved = await store.save(
         StoredSenderKeyPackage(
-          package: package,
+          package: signed,
           state: SenderKeyPackageState.pending,
         ),
       );
@@ -344,7 +418,7 @@ class ProductionGroupKeyDistributor implements GroupKeyDistributor {
         _lastError = SenderKeyPackageStoreFailure(saved.unwrapErr().toString());
         continue;
       }
-      await _deliver(package);
+      await _deliver(signed);
     }
   }
 
@@ -364,6 +438,12 @@ class ProductionGroupKeyDistributor implements GroupKeyDistributor {
       await _quarantine(package, error.reason);
       _lastError = error;
       return const Err(error);
+    }
+    final signatureError = await _signatureError(package);
+    if (signatureError != null) {
+      await _quarantine(package, signatureError.toString());
+      _lastError = signatureError;
+      return Err(signatureError);
     }
 
     final Result<void, SenderKeyPackageError> verified;
@@ -425,6 +505,12 @@ class ProductionGroupKeyDistributor implements GroupKeyDistributor {
         _lastError = error;
         continue;
       }
+      final signatureError = await _signatureError(package);
+      if (signatureError != null) {
+        await _quarantine(package, signatureError.toString());
+        _lastError = signatureError;
+        continue;
+      }
       final verified = await _verifySafely(package);
       if (verified.isErr) {
         final error = verified.unwrapErr();
@@ -471,6 +557,7 @@ class ProductionGroupKeyDistributor implements GroupKeyDistributor {
       sender: rotation.sender,
       recipient: localUser,
       keyPackage: Uint8List.fromList(rotation.keyPackage),
+      signature: rotation.signature,
     );
     final received = await receive(package);
     if (received.isErr) _lastError = received.unwrapErr();
@@ -500,6 +587,72 @@ class ProductionGroupKeyDistributor implements GroupKeyDistributor {
       ),
     );
     return saved.isOk;
+  }
+
+  Future<SenderKeyPackage?> _signSafely(SenderKeyPackage package) async {
+    final signer = this.signer;
+    if (signer == null) {
+      _lastError = const InvalidSenderKeyPackage('signer is not configured');
+      return null;
+    }
+    try {
+      final bytes = package.signingBytes();
+      final signature = await signer.sign(bytes);
+      if (signature.isEmpty) {
+        _lastError = const InvalidSenderKeyPackage('empty signature');
+        return null;
+      }
+      final senderBytes = hexDecode(localUser.value);
+      if (senderBytes == null || senderBytes.length != 32) {
+        _lastError = const InvalidSenderKeyPackage('local user key is invalid');
+        return null;
+      }
+      final valid = await signer.verify(bytes, signature, PeerId(senderBytes));
+      if (!valid) {
+        _lastError = const InvalidSenderKeyPackage(
+          'signer does not match local user',
+        );
+        return null;
+      }
+      return package.withSignature(signature);
+    } catch (error) {
+      _lastError = InvalidSenderKeyPackage('signing failed: $error');
+      return null;
+    }
+  }
+
+  Future<SenderKeyPackageError?> _signatureError(
+    SenderKeyPackage package,
+  ) async {
+    final signer = this.signer;
+    if (signer == null) {
+      return const InvalidSenderKeyPackage('signer is not configured');
+    }
+    final signature = package.signature;
+    if (signature == null || signature.isEmpty) {
+      return const InvalidSenderKeyPackage('missing signature');
+    }
+    final signatureBytes = hexDecode(signature);
+    if (signatureBytes == null || signatureBytes.length != 64) {
+      return const InvalidSenderKeyPackage('signature is invalid');
+    }
+    final senderBytes = hexDecode(package.sender.value);
+    if (senderBytes == null || senderBytes.length != 32) {
+      return const InvalidSenderKeyPackage('sender key is invalid');
+    }
+    try {
+      final valid = await signer.verify(
+        package.signingBytes(),
+        signature,
+        PeerId(senderBytes),
+      );
+      if (!valid) {
+        return const InvalidSenderKeyPackage('signature mismatch');
+      }
+    } catch (error) {
+      return InvalidSenderKeyPackage('signature verification failed: $error');
+    }
+    return null;
   }
 
   Future<Result<void, SenderKeyPackageError>> _verifySafely(

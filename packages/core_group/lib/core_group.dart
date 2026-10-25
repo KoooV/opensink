@@ -10,3 +10,5 @@ export 'src/group_sync_bridge.dart';
 export 'src/invite_link.dart';
 export 'src/invite_proof.dart';
 export 'src/key_distributor.dart';
+export 'src/sender_key_delivery.dart';
+export 'src/sender_key_package_codec.dart';

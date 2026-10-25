@@ -72,6 +72,26 @@ G-09…G-11 из повторного ревью 2026-10-25.
 | G-10 | `packages/core_group/lib/src/group_event_codec.dart:484-486` | Пустой `inviteMode` декодируется как `InviteMode.open`, превращая malformed payload в open-инвайт. | minor; пустое значение — `MalformedGroupEvent`, добавить тест. |
 | G-11 | `packages/core_group/lib/src/group_state.dart:782` | Исключение из `InviteProofVerifier.verify` выходит из `apply` вместо `Err(InvalidInviteProof)`. | minor; try/catch и тест с throw-verifier. |
 
+## Sender keys (ревью 2026-10-25)
+
+Блокеров нет; production `SenderKeyChannel` ещё не подключён, поэтому пункты ниже
+остаются latent. Текущие подпись, domain separation и verify-before-use признаны
+корректными.
+
+| id | Место | Риск | Проверка / статус |
+|----|-------|------|-------------------|
+| G-25 | `packages/core_group/lib/src/key_distributor.dart:79,656` | Карантин пишется по `id` без содержимого/подписи: пакет с тем же `(groupId, epoch, sender, recipient)`, но битой подписью или пустым `keyPackage`, перезаписывает `verified`/`pending`/`delivered`. | high, latent; ключ карантина с content-hash, запрет перезаписи `verified`, тест same-id. |
+| G-26 | `packages/core_group/lib/src/key_distributor.dart:538,563` | `retryPending` не валидирует и не переподписывает legacy pending; pending без подписи навсегда отклоняется `E2eSenderKeyDelivery`, delivered без подписи блокирует повтор через `_isDelivered`. | high, latent; переподпись/валидация при retry либо инвалидация legacy pending/delivered. |
+| G-27 | `packages/core_group/lib/src/key_distributor.dart:627`; `apps/app/lib/group/sender_key_verifier.dart:18` | Подпись подтверждает владение ключом из `sender`, но не членство отправителя в группе и не авторизованность эпохи; при подключении `receive` не-участник сможет попасть в `verified`. | medium, latent; проверять `sender ∈ GroupState.members` и эпоху до сохранения, негативный тест. |
+| G-28 | `packages/core_group/lib/src/key_distributor.dart:551`; `packages/core_group/lib/src/group_controller.dart:224` | `GroupKeyRotation.signature` не заполняется production-вызовом `_distribute`, поэтому удалённая ротация с непустым `keyPackage` уходит в карантин `missing signature`. | medium, latent; прокинуть подписанный пакет через `apply`/`_distribute` или убрать ветку. |
+| G-29 | `packages/core_group/lib/src/sender_key_package_codec.dart:37` | `utf8.decode`/`jsonDecode`/`base64Decode` до проверки размера; `maxPackageBytes` ограничивает только `keyPackage` после decode, большой payload даёт memory/CPU DoS. | medium, latent; лимит `data.length` до декодирования. |
+| G-30 | `packages/core_group/lib/src/key_distributor.dart:114` | `copyWith` сохраняет старую `signature` при изменении подписываемых полей; получается «выглядящий подписанным» пакет с невалидной подписью. | low, latent; сбрасывать подпись при изменении полей или убрать `copyWith`. |
+| G-31 | `packages/core_group/lib/src/key_distributor.dart:610,640` | `$error` интерполируется в `lastError` и персистентный `reason` карантина; исключение `Signer`/verifier может унести ключевой материал в secure store/логи. | low, latent; фиксированные коды причин без `toString()` ошибки. |
+| G-32 | `packages/core_group/lib/src/key_distributor.dart:423,479` | Нет монотонности/отбора по эпохе в `receive`/`restore`: старый валидно подписанный пакет может лежать в `verified` рядом с новым, выбор ключа станет order-dependent. | low, latent; максимальная эпоха на отправителя, сортировка `restore`. |
+| G-33 | `apps/app/test/di/group_providers_test.dart:62` | `FakeSigner()` даёт не-hex подпись, `localUser: 'test-user'` не 32-байтный hex; path self-verify не подписывает, тест этого не замечает. | low, latent; валидный 32-байтный userId, hex-fake, проверка `lastError`/подписи. |
+| G-34 | `packages/core_group/test/sender_key_signing_test.dart`; `apps/app/test/di/group_providers_test.dart` | Нет негативных тестов `SenderKeyPackageCodec.decode`, миграции legacy, same-id вытеснения `verified`, не-участника, domain/replay и проверки реальным `CryptoSigner`; fake signer дублируется. | medium, latent; добавить перечисленные кейсы и общий fake. |
+| G-35 | `docs/OPEN_QUESTIONS.md:241`; `packages/core_group/DESIGN.md:128` | Docs обещают перевыпуск legacy, но не описывают миграцию pending/delivered; поля подписи перечислены без `senderKeyPackageSigningDomain`; контракт `GroupKeyRotation.signature` вводит в заблуждение. | low, документирован; синхронизировать docs с кодом и миграцией. |
+
 ## Принятые ограничения
 
 - Android: root-доступ компрометирует хранилище; StrongBox не гарантирован; ключи

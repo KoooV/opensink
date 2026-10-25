@@ -406,16 +406,20 @@ final senderKeyPackageStoreProvider = Provider<SenderKeyPackageStore>((ref) {
 
 /// Production-рассылка sender keys.
 ///
-/// E2E-канал личных сообщений ещё не подключён, поэтому доставка fail-closed:
-/// пакеты остаются pending и повторяются через `retryPending` после
-/// появления сессии. Verified-кэш и карантин работают сразу.
+/// Пакеты подписываются ключом локальной identity. E2E-канал личных сообщений
+/// ещё не подключён, поэтому доставка fail-closed: пакеты остаются pending и
+/// повторяются через `retryPending` после появления сессии. Verified-кэш и
+/// карантин работают сразу.
 final groupKeyDistributorProvider =
     FutureProvider<ProductionGroupKeyDistributor>((ref) async {
       final identity = await ref.watch(localIdentityProvider.future);
       final metadata = await ref.watch(groupMetadataStoreProvider.future);
       return ProductionGroupKeyDistributor(
         localUser: identity.userId,
-        delivery: const UnavailableSenderKeyDelivery(),
+        signer: identity.signer,
+        delivery: const E2eSenderKeyDelivery(
+          channel: UnavailableSenderKeyChannel(),
+        ),
         store: ref.watch(senderKeyPackageStoreProvider),
         verifier: TrustedGroupSenderKeyVerifier(metadata),
       );

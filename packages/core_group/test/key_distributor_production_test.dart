@@ -2,12 +2,63 @@ import 'dart:typed_data';
 
 import 'package:core_domain/core_domain.dart';
 import 'package:core_group/core_group.dart';
+import 'package:core_sync/core_sync.dart' show hexDecode, hexEncode;
 import 'package:test/test.dart';
 
 const _groupId = GroupId('group-a');
-const _alice = UserId('alice');
-const _bob = UserId('bob');
-const _carol = UserId('carol');
+const _alice = UserId(
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+);
+const _bob = UserId(
+  'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+);
+const _carol = UserId(
+  'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+);
+
+String _signatureFor(UserId sender, Uint8List data) {
+  final signature = Uint8List(64);
+  final identity = hexDecode(sender.value);
+  if (identity == null || identity.length != 32) {
+    throw ArgumentError.value(sender.value, 'sender', 'invalid identity');
+  }
+  signature.setRange(0, 32, identity);
+  var hash = 0xcbf29ce484222325;
+  for (final byte in data) {
+    hash = ((hash ^ byte) * 0x100000001b3) & 0xffffffffffffffff;
+  }
+  for (var i = 0; i < 32; i++) {
+    hash ^= hash >> 12;
+    hash ^= (hash << 25) & 0xffffffffffffffff;
+    hash ^= hash >> 27;
+    signature[32 + i] = hash & 0xff;
+  }
+  return hexEncode(signature);
+}
+
+class _FakeSigner implements Signer {
+  _FakeSigner(this.identity);
+
+  final UserId identity;
+
+  @override
+  Future<String> sign(Uint8List data) async => _signatureFor(identity, data);
+
+  @override
+  Future<bool> verify(
+    Uint8List data,
+    String signatureHex,
+    PeerId peerId,
+  ) async {
+    final signature = hexDecode(signatureHex);
+    if (signature == null || signature.length != 64) return false;
+    if (hexEncode(signature.sublist(0, 32)) != hexEncode(peerId.publicKey)) {
+      return false;
+    }
+    return hexEncode(signature) ==
+        _signatureFor(UserId(hexEncode(peerId.publicKey)), data);
+  }
+}
 
 class _FakeDelivery implements SenderKeyDelivery {
   final List<SenderKeyPackage> packages = <SenderKeyPackage>[];
@@ -45,13 +96,17 @@ SenderKeyPackage _package({
   int epoch = 2,
   List<int> bytes = const [1, 2, 3],
   GroupId groupId = _groupId,
+  String? signature,
 }) {
-  return SenderKeyPackage(
+  final base = SenderKeyPackage(
     groupId: groupId,
     epoch: epoch,
     sender: sender,
     recipient: recipient,
     keyPackage: Uint8List.fromList(bytes),
+  );
+  return base.withSignature(
+    signature ?? _signatureFor(sender, base.signingBytes()),
   );
 }
 
@@ -60,6 +115,7 @@ GroupKeyRotation _rotation({
   Set<UserId>? recipients,
   int epoch = 2,
   List<int> keyPackage = const [9, 8, 7],
+  String? signature,
 }) {
   return GroupKeyRotation(
     groupId: _groupId,
@@ -67,6 +123,7 @@ GroupKeyRotation _rotation({
     sender: sender,
     recipients: recipients ?? <UserId>{_bob, _carol},
     keyPackage: Uint8List.fromList(keyPackage),
+    signature: signature,
   );
 }
 
@@ -78,6 +135,7 @@ ProductionGroupKeyDistributor _distributor(
 }) {
   return ProductionGroupKeyDistributor(
     localUser: localUser,
+    signer: _FakeSigner(localUser),
     delivery: delivery,
     store: store,
     verifier: verifier ?? _FakeVerifier(),
@@ -96,15 +154,15 @@ void main() {
 
       await distributor.distribute(_rotation());
 
-      expect(_recipients(delivery.packages), ['bob', 'carol']);
+      expect(_recipients(delivery.packages), [_bob.value, _carol.value]);
       final delivered = await store.load(
         _groupId,
         SenderKeyPackageState.delivered,
       );
       expect(delivered.isOk, isTrue);
       expect(_recipients(delivered.unwrap().map((e) => e.package)), [
-        'bob',
-        'carol',
+        _bob.value,
+        _carol.value,
       ]);
       expect(delivery.packages.first.keyPackage, [9, 8, 7]);
     });
@@ -112,14 +170,16 @@ void main() {
     test(
       'неудачная доставка остаётся pending и повторяется после рестарта',
       () async {
-        final delivery = _FakeDelivery()..failFor.add('bob');
+        final delivery = _FakeDelivery()..failFor.add(_bob.value);
         final store = MemorySenderKeyPackageStore();
         final first = _distributor(delivery, store);
 
         await first.distribute(_rotation());
 
         var pending = await store.load(_groupId, SenderKeyPackageState.pending);
-        expect(pending.unwrap().map((e) => e.package.recipient.value), ['bob']);
+        expect(pending.unwrap().map((e) => e.package.recipient.value), [
+          _bob.value,
+        ]);
 
         delivery.failFor.clear();
         final restarted = _distributor(delivery, store);
@@ -161,7 +221,7 @@ void main() {
       () async {
         final delivery = _FakeDelivery();
         final store = MemorySenderKeyPackageStore();
-        final verifier = _FakeVerifier()..rejectFor.add('alice');
+        final verifier = _FakeVerifier()..rejectFor.add(_alice.value);
         final distributor = _distributor(delivery, store, verifier: verifier);
 
         final rejected = await distributor.receive(_package());
@@ -221,8 +281,19 @@ void main() {
       final store = MemorySenderKeyPackageStore();
       final distributor = _distributor(delivery, store);
 
+      final remotePackage = SenderKeyPackage(
+        groupId: _groupId,
+        epoch: 2,
+        sender: _bob,
+        recipient: _alice,
+        keyPackage: Uint8List.fromList(const [9, 8, 7]),
+      );
       await distributor.distribute(
-        _rotation(sender: _bob, recipients: <UserId>{_alice, _carol}),
+        _rotation(
+          sender: _bob,
+          recipients: <UserId>{_alice, _carol},
+          signature: _signatureFor(_bob, remotePackage.signingBytes()),
+        ),
       );
 
       expect(delivery.packages, isEmpty);

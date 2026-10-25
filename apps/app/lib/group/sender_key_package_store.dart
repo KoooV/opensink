@@ -38,6 +38,7 @@ class SecureSenderKeyPackageStore implements SenderKeyPackageStore {
         'sender': package.sender.value,
         'recipient': package.recipient.value,
         'keyPackage': base64Encode(package.keyPackage),
+        'signature': package.signature,
         'state': entry.state.name,
         'reason': entry.reason,
       }),
@@ -133,11 +134,13 @@ class SecureSenderKeyPackageStore implements SenderKeyPackageStore {
       final sender = decoded['sender'];
       final recipient = decoded['recipient'];
       final keyPackage = decoded['keyPackage'];
+      final signature = decoded['signature'];
       final state = decoded['state'];
       if (epoch is! int ||
           sender is! String ||
           recipient is! String ||
           keyPackage is! String ||
+          (signature != null && signature is! String) ||
           state is! String) {
         return null;
       }
@@ -156,6 +159,7 @@ class SecureSenderKeyPackageStore implements SenderKeyPackageStore {
           sender: UserId(sender),
           recipient: UserId(recipient),
           keyPackage: Uint8List.fromList(base64Decode(keyPackage)),
+          signature: signature as String?,
         ),
         state: stateValue,
         reason: decoded['reason'] as String?,

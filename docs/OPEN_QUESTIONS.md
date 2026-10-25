@@ -231,3 +231,15 @@ approval-заявок и QR инвайта реализован. Режим appr
 - Режим approval не входит в `InviteLink`; он выводится из подписанного `InviteIssued`,
   до загрузки истории join остаётся pending.
 - Production `ChatService` не включается до E2E-доставки sender keys; кэш/карантин `GroupKeyDistributor` готовы, доставка pending/fail-closed.
+
+## Решения poll 2026-10-25 (sender keys)
+
+- Production E2E-канал для sender keys — отдельный design+feature: X3DH/DoubleRatchet
+  session manager, хранение сессий и реализация `SenderKeyChannel`.
+- X25519 key bundle публикуется в подписанном signaling presence/hello; получатель
+  проверяет Ed25519 binding до X3DH.
+- Старые `verified`-пакеты без подписи не мигрируют: fail-closed карантин и
+  перевыпуск sender key.
+- Несовпадение `Signer` и `localUser` — fail-closed с `lastError`; отдельного flow
+  перепривязки identity нет.
+- Смена Ed25519-ключа подписи/ротация sender keys — после подключения E2E-канала.

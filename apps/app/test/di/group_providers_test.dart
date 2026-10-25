@@ -59,7 +59,10 @@ List<Override> _overridesFor(
     groupKeyDistributorProvider.overrideWith(
       (ref) async => ProductionGroupKeyDistributor(
         localUser: const UserId('test-user'),
-        delivery: const UnavailableSenderKeyDelivery(),
+        signer: FakeSigner(),
+        delivery: const E2eSenderKeyDelivery(
+          channel: UnavailableSenderKeyChannel(),
+        ),
         store: MemorySenderKeyPackageStore(),
         verifier: _AllowAllVerifier(),
       ),

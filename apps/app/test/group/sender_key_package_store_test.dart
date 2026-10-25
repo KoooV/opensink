@@ -20,6 +20,7 @@ StoredSenderKeyPackage _entry(
       sender: const UserId('alice'),
       recipient: recipient,
       keyPackage: Uint8List.fromList(<int>[1, 2, 3]),
+      signature: 'sig',
     ),
     state: state,
     reason: reason,
@@ -49,6 +50,7 @@ void main() {
 
     expect(verified.unwrap().single.package.recipient, const UserId('bob'));
     expect(verified.unwrap().single.package.keyPackage, [1, 2, 3]);
+    expect(verified.unwrap().single.package.signature, 'sig');
     expect(pending.unwrap().single.package.recipient, const UserId('carol'));
   });
 

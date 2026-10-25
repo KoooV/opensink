@@ -125,10 +125,14 @@
 админу/владельцу задать эпоху вручную (только вперёд). `GroupController` при
 изменении эпохи отдаёт новый пакет ключа в `GroupKeyDistributor`; реализация
 рассылает его по E2E-зашифрованным личным сообщениям только оставшимся
-участникам. `ProductionGroupKeyDistributor` держит verified-кэш в
-`SecureKeyStore`, хранит неудачные доставки как pending для retry, а
-непроверенные пакеты — в карантине; `restore` перепроверяет кэш при старте.
-В unit-тестах используется `InMemoryGroupKeyDistributor`.
+участникам. Каждый `SenderKeyPackage` подписывается Ed25519-ключом отправителя
+над каноническими `(groupId, epoch, sender, recipient, keyPackage)`; получатель
+проверяет подпись до verified-кэша. `E2eSenderKeyDelivery` передаёт подписанный
+пакет через `SenderKeyChannel` (контракт личного Double Ratchet/X3DH-канала).
+`ProductionGroupKeyDistributor` держит verified-кэш в `SecureKeyStore`, хранит
+неудачные доставки как pending для retry, а непроверенные пакеты — в карантине;
+`restore` перепроверяет подпись и кэш при старте. В unit-тестах используется
+`InMemoryGroupKeyDistributor` и in-memory `SenderKeyChannel`.
 
 ## 7. Решения poll (2026-10-24)
 
