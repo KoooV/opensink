@@ -14,6 +14,7 @@ class RelayMetrics {
   int relayedSent = 0;
   int relaySendFailed = 0;
   int delivered = 0;
+  int queuedInbound = 0;
   int forwarded = 0;
   int forwardedBytes = 0;
   int forwardFailed = 0;
@@ -28,6 +29,11 @@ class RelayMetrics {
   int droppedUnauthenticated = 0;
   int droppedBadSignature = 0;
   int droppedInboundOverflow = 0;
+  int droppedInboundNoBuffer = 0;
+  int droppedInboundClosed = 0;
+  int droppedSeenFull = 0;
+  int acceptFailed = 0;
+  int shutdownFailed = 0;
   int noRoute = 0;
 
   final LinkedHashMap<PeerId, int> forwardedBytesBySource =
@@ -51,12 +57,16 @@ class RelayMetrics {
   @override
   String toString() =>
       'RelayMetrics(direct=$directSent/$directFailed, forwarded=$forwarded, '
-      'delivered=$delivered, '
+      'delivered=$delivered, queued=$queuedInbound, '
       'duplicate=$droppedDuplicate, ttl=$droppedTtl, disabled=$droppedDisabled, '
       'rate=$droppedRateLimited, oversize=$droppedOversize, '
       'malformed=$droppedMalformed, loop=$droppedLoop, '
       'unauthenticated=$droppedUnauthenticated, '
       'badSignature=$droppedBadSignature, '
-      'inboundOverflow=$droppedInboundOverflow, noRoute=$noRoute, '
+      'inboundOverflow=$droppedInboundOverflow, '
+      'inboundNoBuffer=$droppedInboundNoBuffer, '
+      'inboundClosed=$droppedInboundClosed, '
+      'seenFull=$droppedSeenFull, acceptFailed=$acceptFailed, '
+      'shutdownFailed=$shutdownFailed, noRoute=$noRoute, '
       'forwardFailed=$forwardFailed, forwardExhausted=$forwardExhausted)';
 }

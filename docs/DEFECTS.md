@@ -38,23 +38,28 @@ Ed25519-подпись origin, `originTtl = ttl + hopCount`, подписанн�
 ограниченный буфер `incoming`, владение `direct` и закрытие потоков без
 синтетического `'closed'`, fingerprint через `package:cryptography`,
 документированное окно seen-кэша, тесты burst/malformed/close/opt-out/dedupe.
-Повторное ревью 2026-10-25 (reviewer+crypto) блокеров не нашло, но выявило
-остаточные пункты:
+Повторное ревью 2026-10-25 (reviewer+crypto) блокеров не нашло; остаточные
+R-16–R-27 закрыты в пакете `core_relay`:
 
-| id | Место | Риск | Проверка / статус |
-|----|-------|------|-------------------|
-| R-16 | `packages/core_relay/lib/src/relay_transport.dart:429-440` | `_flushBufferedInbound` очищает буфер до фактической доставки; при `.first`/ранней отмене подписчика остальные кадры теряются, хотя уже помечены seen. | medium; не очищать до доставки или возвращать неотданное в `onCancel`; тест с 2–3 кадрами и `.first`. |
-| R-17 | `packages/core_relay/lib/src/relay_transport.dart:153-225,232-370` | `deliver`/`accept` проверяют `_closed` только на входе и продолжают после `await`: возможны отправка, мутации topology/метрик и `noRoute`/`disabled` вместо `closed` после shutdown. | medium; повторять проверку `_closed` после каждого `await` до мутаций. |
-| R-18 | `packages/core_relay/lib/src/relay_transport.dart:373-409`; `packages/core_relay/DESIGN.md:41-43` | Нет мемоизации shutdown: `close()` после `_onDirectDone` не ждёт завершения и не закрывает `direct`, хотя DESIGN заявляет владение. | low; мемоизировать `Future<void>? _closing`, закрывать `direct` ровно один раз. |
-| R-19 | `packages/core_relay/lib/src/relay_config.dart:45-50`; `relay_transport.dart:49-53,286-291,479-485` | После `seenTtl` тот же подписанный кадр снова принимается; `RelayInbound` не отдаёт nonce/frameId, поэтому верхний слой не может дедуплицировать произвольный payload. | документирован; at-least-once на уровне relay, обязательный idempotency-key в payload выше. |
-| R-20 | `packages/core_relay/lib/src/relay_transport.dart:299-310,384`; `packages/core_relay/DESIGN.md:36-37` | `delivered` и `_remember` срабатывают при постановке в буфер, а `close()` очищает буфер; счётчик учитывает кадр, не полученный подписчиком. | medium; разделить queued/delivered или поправить DESIGN. |
-| R-21 | `packages/core_relay/lib/src/relay_transport.dart:412-424` | `droppedInboundOverflow` растёт при отключённом буфере (`incomingBufferFrames <= 0`) и гонке с `close()`, поэтому не означает только переполнение. | low; отдельные счётчики или не инкрементить в этих ветках. |
-| R-22 | `packages/core_relay/lib/src/relay_transport.dart:472-474` | При заполнении `seenMaxEntries` запись вытесняется до истечения `seenTtl`; валидными кадрами можно вытеснить nonce и повторить кадр в пределах окна. | low; не вытеснять неистёкшие записи или отбрасывать новый кадр; тест eviction+replay. |
-| R-23 | `packages/core_relay/lib/src/relay_transport.dart:72,479-485` | TTL seen-кэша считается по `DateTime.now`: скачок часов сокращает или растягивает replay-окно. | low; монотонное время для TTL, wall-clock оставить presence. |
-| R-24 | `packages/core_relay/lib/src/relay_transport.dart:86,286,493-498` | Асинхронный `_frameKey` может бросить исключение, а `accept` запускается через `unawaited`; ошибка остаётся необработанной и без метрики. | low; `try/catch` с метрикой или синхронный fingerprint. |
-| R-25 | `packages/core_relay/lib/src/relay_config.dart:55-57`; `relay_transport.dart:416-426` | Документация говорит «до первой подписки», но после отмены последнего слушателя буфер включается снова; нет теста cancel→кадры→relisten. | low; уточнить «пока нет слушателей» и добавить тест. |
-| R-26 | `packages/core_relay/test/relay_test.dart:1366-1655` | Нет тестов на несколько кадров и порядок, повторную подписку, overflow без `_remember`, `incomingBufferFrames: 0`, двойной `close()`/close во время in-flight `accept`, проброс `onError` из `direct.events`. | low; добавить перечисленные кейсы. |
-| R-27 | `packages/core_relay/test/relay_test.dart:43-70` | `TestSigner` использует XOR и сравнение `==`; большинство auth-тестов не идут через Ed25519. | info; real-`CryptoSigner` тесты на tamper/replay/dup и очистка registry. |
+- R-16/R-20/R-21/R-25: буфер `incoming` не очищается до фактической доставки,
+  `.first` не теряет остальные кадры; `delivered`/`queuedInbound` разделены;
+  переполнение, отключённый буфер и закрытие потока считаются отдельными
+  счётчиками; после отмены последнего слушателя буфер снова активен. Тесты:
+  `.first`, порядок нескольких кадров, cancel→frames→relisten, close с
+  неотданными кадрами.
+- R-17/R-18: `deliver`/`accept` повторно проверяют `_closed` после каждого
+  `await` до мутаций; shutdown мемоизирован, `direct` закрывается ровно один
+  раз, в том числе после `_onDirectDone`.
+- R-19: остаётся задокументированным at-least-once контрактом: после `seenTtl`
+  идущий выше слой обязан дедуплицировать payload по своему идентификатору.
+- R-22/R-23/R-24: при полном `seen` новые кадры отбрасываются
+  (`droppedSeenFull`), неистёкшие nonce не вытесняются; TTL считается по
+  монотонным часам, wall-clock остаётся для token bucket; ошибки не-awaited
+  `accept` учитываются в `acceptFailed`.
+- R-26/R-27: добавлены тесты overflow без `_remember`, `incomingBufferFrames: 0`,
+  двойного close/close во время in-flight `accept`, проброса `onError` из
+  `direct.events`; auth-тесты реального Ed25519 (tamper/replay/dup), реестр
+  `TestSigner` очищается в `setUp`, сравнение подписи constant-time.
 
 ## Группы и DI (ревью 2026-10-25)
 

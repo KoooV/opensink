@@ -68,26 +68,33 @@ class RelayTransport implements Transport {
     required this.signer,
     this.config = const RelayConfig(),
     DateTime Function()? clock,
+    Duration Function()? monotonicClock,
     Random? random,
   }) : _clock = clock ?? DateTime.now,
+       // ignore: prefer_initializing_formals
+       _monotonicClock = monotonicClock,
        _random = random ?? Random.secure(),
        metrics = RelayMetrics(maxTrackedSources: config.maxTrackedSources) {
     _incoming = StreamController<RelayInbound>.broadcast(
-      onListen: _flushBufferedInbound,
+      onListen: _scheduleFlush,
     );
     _directEvents = direct.events.listen(
       _onDirectEvent,
       onError: _onDirectError,
       onDone: _onDirectDone,
     );
-    _relayEvents = direct.relayIncoming.listen(
-      (datagram) {
-        if (!_closed) {
-          unawaited(accept(datagram.from, datagram.bytes));
-        }
-      },
-      onError: _onDirectError,
-    );
+    _relayEvents = direct.relayIncoming.listen((datagram) {
+      if (!_closed) {
+        unawaited(
+          accept(datagram.from, datagram.bytes).catchError((
+            Object error,
+            StackTrace stackTrace,
+          ) {
+            metrics.acceptFailed += 1;
+          }),
+        );
+      }
+    }, onError: _onDirectError);
   }
 
   final PeerId localPeerId;
@@ -99,6 +106,8 @@ class RelayTransport implements Transport {
   final Signer signer;
   final RelayConfig config;
   final DateTime Function() _clock;
+  final Duration Function()? _monotonicClock;
+  final Stopwatch _monotonicWatch = Stopwatch()..start();
   final Random _random;
 
   final RelayMetrics metrics;
@@ -108,21 +117,26 @@ class RelayTransport implements Transport {
   final List<RelayInbound> _incomingBuffer = <RelayInbound>[];
   final Sha256 _sha256 = Sha256();
 
-  final Map<String, DateTime> _seen = <String, DateTime>{};
+  final Map<String, Duration> _seen = <String, Duration>{};
   final Set<String> _inFlight = <String>{};
   final LinkedHashMap<PeerId, _TokenBucket> _sourceBuckets =
       LinkedHashMap<PeerId, _TokenBucket>();
 
   StreamSubscription<PeerLinkEvent>? _directEvents;
   StreamSubscription<RelayDatagram>? _relayEvents;
+  Future<void>? _closing;
+  bool _directClosed = false;
+  bool _flushing = false;
   bool _closed = false;
 
   /// Входящие payload'ы, дошедшие через релей.
   ///
-  /// До первой подписки кадры буферизуются (не более
+  /// Пока у потока нет слушателей, кадры буферизуются (не более
   /// [RelayConfig.incomingBufferFrames]); при переполнении новые кадры
-  /// отбрасываются.
+  /// отбрасываются. После отмены последнего слушателя буфер снова активен.
   Stream<RelayInbound> get incoming => _incoming.stream;
+
+  Duration _now() => _monotonicClock?.call() ?? _monotonicWatch.elapsed;
 
   /// Сколько источников сейчас учитывается в token bucket (для тестов).
   @visibleForTesting
@@ -165,9 +179,15 @@ class RelayTransport implements Transport {
     final payload = Uint8List.fromList(bytes);
     try {
       await direct.send(dst, payload).timeout(config.directTimeout);
+      if (_closed) {
+        return const RelaySendFailed(RelayFailureReason.closed);
+      }
       metrics.directSent += 1;
       return const DirectSent();
     } catch (_) {
+      if (_closed) {
+        return const RelaySendFailed(RelayFailureReason.closed);
+      }
       metrics.directFailed += 1;
       // Прямое соединение не установилось: пробуем релей.
     }
@@ -201,6 +221,9 @@ class RelayTransport implements Transport {
         nonce: _nonce(),
       );
       final signature = await RelayFrameAuth.sign(frame, signer);
+      if (_closed) {
+        return const RelaySendFailed(RelayFailureReason.closed);
+      }
       final encoded = RelayEnvelope.encode(
         frame.copyWith(signature: signature),
       );
@@ -212,9 +235,15 @@ class RelayTransport implements Transport {
         await direct
             .sendRelay(relay.peerId, encoded)
             .timeout(config.forwardTimeout);
+        if (_closed) {
+          return const RelaySendFailed(RelayFailureReason.closed);
+        }
         metrics.relayedSent += 1;
         return RelayedSent(relay.peerId);
       } catch (_) {
+        if (_closed) {
+          return const RelaySendFailed(RelayFailureReason.closed);
+        }
         metrics.relaySendFailed += 1;
         topology.disableRelay(relay.peerId);
       }
@@ -282,8 +311,14 @@ class RelayTransport implements Transport {
       metrics.droppedBadSignature += 1;
       return;
     }
+    if (_closed) {
+      return;
+    }
 
     final key = await _frameKey(src, dst, frame.nonce);
+    if (_closed) {
+      return;
+    }
     _pruneSeen();
     if (_seen.containsKey(key)) {
       metrics.droppedDuplicate += 1;
@@ -294,7 +329,17 @@ class RelayTransport implements Transport {
       return;
     }
 
+    var reserved = false;
+    var committed = false;
     try {
+      // Запись резервируется до доставки, чтобы при полном кэше отбросить
+      // новый кадр, а не вытеснить ещё не истёкший nonce (R-22).
+      if (!_remember(key)) {
+        metrics.droppedSeenFull += 1;
+        return;
+      }
+      reserved = true;
+
       if (dst == localPeerId) {
         final queued = _enqueueInbound(
           RelayInbound(
@@ -305,8 +350,7 @@ class RelayTransport implements Transport {
         if (!queued) {
           return;
         }
-        metrics.delivered += 1;
-        _remember(key);
+        committed = true;
         return;
       }
 
@@ -354,10 +398,16 @@ class RelayTransport implements Transport {
           await direct
               .sendRelay(nextHop, encoded)
               .timeout(config.forwardTimeout);
+          if (_closed) {
+            return;
+          }
           metrics.recordForward(from, encoded.length);
-          _remember(key);
+          committed = true;
           return;
         } catch (_) {
+          if (_closed) {
+            return;
+          }
           metrics.forwardFailed += 1;
           if (nextHop != dst) {
             topology.disableRelay(nextHop);
@@ -366,13 +416,31 @@ class RelayTransport implements Transport {
       }
     } finally {
       _inFlight.remove(key);
+      if (reserved && !committed) {
+        _seen.remove(key);
+      }
     }
   }
 
   @override
-  Future<void> close() => _shutdown(closeDirect: true);
+  Future<void> close() async {
+    try {
+      final pending = _closing ??= _shutdown();
+      await pending;
+    } finally {
+      await _closeDirectOnce();
+    }
+  }
 
-  Future<void> _shutdown({required bool closeDirect}) async {
+  Future<void> _closeDirectOnce() async {
+    if (_directClosed) {
+      return;
+    }
+    _directClosed = true;
+    await direct.close();
+  }
+
+  Future<void> _shutdown() async {
     if (_closed) {
       return;
     }
@@ -381,15 +449,15 @@ class RelayTransport implements Transport {
     _directEvents = null;
     await _relayEvents?.cancel();
     _relayEvents = null;
-    _incomingBuffer.clear();
+    if (_incomingBuffer.isNotEmpty) {
+      metrics.droppedInboundClosed += _incomingBuffer.length;
+      _incomingBuffer.clear();
+    }
     if (!_incoming.isClosed) {
       await _incoming.close();
     }
     if (!_events.isClosed) {
       await _events.close();
-    }
-    if (closeDirect) {
-      await direct.close();
     }
   }
 
@@ -406,37 +474,69 @@ class RelayTransport implements Transport {
   }
 
   void _onDirectDone() {
-    unawaited(_shutdown(closeDirect: false));
+    _closing ??= _shutdown().catchError((Object error, StackTrace stackTrace) {
+      metrics.shutdownFailed += 1;
+    });
   }
 
   bool _enqueueInbound(RelayInbound inbound) {
-    if (_incoming.isClosed) {
+    if (_closed || _incoming.isClosed) {
+      metrics.droppedInboundClosed += 1;
       return false;
     }
-    if (_incoming.hasListener) {
+    if (_incoming.hasListener && _incomingBuffer.isEmpty) {
       _incoming.add(inbound);
+      metrics.delivered += 1;
       return true;
     }
-    if (config.incomingBufferFrames <= 0 ||
-        _incomingBuffer.length >= config.incomingBufferFrames) {
+    if (config.incomingBufferFrames <= 0) {
+      metrics.droppedInboundNoBuffer += 1;
+      return false;
+    }
+    if (_incomingBuffer.length >= config.incomingBufferFrames) {
       metrics.droppedInboundOverflow += 1;
       return false;
     }
     _incomingBuffer.add(inbound);
+    metrics.queuedInbound += 1;
+    _scheduleFlush();
     return true;
   }
 
-  void _flushBufferedInbound() {
-    if (_incomingBuffer.isEmpty) {
+  void _scheduleFlush() {
+    if (_flushing ||
+        _closed ||
+        !_incoming.hasListener ||
+        _incomingBuffer.isEmpty) {
       return;
     }
-    final pending = List<RelayInbound>.of(_incomingBuffer);
-    _incomingBuffer.clear();
-    for (final inbound in pending) {
-      if (_incoming.isClosed) {
-        return;
+    unawaited(_flushBufferedInbound());
+  }
+
+  Future<void> _flushBufferedInbound() async {
+    if (_flushing) {
+      return;
+    }
+    _flushing = true;
+    try {
+      while (!_closed &&
+          !_incoming.isClosed &&
+          _incoming.hasListener &&
+          _incomingBuffer.isNotEmpty) {
+        final inbound = _incomingBuffer.removeAt(0);
+        try {
+          _incoming.add(inbound);
+          metrics.delivered += 1;
+        } catch (_) {
+          metrics.droppedInboundClosed += 1;
+          break;
+        }
+        // Даём отмене подписки (например, `.first`) примениться до
+        // следующего кадра, чтобы неотданные кадры остались в буфере.
+        await Future<void>.delayed(Duration.zero);
       }
-      _incoming.add(inbound);
+    } finally {
+      _flushing = false;
     }
   }
 
@@ -469,10 +569,10 @@ class RelayTransport implements Transport {
     if (_seen.containsKey(key)) {
       return false;
     }
-    while (_seen.length >= config.seenMaxEntries) {
-      _seen.remove(_seen.keys.first);
+    if (_seen.length >= config.seenMaxEntries) {
+      return false;
     }
-    _seen[key] = _clock();
+    _seen[key] = _now();
     return true;
   }
 
@@ -480,8 +580,8 @@ class RelayTransport implements Transport {
     if (config.seenMaxEntries <= 0) {
       return;
     }
-    final now = _clock();
-    _seen.removeWhere((_, at) => now.difference(at) > config.seenTtl);
+    final now = _now();
+    _seen.removeWhere((_, at) => now - at > config.seenTtl);
   }
 
   Uint8List _nonce() {

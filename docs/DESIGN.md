@@ -47,7 +47,7 @@ OpenSink — кроссплатформенный P2P-мессенджер (Linu
 | `core_peer` | WebRTC `PeerLink`/`Transport`, perfect negotiation, каналы, статистика | Реализовано |
 | `core_sync` | HLC-лог, anti-entropy, gossip, приоритетная загрузка, tombstones, pending | Реализовано |
 | `core_group` | Роли, права, инвайты, конфликты, чистая проекция группы | Реализовано |
-| `core_relay` | Маршрутизация через участников группы | Реализовано: direct-first fallback, TTL, антипетли, лимиты, Ed25519-подпись origin с nonce, `PeerChannels.relay`, opt-in default; R-01…R-15 закрыты, открыты R-16…R-27 |
+| `core_relay` | Маршрутизация через участников группы | Реализовано: direct-first fallback, TTL, антипетли, лимиты, Ed25519-подпись origin с nonce, `PeerChannels.relay`, opt-in default; R-01…R-27 закрыты |
 | `core_media` | Звонки, демонстрация экрана, топологии | Заглушка (`TODO(verify)`) |
 | `platform_android` | SecureKeyStore (Keystore), SQLite-фабрика | Реализовано |
 | `platform_linux` | SecureKeyStore (libsecret), SQLite-фабрика | Реализовано |
