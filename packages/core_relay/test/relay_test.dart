@@ -3,7 +3,11 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:core_crypto/core_crypto.dart'
-    show CryptoSigner, generateIdentity;
+    show
+        CryptoSigner,
+        XChaCha20Poly1305Aead,
+        generateAeadKey,
+        generateIdentity;
 import 'package:core_domain/core_domain.dart' hide RelayFrame;
 import 'package:core_domain/core_domain.dart' as domain show RelayFrame;
 import 'package:core_protocol/core_protocol.dart' show ProtoWriter, RelayFrame;
@@ -143,6 +147,9 @@ class ScriptedTransport implements Transport {
   void finishEvents() => _events.close();
 
   void failEvents(Object error) => _events.addError(error);
+
+  void emitEvent(String type, PeerId peerId) =>
+      _events.add(PeerLinkEvent(type, peerId));
 
   @override
   Future<void> close() async {
@@ -2056,6 +2063,86 @@ void main() {
         expect(c.direct.sent, hasLength(1));
       },
     );
+  });
+
+  group('Layer-9: приёмка', () {
+    test(
+      'релей пересылает по своему прямому линку без presence получателя',
+      () async {
+        final topoA = RelayTopology();
+        final topoB = RelayTopology();
+        final topoC = RelayTopology();
+        final a = SimNode(id: peer(1), topology: topoA);
+        final b = SimNode(id: peer(2), topology: topoB);
+        final c = SimNode(id: peer(3), topology: topoC);
+
+        announce(topoA, c.id, neighbors: [a.id, b.id]);
+        announce(topoC, a.id, neighbors: [c.id]);
+        c.direct.emitEvent('connected', b.id);
+        await Future<void>.delayed(Duration.zero);
+
+        a.direct.reachable.add(c.id);
+        c.direct.reachable.add(b.id);
+
+        final received = b.relay.incoming.first.timeout(
+          const Duration(seconds: 1),
+        );
+        final result = await a.relay.deliver(b.id, [1, 2, 3]);
+
+        expect(result, isA<RelayedSent>());
+        await pump([a, b, c]);
+        expect((await received).payload, [1, 2, 3]);
+        expect(c.relay.metrics.forwarded, 1);
+        expect(c.relay.metrics.droppedLoop, 0);
+
+        c.direct.emitEvent('disconnected', b.id);
+        await Future<void>.delayed(Duration.zero);
+        expect(topoC.linked(c.id, b.id), isFalse);
+      },
+    );
+
+    test('A→C→B: релей видит только ciphertext и не может расшифровать', () async {
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final b = SimNode(id: peer(2), topology: topology);
+      final c = SimNode(id: peer(3), topology: topology);
+
+      announce(topology, c.id, neighbors: [a.id, b.id]);
+      a.direct.reachable.add(c.id);
+      c.direct.reachable.add(b.id);
+
+      final aead = XChaCha20Poly1305Aead();
+      final toBob = await generateAeadKey();
+      final toCarol = await generateAeadKey();
+      final plaintext = Uint8List.fromList(utf8.encode('layer-9-secret'));
+      final ciphertext = (await aead.encrypt(
+        key: toBob,
+        plaintext: plaintext,
+      )).unwrap();
+
+      final received = b.relay.incoming.first;
+      final result = await a.relay.deliver(b.id, ciphertext);
+      expect(result, isA<RelayedSent>());
+      await pump([a, b, c]);
+
+      final forwarded = decodeFrame(c.direct.sent.single.bytes)!;
+      expect(forwarded.payload, ciphertext);
+      expect(forwarded.payload, isNot(plaintext));
+
+      final inbound = await received;
+      expect(inbound.payload, ciphertext);
+      final decrypted = (await aead.decrypt(
+        key: toBob,
+        data: Uint8List.fromList(inbound.payload),
+      )).unwrap();
+      expect(decrypted, plaintext);
+
+      final relayAttempt = await aead.decrypt(
+        key: toCarol,
+        data: Uint8List.fromList(forwarded.payload),
+      );
+      expect(relayAttempt.isErr, isTrue);
+    });
   });
 
   test('MemberRelay реализует доменный Relay', () async {

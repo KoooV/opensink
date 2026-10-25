@@ -81,6 +81,36 @@ class RelayTopology {
   final Duration maxAge;
   final DateTime Function() _clock;
   final Map<PeerId, RelayPeer> _peers = <PeerId, RelayPeer>{};
+  final Set<PeerId> _localNeighbors = <PeerId>{};
+  PeerId? _localPeerId;
+
+  /// Назначает локальный узел, ссылки которого подтверждены транспортом.
+  void setLocalPeer(PeerId peerId) {
+    if (_localPeerId == peerId) {
+      return;
+    }
+    _localPeerId = peerId;
+    _localNeighbors.clear();
+  }
+
+  /// Добавляет подтверждённый прямым транспортом линк локального узла.
+  ///
+  /// Presence получателя может ещё не дойти, но релей обязан знать свои
+  /// собственные линки, чтобы переслать кадр следующему хопу.
+  void addLocalNeighbor(PeerId peerId) {
+    if (_localPeerId == null || peerId == _localPeerId) {
+      return;
+    }
+    _localNeighbors.add(peerId);
+  }
+
+  /// Убирает локальный линк после разрыва или ошибки транспорта.
+  void removeLocalNeighbor(PeerId peerId) {
+    _localNeighbors.remove(peerId);
+  }
+
+  Set<PeerId> get localNeighbors =>
+      Set<PeerId>.unmodifiable(_localNeighbors);
 
   void applyPresence(
     PeerId peerId, {
@@ -132,6 +162,7 @@ class RelayTopology {
 
   void remove(PeerId peerId) {
     _peers.remove(peerId);
+    _localNeighbors.remove(peerId);
   }
 
   /// Снимает с узла только relay-роль, сохраняя его presence и прямые линки.
@@ -145,13 +176,23 @@ class RelayTopology {
 
   RelayPeer? infoFor(PeerId peerId) => _peers[peerId];
 
-  Set<PeerId> neighborsOf(PeerId peerId) =>
-      _peers[peerId]?.neighbors ?? const <PeerId>{};
+  Set<PeerId> neighborsOf(PeerId peerId) {
+    if (peerId == _localPeerId) {
+      return Set<PeerId>.unmodifiable(_localNeighbors);
+    }
+    return _peers[peerId]?.neighbors ?? const <PeerId>{};
+  }
 
-  /// Есть ли заявленный линк между двумя узлами (в любую сторону).
+  /// Есть ли линк между двумя узлами (presence или подтверждённый локально).
   bool linked(PeerId a, PeerId b) {
     if (a == b) {
       return false;
+    }
+    if (_localPeerId == a && _localNeighbors.contains(b)) {
+      return true;
+    }
+    if (_localPeerId == b && _localNeighbors.contains(a)) {
+      return true;
     }
     if (_peers[a]?.neighbors.contains(b) ?? false) {
       return true;

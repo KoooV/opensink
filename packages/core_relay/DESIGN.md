@@ -8,7 +8,9 @@
 ## Состав
 
 - `RelayTopology` — граф из presence-анонсов (`neighbors`, `canRelay`, ёмкость,
-  RTT, нагрузка). Устаревшие анонсы и `canRelay=false` не участвуют в выборе.
+  RTT, нагрузка) плюс локальные линки, подтверждённые `direct.events`
+  (`connected`/`disconnected`). Устаревшие анонсы и `canRelay=false` не
+  участвуют в выборе; локальный линк не зависит от presence получателя.
 - `RelayTransport` — реализация `Transport` с `deliver()` и `accept()`.
 - `MemberRelay` — адаптер к доменному порту `Relay` (`routes`/`forward`/`capacity`).
 - `RelayOptIn` — чистая политика согласия; на Android мобильный трафик и заряд
@@ -28,7 +30,8 @@
    тег/заголовок и длины полей → `src == local` → `src == from` на первом хопе →
    `originTtl <= maxHops` → Ed25519-подпись origin → seen/in-flight → адресат →
    opt-in → TTL/hop-limit → следующий хоп.
-4. Если `dst` локальный, payload отдаётся в `RelayTransport.incoming`; пока у
+4. Следующий хоп выбирается по presence-графу и локальным линкам узла; если
+   `dst` локальный, payload отдаётся в `RelayTransport.incoming`; пока у
    потока нет слушателей, кадры копятся в ограниченном буфере
    (`incomingBufferFrames`, по умолчанию 64), при переполнении новые
    отбрасываются. После отмены последнего слушателя буфер снова активен
@@ -119,6 +122,16 @@ real-Ed25519 auth.
 | Равный `updatedAt` | игнорировать (строгая монотонность) |
 | `disableRelay` | не двигает `updatedAt`; ждать более новый presence |
 | `neighbors` в `announce` | unmodifiable-копия, как в `applyPresence` |
+
+## Решения poll по готовности Layer-9 (2026-10-25)
+
+| Вопрос | Решение |
+|---|---|
+| ACK на уровне релея | Не вводим. `RelayedSent` означает передачу следующему хопу; потерю догоняет `core_sync`. |
+| RTT/load в production | Локальные измерения: RTT из `PeerLinkStats`, нагрузка из `RelayMetrics`; presence-кодек не расширяем. |
+| Линки, установленные до `RelayTransport` | Добавить seed `initialLocalNeighbors` в `RelayTransport`/`RelayTopology`, дальше обновлять из `direct.events`. |
+| Семантика `maxHops` | `maxHops` — бюджет `originTtl`; второй релей допустим только как failover в `accept`. |
+| Гарантия E2E | Ответственность вызывающего слоя; `core_relay` не содержит ключей и не проверяет формат ciphertext. |
 
 ## Остаточное
 

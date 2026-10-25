@@ -75,6 +75,7 @@ class RelayTransport implements Transport {
        _monotonicClock = monotonicClock,
        _random = random ?? Random.secure(),
        metrics = RelayMetrics(maxTrackedSources: config.maxTrackedSources) {
+    topology.setLocalPeer(localPeerId);
     _incoming = StreamController<RelayInbound>.broadcast(
       onListen: _scheduleFlush,
     );
@@ -462,6 +463,14 @@ class RelayTransport implements Transport {
   }
 
   void _onDirectEvent(PeerLinkEvent event) {
+    final peerId = event.peerId;
+    if (peerId != null) {
+      if (event.type == 'connected') {
+        topology.addLocalNeighbor(peerId);
+      } else if (event.type == 'disconnected' || event.type == 'error') {
+        topology.removeLocalNeighbor(peerId);
+      }
+    }
     if (!_events.isClosed) {
       _events.add(event);
     }
