@@ -11,8 +11,9 @@
 - core_relay linkStats в DI: `Transport.statsFor` (WebRTC → `linkFor().stats`), `relayLinkStatsProvider` → `RelayTransport.linkStats`; сквозной тест RTT.
 - apps/app: `SecureGroupSecretStore` + реестр invite-verifier; `transportProvider`/`relay*` по группе строят `WebRtcTransport` (Nostr+Tracker, тема из `GroupSecret`), тесты зелёные.
 - toolchain: melos 8 `run` исполнялся только в корне, а regex терял двойной пробел; `test` переведён на `exec` с `[[:space:]]`, platform_web исключён (web-jobs CI), корневой шаблонный widget_test удалён, apps/app тесты зелёные.
+- apps/app: `GroupInviteService` (InviteIssued→подписанная ссылка, join+MemberJoined, pending без genesis) и UI Home/Group (список, create, join, выдача/копирование инвайта); 27 тестов apps/app зелёные.
 ## Дальше
-- `apps/app`: UI создания/join группы и выдача инвайтов с `GroupSecret` (секрет уже хранится).
+- `apps/app`: approval-инвайты и автоматический повтор `MemberJoined` после синхронизации истории; QR/share (SIG-OPEN-06).
 - `core_group`: production GroupKeyDistributor. Follow-up poll 2026-10-25: verified-кэш restore, карантин невалидных записей store.
 ## Открытые вопросы
 - Legacy GroupState; trusted time (Q36); аутентификация снапшота и fingerprints как хэш; ротация GroupSecret при удалении; Q39 (invite UX и ротация).

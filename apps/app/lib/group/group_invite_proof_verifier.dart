@@ -20,6 +20,13 @@ class GroupInviteProofVerifier implements InviteProofVerifier {
     return GroupInviteProofVerifier._(SecretKeyData(bytes));
   }
 
+  static Future<GroupInviteProofVerifier> fromBytes(List<int> secret) {
+    if (secret.length != 32) {
+      throw ArgumentError.value(secret.length, 'secret', 'must be 32 bytes');
+    }
+    return create(GroupSecret(SecretKeyData(Uint8List.fromList(secret))));
+  }
+
   final SecretKeyData _key;
   final _hmac = DartHmac.sha256();
 

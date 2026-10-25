@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
+import 'package:core_domain/core_domain.dart' as domain;
 import 'package:core_group/core_group.dart';
 import 'package:core_peer/core_peer.dart' show WebRtcTransport;
 import 'package:core_peer/core_peer_flutter.dart' show FlutterRtcPeerFactory;
@@ -17,6 +18,7 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../group/group_invite_proof_verifier.dart';
+import '../group/group_invite_service.dart';
 import '../group/group_secret_store.dart';
 import 'secure_key_store_platform.dart';
 import 'storage_backend_platform.dart';
@@ -347,6 +349,77 @@ final groupLifecycleProvider = FutureProvider<GroupLifecycle>((ref) async {
   );
 });
 
+/// Выдача и приём инвайтов поверх жизненного цикла группы.
+final groupInviteServiceProvider = FutureProvider<GroupInviteService>((
+  ref,
+) async {
+  final lifecycle = await ref.watch(groupLifecycleProvider.future);
+  final identity = await ref.watch(localIdentityProvider.future);
+  return GroupInviteService(
+    lifecycle: lifecycle,
+    secretStore: ref.watch(groupSecretStoreProvider),
+    signer: identity.signer,
+    localUser: identity.userId,
+  );
+});
+
+/// Группа для списка на главном экране.
+class GroupSummary {
+  const GroupSummary({
+    required this.groupId,
+    required this.name,
+    required this.origin,
+  });
+
+  final GroupId groupId;
+  final String name;
+  final GroupOrigin origin;
+
+  String get displayName {
+    if (name.isNotEmpty) return name;
+    final value = groupId.value;
+    final short = value.length <= 8 ? value : value.substring(0, 8);
+    return 'Группа $short';
+  }
+}
+
+/// Доверенные группы с именами из открытого состояния.
+final groupSummariesProvider = FutureProvider.autoDispose<List<GroupSummary>>((
+  ref,
+) async {
+  final lifecycle = await ref.watch(groupLifecycleProvider.future);
+  final metadataStore = await ref.watch(groupMetadataStoreProvider.future);
+  await lifecycle.recoverPendingGroups();
+
+  final listed = await metadataStore.list();
+  if (listed.isErr) {
+    throw StateError(
+      'Не удалось загрузить список групп: ${listed.unwrapErr()}',
+    );
+  }
+
+  final summaries = <GroupSummary>[];
+  for (final metadata in listed.unwrap()) {
+    if (!metadata.isReady) continue;
+    var name = '';
+    final opened = await lifecycle.open(metadata.groupId);
+    if (opened.isOk) {
+      final bridge = opened.unwrap();
+      name = bridge.state.name;
+      await bridge.close();
+    }
+    summaries.add(
+      GroupSummary(
+        groupId: metadata.groupId,
+        name: name,
+        origin: metadata.origin,
+      ),
+    );
+  }
+  summaries.sort((a, b) => a.displayName.compareTo(b.displayName));
+  return summaries;
+});
+
 /// Активная группа. Загружается из метаданных, по умолчанию отсутствует.
 class ActiveGroupController extends AsyncNotifier<GroupId?> {
   @override
@@ -425,6 +498,14 @@ final groupSyncBridgeProvider = FutureProvider.autoDispose
 final groupStateProvider = FutureProvider.autoDispose
     .family<IGroupState, GroupId>((ref, groupId) async {
       return ref.watch(groupSyncBridgeProvider(groupId).future);
+    });
+
+/// Живое состояние группы для UI: текущий снимок и последующие изменения.
+final groupLiveStateProvider = StreamProvider.autoDispose
+    .family<domain.GroupState, GroupId>((ref, groupId) async* {
+      final bridge = await ref.watch(groupSyncBridgeProvider(groupId).future);
+      yield bridge.state;
+      yield* bridge.watch();
     });
 
 final screenCaptureSourceProvider = Provider<ScreenCaptureSource>((ref) {
