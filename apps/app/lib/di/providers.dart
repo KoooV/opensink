@@ -22,6 +22,8 @@ import '../group/group_invite_service.dart';
 import '../group/group_secret_store.dart';
 import '../group/sender_key_package_store.dart';
 import '../group/sender_key_verifier.dart';
+import '../notifications/foreground_notification_service.dart';
+import '../notifications/foreground_state.dart';
 import '../notifications/in_app_notification_service.dart';
 import '../notifications/os_notification_service.dart';
 import 'notification_backend_platform.dart';
@@ -294,11 +296,27 @@ final systemNotificationBackendProvider = Provider<SystemNotificationBackend>((
   return createPlatformNotificationBackend();
 });
 
+/// Текущая видимость приложения из lifecycle.
+final foregroundStateProvider = Provider<ForegroundState>((ref) {
+  final state = LifecycleForegroundState();
+  ref.onDispose(state.dispose);
+  return state;
+});
+
 /// OS-уведомления с in-app fallback.
-final notificationServiceProvider = Provider<NotificationService>((ref) {
+final osNotificationServiceProvider = Provider<NotificationService>((ref) {
   return OsNotificationService(
     system: ref.watch(systemNotificationBackendProvider),
     fallback: ref.watch(inAppNotificationServiceProvider),
+  );
+});
+
+/// Политика OS/in-app: foreground только in-app, background — OS с fallback.
+final notificationServiceProvider = Provider<NotificationService>((ref) {
+  return ForegroundNotificationService(
+    foreground: ref.watch(foregroundStateProvider),
+    system: ref.watch(osNotificationServiceProvider),
+    inApp: ref.watch(inAppNotificationServiceProvider),
   );
 });
 

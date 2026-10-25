@@ -225,7 +225,7 @@ approval-заявок и QR инвайта реализован. Режим appr
 
 ## Решения poll 2026-10-25 (Layer-10 / invitations)
 
-- OS-уведомления подключены на Android/Linux/Web с in-app fallback; политика foreground (не дублировать) не определена.
+- OS-уведомления подключены на Android/Linux/Web с in-app fallback; foreground показывает только in-app, background — OS с in-app fallback (без дубля).
 - Квота `blob_transfers` — общая на устройство (512 МиБ); per-group квота позже.
 - QR используется только для invite-URI; LAN/QR signaling (SIG-OPEN-06) отложен.
 - Режим approval не входит в `InviteLink`; он выводится из подписанного `InviteIssued`,
@@ -243,3 +243,11 @@ approval-заявок и QR инвайта реализован. Режим appr
 - Несовпадение `Signer` и `localUser` — fail-closed с `lastError`; отдельного flow
   перепривязки identity нет.
 - Смена Ed25519-ключа подписи/ротация sender keys — после подключения E2E-канала.
+
+## Решения poll 2026-10-25 (foreground-политика)
+
+- `inactive` считается foreground: OS-уведомление не показывается при потере фокуса.
+- В background при недоступном OS остаётся in-app fallback; отложенный показ до resume не вводится.
+- `NotificationHost` при инициализации проигрывает активные in-app уведомления.
+- `ChatNotificationRouter` подключается к production `ChatService`/UI отдельной задачей.
+- Двойной `cancel` в in-app (OS-fallback + политика) остаётся: операция идемпотентна.

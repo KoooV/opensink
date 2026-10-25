@@ -41,4 +41,38 @@ void main() {
 
     expect(find.textContaining('новое сообщение'), findsOneWidget);
   });
+
+  testWidgets('NotificationHost проигрывает уведомление, пришедшее до подписки', (
+    tester,
+  ) async {
+    final service = InAppNotificationService();
+    addTearDown(service.close);
+    await service.show(
+      const ChatNotification(
+        id: 'n1',
+        groupId: GroupId('g'),
+        channelId: ChannelId('c'),
+        messageId: 'm1',
+        authorId: UserId('u'),
+        preview: 'раннее сообщение',
+        kind: ChatNotificationKind.mention,
+        createdAt: 1,
+      ),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          inAppNotificationServiceProvider.overrideWithValue(service),
+        ],
+        child: const MaterialApp(
+          home: NotificationHost(child: Scaffold(body: Text('чат'))),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('раннее сообщение'), findsOneWidget);
+  });
 }

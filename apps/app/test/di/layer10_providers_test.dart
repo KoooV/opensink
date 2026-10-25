@@ -1,8 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:app/di/providers.dart';
+import 'package:app/notifications/foreground_notification_service.dart';
+import 'package:app/notifications/foreground_state.dart';
 import 'package:app/notifications/in_app_notification_service.dart';
-import 'package:app/notifications/os_notification_service.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:core_storage/core_storage.dart';
 import 'package:drift/native.dart';
@@ -40,20 +41,22 @@ void main() {
     },
   );
 
-  test('уведомления подключены к production-сервису, а не fake', () async {
+  test('уведомления подключены к production-политике, а не fake', () async {
     final inApp = InAppNotificationService();
     addTearDown(inApp.close);
     final backend = _RecordingBackend();
+    final foreground = _FakeForegroundState(isForeground: false);
     final container = ProviderContainer(
       overrides: [
         inAppNotificationServiceProvider.overrideWithValue(inApp),
         systemNotificationBackendProvider.overrideWithValue(backend),
+        foregroundStateProvider.overrideWithValue(foreground),
       ],
     );
     addTearDown(container.dispose);
 
     final notifications = container.read(notificationServiceProvider);
-    expect(notifications, isA<OsNotificationService>());
+    expect(notifications, isA<ForegroundNotificationService>());
 
     const notification = ChatNotification(
       id: 'n1',
@@ -72,6 +75,13 @@ void main() {
     await notifications.cancel('n1');
     expect(inApp.active, isEmpty);
   });
+}
+
+class _FakeForegroundState implements ForegroundState {
+  _FakeForegroundState({required this.isForeground});
+
+  @override
+  bool isForeground;
 }
 
 class _RecordingBackend implements SystemNotificationBackend {

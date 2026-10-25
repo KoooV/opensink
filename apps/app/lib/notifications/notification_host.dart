@@ -18,17 +18,25 @@ class NotificationHost extends ConsumerStatefulWidget {
 
 class _NotificationHostState extends ConsumerState<NotificationHost> {
   StreamSubscription<ChatNotification>? _subscription;
+  final Set<String> _presented = <String>{};
 
   @override
   void initState() {
     super.initState();
     final service = ref.read(inAppNotificationServiceProvider);
     _subscription = service.incoming.listen(_present);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (final notification in service.active) {
+        _present(notification);
+      }
+    });
   }
 
   void _present(ChatNotification notification) {
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (messenger == null) return;
+    if (!_presented.add(notification.id)) return;
     messenger.showSnackBar(
       SnackBar(
         content: Text(
