@@ -52,6 +52,18 @@ class E2eSenderKeyChannel implements SenderKeyChannel {
 
   bool hasSession(PeerId peer) => sessions.hasSession(_hex(peer.publicKey));
 
+  Future<bool> _ensureSessionState(PeerId peer) async {
+    final hadSession = hasSession(peer);
+    final restored = await sessions.restoreSession(_hex(peer.publicKey));
+    if (restored.isErr) return false;
+    if (!hadSession && hasSession(peer)) _notifyEstablished(peer);
+    return true;
+  }
+
+  void _notifyEstablished(PeerId peer) {
+    if (!_established.isClosed) _established.add(peer);
+  }
+
   /// Привязывает транспорт группы. `null` отвязывает только эту группу.
   Future<void> bindTransport(
     GroupId groupId,
@@ -109,6 +121,9 @@ class E2eSenderKeyChannel implements SenderKeyChannel {
     if (!await sessions.verifyRemoteBundle(bundle)) {
       return const Err(SenderKeyDeliveryRejected('invalid SPK binding'));
     }
+    if (!await _ensureSessionState(peer)) {
+      return const Err(SenderKeyDeliveryRejected('E2E session restore failed'));
+    }
     final entry = _PeerBundle(groupId: groupId, bundle: bundle);
     _bundles[peer] = entry;
     final pending = _pendingHandshakes.remove(peer);
@@ -147,6 +162,9 @@ class E2eSenderKeyChannel implements SenderKeyChannel {
     final transport = _transports[groupId];
     if (transport == null) {
       return Err(SenderKeyRecipientUnavailable(recipient));
+    }
+    if (!await _ensureSessionState(peer)) {
+      return const Err(SenderKeyDeliveryRejected('E2E session restore failed'));
     }
     return _serialize(peer, () async {
       if (!hasSession(peer)) {
@@ -203,7 +221,9 @@ class E2eSenderKeyChannel implements SenderKeyChannel {
     _PeerBundle entry,
     E2eDatagramTransport transport,
   ) async {
-    if (_closed || hasSession(peer) || !_shouldInitiate(peer)) return false;
+    if (_closed || !_shouldInitiate(peer)) return false;
+    if (!await _ensureSessionState(peer)) return false;
+    if (hasSession(peer)) return false;
     final peerId = _hex(peer.publicKey);
     final expected = crypto_pkg.SimplePublicKey(
       Uint8List.fromList(peer.publicKey),
@@ -219,13 +239,11 @@ class E2eSenderKeyChannel implements SenderKeyChannel {
     try {
       await transport.send(peer, _encodeHandshake(handshakeBytes));
     } catch (_) {
-      sessions.removeSession(peerId);
+      await sessions.removeSession(peerId);
       return false;
     }
     _sentHandshakes[peer] = handshakeBytes;
-    if (!_established.isClosed) {
-      _established.add(peer);
-    }
+    _notifyEstablished(peer);
     return true;
   }
 
@@ -263,6 +281,9 @@ class E2eSenderKeyChannel implements SenderKeyChannel {
       }
       return _acceptHandshakeLocked(datagram.from, decoded.body);
     }
+    if (!await _ensureSessionState(datagram.from)) {
+      return const Err(SenderKeyDeliveryRejected('E2E session restore failed'));
+    }
     if (!hasSession(datagram.from)) {
       return const Err(SenderKeyDeliveryRejected('session unavailable'));
     }
@@ -294,6 +315,9 @@ class E2eSenderKeyChannel implements SenderKeyChannel {
     PeerId peer,
     Uint8List handshake,
   ) async {
+    if (!await _ensureSessionState(peer)) {
+      return const Err(SenderKeyDeliveryRejected('E2E session restore failed'));
+    }
     if (hasSession(peer)) return const Ok(null);
     final accepted = await sessions.accept(
       peerId: _hex(peer.publicKey),
@@ -302,9 +326,7 @@ class E2eSenderKeyChannel implements SenderKeyChannel {
     if (accepted.isErr) {
       return const Err(SenderKeyDeliveryRejected('handshake rejected'));
     }
-    if (!_established.isClosed) {
-      _established.add(peer);
-    }
+    _notifyEstablished(peer);
     return const Ok(null);
   }
 

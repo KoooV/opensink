@@ -55,6 +55,7 @@ class _Node {
   _Node({
     required this.identity,
     required this.bundle,
+    required this.store,
     required this.sessions,
     required this.channel,
     required this.transport,
@@ -62,6 +63,7 @@ class _Node {
 
   final CryptoIdentity identity;
   final X3DHKeyBundle bundle;
+  final MemoryE2eSessionStore store;
   final E2eSessionManager sessions;
   final E2eSenderKeyChannel channel;
   final _PairDatagramTransport transport;
@@ -74,13 +76,21 @@ class _Node {
   );
 }
 
-Future<_Node> _node() async {
+Future<_Node> _node({MemoryE2eSessionStore? store}) async {
   final identity = await generateIdentity();
   final seed = await identity.ed25519PrivateKey.extractBytes();
   final bundle = await X3DH().generateIdentityBoundKeyBundle(
     identitySeed: crypto_pkg.SecretKey(Uint8List.fromList(seed)),
   );
-  final sessions = E2eSessionManager(localBundle: bundle);
+  return _nodeFrom(identity, bundle, store ?? MemoryE2eSessionStore());
+}
+
+_Node _nodeFrom(
+  CryptoIdentity identity,
+  X3DHKeyBundle bundle,
+  MemoryE2eSessionStore store,
+) {
+  final sessions = E2eSessionManager(localBundle: bundle, store: store);
   final transport = _PairDatagramTransport(
     PeerId(
       Uint8List.fromList(
@@ -95,11 +105,16 @@ Future<_Node> _node() async {
   return _Node(
     identity: identity,
     bundle: bundle,
+    store: store,
     sessions: sessions,
     channel: channel,
     transport: transport,
   );
 }
+
+/// Имитирует рестарт: новое in-memory состояние и канал, тот же store/identity.
+_Node _restart(_Node previous) =>
+    _nodeFrom(previous.identity, previous.bundle, previous.store);
 
 ProductionGroupKeyDistributor _distributor(
   _Node node,
@@ -233,5 +248,130 @@ void main() {
       ),
     );
     expect(delivery.isErr, isTrue);
+  });
+
+  test('сессия и ratchet восстанавливаются после рестарта', () async {
+    final alice = await _node();
+    final bob = await _node();
+    addTearDown(alice.channel.close);
+    addTearDown(bob.channel.close);
+    addTearDown(alice.transport.close);
+    addTearDown(bob.transport.close);
+    alice.transport.peer = bob.transport;
+    bob.transport.peer = alice.transport;
+    await alice.channel.bindTransport(_groupId, alice.transport);
+    await bob.channel.bindTransport(_groupId, bob.transport);
+
+    expect(
+      (await bob.channel.registerBundle(
+        _groupId,
+        alice.peerId,
+        alice.sessions.publicBundle,
+      )).isOk,
+      isTrue,
+    );
+    expect(
+      (await alice.channel.registerBundle(
+        _groupId,
+        bob.peerId,
+        bob.sessions.publicBundle,
+      )).isOk,
+      isTrue,
+    );
+    await _drain();
+    expect(alice.channel.hasSession(bob.peerId), isTrue);
+    expect(bob.channel.hasSession(alice.peerId), isTrue);
+    expect(alice.store.length, 1);
+    expect(bob.store.length, 1);
+
+    Future<List<SenderKeyPackage>> distribute(
+      _Node from,
+      _Node to,
+      SenderKeyPackageStore toStore,
+      int epoch,
+    ) async {
+      final received = <SenderKeyPackage>[];
+      final subscription = to.channel.received.listen((package) async {
+        final distributor = _distributor(
+          to,
+          toStore,
+          const UnavailableSenderKeyDelivery(),
+        );
+        final result = await distributor.receive(package);
+        if (result.isOk) received.add(result.unwrap());
+      });
+      addTearDown(subscription.cancel);
+      final sender = _distributor(
+        from,
+        MemorySenderKeyPackageStore(),
+        E2eSenderKeyDelivery(channel: from.channel),
+      );
+      await sender.distribute(
+        GroupKeyRotation(
+          groupId: _groupId,
+          epoch: epoch,
+          sender: from.userId,
+          recipients: <UserId>{to.userId},
+          keyPackage: Uint8List.fromList(<int>[epoch, 1, 2, 3]),
+        ),
+      );
+      await _drain();
+      return received;
+    }
+
+    expect(
+      await distribute(alice, bob, MemorySenderKeyPackageStore(), _epoch),
+      hasLength(1),
+    );
+
+    final aliceRestarted = _restart(alice);
+    final bobRestarted = _restart(bob);
+    addTearDown(aliceRestarted.channel.close);
+    addTearDown(bobRestarted.channel.close);
+    addTearDown(aliceRestarted.transport.close);
+    addTearDown(bobRestarted.transport.close);
+    aliceRestarted.transport.peer = bobRestarted.transport;
+    bobRestarted.transport.peer = aliceRestarted.transport;
+    await aliceRestarted.channel.bindTransport(
+      _groupId,
+      aliceRestarted.transport,
+    );
+    await bobRestarted.channel.bindTransport(_groupId, bobRestarted.transport);
+    final restoredSessions = <PeerId>[];
+    final restoredSubscription = aliceRestarted.channel.established.listen(
+      restoredSessions.add,
+    );
+    addTearDown(restoredSubscription.cancel);
+
+    expect(
+      (await bobRestarted.channel.registerBundle(
+        _groupId,
+        aliceRestarted.peerId,
+        aliceRestarted.sessions.publicBundle,
+      )).isOk,
+      isTrue,
+    );
+    expect(
+      (await aliceRestarted.channel.registerBundle(
+        _groupId,
+        bobRestarted.peerId,
+        bobRestarted.sessions.publicBundle,
+      )).isOk,
+      isTrue,
+    );
+    await _drain();
+    expect(aliceRestarted.channel.hasSession(bobRestarted.peerId), isTrue);
+    expect(bobRestarted.channel.hasSession(aliceRestarted.peerId), isTrue);
+    expect(restoredSessions, contains(bobRestarted.peerId));
+
+    expect(
+      await distribute(
+        aliceRestarted,
+        bobRestarted,
+        MemorySenderKeyPackageStore(),
+        _epoch + 1,
+      ),
+      hasLength(1),
+    );
   });
 }

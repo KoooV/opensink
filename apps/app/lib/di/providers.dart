@@ -24,6 +24,7 @@ import '../group/sender_key_package_store.dart';
 import '../group/sender_key_verifier.dart';
 import '../e2e/e2e_datagram_transport.dart';
 import '../e2e/e2e_sender_key_channel.dart';
+import '../e2e/secure_e2e_session_store.dart';
 import '../notifications/chat_notification_bridge.dart';
 import '../notifications/foreground_notification_service.dart';
 import '../notifications/foreground_state.dart';
@@ -496,7 +497,11 @@ final e2eSessionManagerProvider = FutureProvider<E2eSessionManager>((
   final bundle = await X3DH().generateIdentityBoundKeyBundle(
     identitySeed: SecretKey(Uint8List.fromList(seed)),
   );
-  return E2eSessionManager(localBundle: bundle);
+  final store = SecureE2eSessionStore(
+    ref.watch(secureKeyStoreProvider),
+    scope: identity.userId.value,
+  );
+  return E2eSessionManager(localBundle: bundle, store: store);
 });
 
 /// Личный E2E-канал для sender-key пакетов.

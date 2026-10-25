@@ -590,15 +590,21 @@ class DoubleRatchet {
       rootKey: rootKey,
       sendingChainKey: sendingChainKey,
       receivingChainKey: receivingChainKey,
-      dhPrivateKey: crypto_pkg.SecretKey(dhPrivBytes),
-      dhPublicKey: crypto_pkg.SimplePublicKey(
-        dhPubBytes,
-        type: crypto_pkg.KeyPairType.x25519,
-      ),
-      remoteDhPublicKey: crypto_pkg.SimplePublicKey(
-        remoteDhPubBytes,
-        type: crypto_pkg.KeyPairType.x25519,
-      ),
+      dhPrivateKey: _isZero(dhPrivBytes)
+          ? null
+          : crypto_pkg.SecretKey(dhPrivBytes),
+      dhPublicKey: _isZero(dhPubBytes)
+          ? null
+          : crypto_pkg.SimplePublicKey(
+              dhPubBytes,
+              type: crypto_pkg.KeyPairType.x25519,
+            ),
+      remoteDhPublicKey: _isZero(remoteDhPubBytes)
+          ? null
+          : crypto_pkg.SimplePublicKey(
+              remoteDhPubBytes,
+              type: crypto_pkg.KeyPairType.x25519,
+            ),
       sendingMessageCounter: sendingCounter.toInt(),
       receivingMessageCounter: receivingCounter.toInt(),
       previousChainLength: prevChainLength.toInt(),
@@ -634,6 +640,14 @@ class _SkippedKeyEntry {
   const _SkippedKeyEntry({required this.key, required this.timestampMs});
   final Uint8List key;
   final int timestampMs;
+}
+
+/// Нулевой DH-ключ в сериализации означает отсутствие ключа.
+bool _isZero(Uint8List bytes) {
+  for (final byte in bytes) {
+    if (byte != 0) return false;
+  }
+  return true;
 }
 
 class DoubleRatchetResult {
