@@ -20,6 +20,13 @@ class GroupInviteProofVerifier implements InviteProofVerifier {
     return GroupInviteProofVerifier._(SecretKeyData(bytes));
   }
 
+  static Future<GroupInviteProofVerifier> fromBytes(List<int> secret) {
+    if (secret.length != 32) {
+      throw ArgumentError.value(secret.length, 'secret', 'must be 32 bytes');
+    }
+    return create(GroupSecret(SecretKeyData(Uint8List.fromList(secret))));
+  }
+
   final SecretKeyData _key;
   final _hmac = DartHmac.sha256();
 
@@ -84,4 +91,59 @@ class GroupInviteProofVerifier implements InviteProofVerifier {
     }
     return result;
   }
+}
+
+/// Кэш проверяющих по группам поверх [GroupSecretStore].
+///
+/// `InviteProofVerifier` синхронный, поэтому секрет загружается заранее:
+/// перед созданием/входом в группу или перед открытием моста.
+class GroupInviteProofVerifierRegistry implements InviteProofVerifier {
+  GroupInviteProofVerifierRegistry(this._store);
+
+  final GroupSecretStore _store;
+  final Map<String, GroupInviteProofVerifier> _verifiers =
+      <String, GroupInviteProofVerifier>{};
+
+  Future<void> preload(GroupId groupId) async {
+    final loaded = await _store.load(groupId);
+    if (loaded.isErr) return;
+    final secret = loaded.unwrap();
+    if (secret == null) return;
+    await rememberBytes(groupId, secret);
+  }
+
+  Future<void> rememberBytes(GroupId groupId, List<int> secret) async {
+    if (secret.length != 32) {
+      _verifiers.remove(groupId.value);
+      return;
+    }
+    final verifier = await GroupInviteProofVerifier.create(
+      GroupSecret(SecretKeyData(Uint8List.fromList(secret))),
+    );
+    _verifiers[groupId.value] = verifier;
+  }
+
+  void forget(GroupId groupId) {
+    _verifiers.remove(groupId.value);
+  }
+
+  @override
+  bool verify({
+    required GroupId groupId,
+    required String inviteId,
+    required UserId userId,
+    required String proof,
+  }) {
+    final verifier = _verifiers[groupId.value];
+    if (verifier == null) return false;
+    return verifier.verify(
+      groupId: groupId,
+      inviteId: inviteId,
+      userId: userId,
+      proof: proof,
+    );
+  }
+
+  @override
+  String toString() => 'GroupInviteProofVerifierRegistry(<secret>)';
 }

@@ -5,10 +5,13 @@ import 'package:meta/meta.dart';
 @immutable
 class RelayFrame {
   const RelayFrame({
+    required this.src,
     required this.dst,
     required this.payload,
   });
 
+  /// Origin кадра; локальный адаптер не вправе подписываться за чужой origin.
+  final PeerId src;
   final PeerId dst;
   final List<int> payload;
 }

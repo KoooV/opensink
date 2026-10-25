@@ -13,6 +13,8 @@ import '../interfaces/transport.dart';
 import '../interfaces/relay.dart';
 import '../interfaces/media_topology.dart';
 import '../interfaces/event_store.dart';
+import '../interfaces/group_metadata_store.dart';
+import '../models/group_metadata.dart';
 import '../interfaces/sync_engine.dart';
 import '../interfaces/group_state.dart';
 import '../interfaces/secure_key_store.dart';
@@ -148,13 +150,23 @@ class FakePeerLink implements PeerLink {
 
 class FakeTransport implements Transport {
   final _eventsController = StreamController<PeerLinkEvent>.broadcast();
+  final _relayController = StreamController<RelayDatagram>.broadcast();
   final _sent = <PeerLinkEvent>[];
+  final _relaySent = <PeerLinkEvent>[];
   final _links = <PeerId, FakePeerLink>{};
 
   @override
   Stream<PeerLinkEvent> get events => _eventsController.stream;
 
+  @override
+  Stream<RelayDatagram> get relayIncoming => _relayController.stream;
+
+  @override
+  PeerLinkStats? statsFor(PeerId peerId) => _links[peerId]?.stats;
+
   List<PeerLinkEvent> get sent => List.unmodifiable(_sent);
+
+  List<PeerLinkEvent> get relaySent => List.unmodifiable(_relaySent);
 
   @override
   Future<PeerLink> connect(PeerId peerId) async {
@@ -170,15 +182,29 @@ class FakeTransport implements Transport {
   }
 
   @override
+  Future<void> sendRelay(PeerId dst, List<int> bytes) async {
+    _relaySent.add(PeerLinkEvent('sendRelay', dst));
+  }
+
+  @override
   Future<void> close() async {
     for (final link in _links.values) {
       await link.close();
     }
     _links.clear();
+    await _relayController.close();
     await _eventsController.close();
   }
 
   void emitEvent(PeerLinkEvent event) => _eventsController.add(event);
+
+  void emitRelay(PeerId from, List<int> bytes) => _relayController.add(
+    RelayDatagram(
+      from: from,
+      bytes: bytes,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +310,55 @@ class FakeEventStore implements EventStore {
 
   @override
   Future<void> close() async => await _controller.close();
+}
+
+// ---------------------------------------------------------------------------
+// GroupMetadataStore
+// ---------------------------------------------------------------------------
+
+class MemoryGroupMetadataStore implements GroupMetadataStore {
+  final Map<String, GroupMetadata> _groups = {};
+  GroupId? _active;
+
+  @override
+  Future<Result<GroupMetadata?, GroupMetadataError>> load(
+    GroupId groupId,
+  ) async {
+    return Ok(_groups[groupId.value]);
+  }
+
+  @override
+  Future<Result<List<GroupMetadata>, GroupMetadataError>> list() async {
+    final result = _groups.values.toList()
+      ..sort((a, b) => a.groupId.value.compareTo(b.groupId.value));
+    return Ok(result);
+  }
+
+  @override
+  Future<Result<void, GroupMetadataError>> save(GroupMetadata metadata) async {
+    _groups[metadata.groupId.value] = metadata;
+    return const Ok(null);
+  }
+
+  @override
+  Future<Result<void, GroupMetadataError>> delete(GroupId groupId) async {
+    _groups.remove(groupId.value);
+    if (_active == groupId) _active = null;
+    return const Ok(null);
+  }
+
+  @override
+  Future<Result<GroupId?, GroupMetadataError>> loadActiveGroup() async {
+    return Ok(_active);
+  }
+
+  @override
+  Future<Result<void, GroupMetadataError>> saveActiveGroup(
+    GroupId? groupId,
+  ) async {
+    _active = groupId;
+    return const Ok(null);
+  }
 }
 
 // ---------------------------------------------------------------------------

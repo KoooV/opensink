@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:core_domain/core_domain.dart';
@@ -36,4 +37,77 @@ class PeerLinkSyncLink implements SyncLink {
 
   @override
   Future<void> close() => _link.close();
+}
+
+/// Пакет, доставленный общим синхронизационным транспортом.
+class SyncPacket {
+  const SyncPacket({required this.src, required this.payload});
+
+  /// Стабильный идентификатор источника (hex Ed25519 public key).
+  final String src;
+
+  final Uint8List payload;
+}
+
+/// Минимальный порт пакетного транспорта для [PacketSyncLink].
+///
+/// Реализуется на уровне приложения поверх relay-транспорта: `core_sync` не
+/// зависит от `core_relay`. Владение транспортом остаётся у вызывающего.
+abstract class SyncPacketTransport {
+  Stream<SyncPacket> get incoming;
+
+  Future<void> send(String dst, Uint8List bytes);
+}
+
+/// [SyncLink] поверх общего [SyncPacketTransport].
+///
+/// Входящие пакеты фильтруются по [peerId], поэтому несколько линков могут
+/// делить один транспорт. [close] отписывается и закрывает только собственный
+/// поток: общий транспорт остаётся открытым.
+class PacketSyncLink implements SyncLink {
+  PacketSyncLink({required this.transport, required this.peerId}) {
+    _subscription = transport.incoming
+        .where((packet) => packet.src == peerId)
+        .listen(
+          (packet) => _incoming.add(Uint8List.fromList(packet.payload)),
+          onError: (Object error, StackTrace stackTrace) {
+            if (!_incoming.isClosed) {
+              _incoming.addError(error, stackTrace);
+            }
+          },
+        );
+  }
+
+  final SyncPacketTransport transport;
+
+  @override
+  final String peerId;
+
+  // Одиночная подписка с буфером: кадр, пришедший между созданием линка и
+  // `attach` в движке, не теряется.
+  final StreamController<Uint8List> _incoming = StreamController<Uint8List>();
+  StreamSubscription<SyncPacket>? _subscription;
+  bool _closed = false;
+
+  @override
+  Stream<Uint8List> get incoming => _incoming.stream;
+
+  @override
+  Future<void> send(Uint8List bytes) {
+    if (_closed) {
+      return Future<void>.error(StateError('sync link is closed'));
+    }
+    return transport.send(peerId, bytes);
+  }
+
+  @override
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    await _subscription?.cancel();
+    _subscription = null;
+    if (!_incoming.isClosed) {
+      unawaited(_incoming.close());
+    }
+  }
 }

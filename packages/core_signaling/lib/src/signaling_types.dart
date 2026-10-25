@@ -56,6 +56,7 @@ class NodeCapabilities {
     this.uptime = Duration.zero,
     this.canRelay = false,
     this.canSfu = false,
+    this.capacityBytesPerSecond = 0,
     this.neighbors = const <PeerId>[],
   });
 
@@ -64,12 +65,25 @@ class NodeCapabilities {
   final Duration uptime;
   final bool canRelay;
   final bool canSfu;
+
+  /// Заявленная ёмкость ретрансляции в байтах в секунду.
+  final int capacityBytesPerSecond;
   final List<PeerId> neighbors;
 
   @override
   String toString() =>
       'NodeCapabilities(platform=$platform, uptime=$uptime, '
-      'canRelay=$canRelay, canSfu=$canSfu, neighbors=${neighbors.length})';
+      'canRelay=$canRelay, canSfu=$canSfu, '
+      'capacity=$capacityBytesPerSecond, neighbors=${neighbors.length})';
+}
+
+/// Канал, умеющий обновлять список direct-соседей в presence.
+///
+/// Отдельный интерфейс, чтобы не расширять [RichSignalingChannel] и не ломать
+/// существующие реализации, которым топология не нужна.
+abstract interface class NeighborAnnouncer {
+  /// Заменяет `neighbors` в следующем hello-анонсе.
+  Future<void> updateNeighbors(Iterable<PeerId> neighbors);
 }
 
 /// Presence-анонс удалённого узла.

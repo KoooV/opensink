@@ -145,6 +145,75 @@ void main() {
       );
     });
 
+    test('statsFor отдаёт статистику прямого линка', () async {
+      final fixture = _Fixture();
+      addTearDown(fixture.close);
+      await fixture.start();
+      await fixture.transportA.connect(fixture.peerB);
+
+      final link = fixture.transportA.linkFor(fixture.peerB)!;
+
+      expect(fixture.transportA.statsFor(fixture.peerB), link.stats);
+      expect(fixture.transportA.statsFor(peerId(3)), isNull);
+    });
+
+    test('presence neighbors следуют за direct-линками', () async {
+      final fixture = _Fixture();
+      addTearDown(fixture.close);
+      await fixture.start();
+
+      await fixture.transportA.connect(fixture.peerB);
+      await waitUntil(
+        () =>
+            fixture.channelA.neighborUpdates.isNotEmpty &&
+            fixture.channelA.neighborUpdates.last.contains(fixture.peerB),
+        reason: 'A must announce its direct link to B',
+      );
+      await waitUntil(
+        () =>
+            fixture.channelB.neighborUpdates.isNotEmpty &&
+            fixture.channelB.neighborUpdates.last.contains(fixture.peerA),
+        reason: 'B must announce its direct link to A',
+      );
+
+      await fixture.transportA.close();
+
+      await waitUntil(
+        () => fixture.channelA.neighborUpdates.last.isEmpty,
+        reason: 'A must clear neighbors on close',
+      );
+      await waitUntil(
+        () =>
+            fixture.channelB.neighborUpdates.isNotEmpty &&
+            fixture.channelB.neighborUpdates.last.isEmpty,
+        reason: 'B must clear neighbors after disconnect',
+      );
+    });
+
+    test('relay channel is separate from control', () async {
+      final fixture = _Fixture();
+      addTearDown(fixture.close);
+      await fixture.start();
+
+      await fixture.transportA.connect(fixture.peerB);
+      await waitUntil(
+        () =>
+            fixture.transportB.linkFor(fixture.peerA)?.state ==
+            PeerLinkState.connected,
+        reason: 'passive link connected',
+      );
+
+      final incoming = fixture.transportB.relayIncoming
+          .firstWhere((datagram) => datagram.from == fixture.peerA)
+          .timeout(const Duration(seconds: 2));
+      await fixture.transportA.sendRelay(
+        fixture.peerB,
+        const <int>[7, 7, 7],
+      );
+      final received = await incoming;
+      expect(received.bytes, const <int>[7, 7, 7]);
+    });
+
     test('does not busy-loop when signaling state is not stable', () async {
       final fixture = _Fixture(
         config: _shortTimeoutConfig,

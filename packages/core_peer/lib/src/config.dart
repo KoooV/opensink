@@ -6,8 +6,9 @@ abstract final class PeerChannels {
   static const sync = 'sync';
   static const file = 'file';
   static const presence = 'presence';
+  static const relay = 'relay';
 
-  static const all = <String>[control, sync, file, presence];
+  static const all = <String>[control, sync, file, presence, relay];
 }
 
 /// Описание публичного STUN-сервера.

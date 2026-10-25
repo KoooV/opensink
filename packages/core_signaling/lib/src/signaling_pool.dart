@@ -8,7 +8,7 @@ import 'signaling_utils.dart';
 
 /// Объединяет несколько [RichSignalingChannel] (например, Nostr + трекеры)
 /// в один канал: публикация во все, входящие — с дедупликацией.
-class SignalingChannelPool implements RichSignalingChannel {
+class SignalingChannelPool implements RichSignalingChannel, NeighborAnnouncer {
   SignalingChannelPool({
     required Iterable<RichSignalingChannel> channels,
     Duration dedupeTtl = const Duration(minutes: 5),
@@ -93,6 +93,20 @@ class SignalingChannelPool implements RichSignalingChannel {
         (channel) => _ignoreChannelFailure(
           () => channel.publishTo(topic, kind: kind, to: to, bytes: bytes),
         ),
+      ),
+    );
+  }
+
+  @override
+  Future<void> updateNeighbors(Iterable<PeerId> neighbors) async {
+    if (_closed) {
+      throw StateError('SignalingChannelPool is closed');
+    }
+    final snapshot = List<PeerId>.unmodifiable(neighbors);
+    await Future.wait(
+      channels.whereType<NeighborAnnouncer>().map(
+        (channel) =>
+            _ignoreChannelFailure(() => channel.updateNeighbors(snapshot)),
       ),
     );
   }

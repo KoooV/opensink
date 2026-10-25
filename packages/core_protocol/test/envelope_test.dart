@@ -131,6 +131,8 @@ Envelope _makeEnvelope({
         ttl: 7,
         hopCount: 1,
         payload: Uint8List.fromList([0xDE, 0xAD, 0xBE, 0xEF]),
+        nonce: Uint8List.fromList(List<int>.filled(16, 0x24)),
+        signature: Uint8List.fromList(List<int>.filled(64, 0x42)),
       );
       expect(RelayFrame.fromBytes(message.toBytes()), message);
     });

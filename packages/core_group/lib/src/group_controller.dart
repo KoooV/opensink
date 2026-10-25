@@ -39,6 +39,25 @@ class GroupController {
   /// Событие из журнала контроллера по id (для моста с `core_sync`).
   GroupEvent? event(EventId id) => _events[id.value];
 
+  /// Проверяет событие на копии журнала без записи и побочных эффектов.
+  ///
+  /// Нужен мосту, чтобы отклонять семантически невалидные события до
+  /// подписи, записи в store и gossip.
+  GroupError? preflight(GroupEvent event) {
+    final rejected = _rejectPermanently(event);
+    if (rejected != null) return rejected;
+    final replay = GroupState.replay(
+      [..._events.values, event],
+      expectedGroupId: expectedGroupId,
+      genesisEventId: genesisEventId,
+      inviteProofVerifier: inviteProofVerifier,
+    );
+    final error = replay.errorFor(event.id);
+    if (error != null) return error;
+    if (replay.processedEventIds.contains(event.id)) return null;
+    return const EventChainBroken();
+  }
+
   Future<Result<GroupState, GroupError>> apply(
     GroupEvent event, {
     UserId? localPeerId,

@@ -94,9 +94,12 @@
 
 ## 5. Инвайты и утечка ссылки
 
-Ссылка содержит `groupId`, `inviteId`, `group_secret`, публичный ключ инвайтящего
-и relay hint; `group_secret` не попадает в `toString()`.
+Ссылка содержит `groupId`, `inviteId`, `group_secret`, публичный ключ инвайтящего,
+срок и Ed25519-подпись инвайтера; `group_secret` не попадает в `toString()`.
 
+- Подпись инвайтера покрывает `(groupId, genesisEventId, inviteId, expiresAt,
+  inviterId)`. `gen` принимается только как 64-hex; `inviterId` сохраняется в
+  доверенных метаданных. Просроченная или подменённая ссылка не активирует группу.
 - Вход требует `inviteProof` = HMAC(`inviteProofMessage`, `invitationKey` из
   `group_secret`). Проверка инжектируется как `InviteProofVerifier`; одного
   публичного `inviteId` недостаточно. Реальный HMAC считается в приложении,
@@ -110,6 +113,11 @@
   скомпрометированным и ротировать групповые ключи.
 - Просроченный или исчерпанный инвайт отклоняется. Заявка на `approval` не
   расходует использование до подтверждения.
+- Персистентность: `GroupLifecycle` хранит 32-байтный секрет через
+  `GroupSecretStore`. `createGroup` генерирует и сохраняет его до genesis;
+  `joinFromInvite` принимает только 64-hex токен и сверяет с существующим;
+  `deleteGroup` удаляет секрет. Хук `onGroupSecret` заполняет реестр
+  `InviteProofVerifier` до создания/входа в группу.
 
 ## 6. Ротация ключей
 
@@ -204,8 +212,12 @@
 журнале и пересчитываются replay-ем. Мост реализует `IGroupState`, отдавая
 сконвертированное `core_domain.GroupState` и поток изменений.
 
-**Безопасность.** Мост не проверяет подпись/id — это делает `core_sync` до
-вызова. `MemberJoined` без `inviteProof` отклоняется `GroupState.apply`.
+**Безопасность.** Мост повторно проверяет id и Ed25519-подпись до разбора
+payload, хотя основной конвейер уже сделал это в `core_sync`. Для `created`
+genesis обязан быть подписан локальным ключом. Метаданные группы подписаны
+локальным ключом и проверяются при каждом `load`; неподписанные или изменённые
+метаданные отклоняются. `MemberJoined` без `inviteProof` отклоняется
+`GroupState.apply`.
 `domainPrevId` обязателен для админ-событий после genesis; отсутствие —
 `EventChainBroken`. Payload не содержит `group_secret`; `inviteProof` — HMAC.
 Утечка инвайта в approval-режиме не даёт членства до `MemberApproved`; sync-слой

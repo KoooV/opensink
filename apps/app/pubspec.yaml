@@ -16,10 +16,14 @@ dependencies:
     path: ../../packages/core_crypto
   core_group:
     path: ../../packages/core_group
+  core_relay:
+    path: ../../packages/core_relay
   core_signaling:
     path: ../../packages/core_signaling
   core_peer:
     path: ../../packages/core_peer
+  core_protocol:
+    path: ../../packages/core_protocol
   core_storage:
     path: ../../packages/core_storage
   core_sync:

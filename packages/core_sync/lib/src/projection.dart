@@ -8,6 +8,60 @@ import 'sync_event.dart';
 
 enum MembershipStatus { member, notMember, unknown }
 
+/// Согласованность индексов envelope с полями payload группового события.
+///
+/// `core_sync` не разбирает доменные события, но для событий, влияющих на
+/// членство, берёт те же поля, что и `core_group`. Пустой/битый payload
+/// считается legacy и обрабатывается по envelope.
+bool _hasConsistentEnvelope(SyncEvent event) {
+  if (!_isMembershipKind(event.kind)) return true;
+  final payload = _decodeGroupPayload(event);
+  if (payload == null || payload.eventType != event.kind.code) return true;
+  bool matches(String? envelope, String? value) =>
+      value == null || value.isEmpty || envelope == value;
+  return switch (event.kind) {
+    SyncEventKind.memberAdded ||
+    SyncEventKind.memberRemoved ||
+    SyncEventKind.roleSet => matches(event.targetId, payload.userId),
+    SyncEventKind.memberApproved =>
+      matches(event.targetId, payload.userId) && payload.inviteId.isNotEmpty,
+    SyncEventKind.ownerTransferred => matches(
+      event.targetId,
+      payload.newOwnerId,
+    ),
+    SyncEventKind.inviteIssued ||
+    SyncEventKind.memberJoined => matches(event.targetId, payload.inviteId),
+    SyncEventKind.channelCreated || SyncEventKind.channelDeleted =>
+      payload.channelId.isNotEmpty &&
+          matches(event.channelId?.value, payload.channelId) &&
+          matches(event.targetId, payload.channelId),
+    _ => true,
+  };
+}
+
+bool _isMembershipKind(SyncEventKind kind) => switch (kind) {
+  SyncEventKind.groupCreated ||
+  SyncEventKind.memberAdded ||
+  SyncEventKind.memberRemoved ||
+  SyncEventKind.ownerTransferred ||
+  SyncEventKind.inviteIssued ||
+  SyncEventKind.memberJoined ||
+  SyncEventKind.memberApproved ||
+  SyncEventKind.roleSet ||
+  SyncEventKind.channelCreated ||
+  SyncEventKind.channelDeleted => true,
+  _ => false,
+};
+
+GroupEvent? _decodeGroupPayload(SyncEvent event) {
+  if (event.payload.isEmpty) return null;
+  try {
+    return GroupEvent.fromBytes(event.payload);
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Чистая проверка членства автора на момент события.
 ///
 /// События применяются в детерминированном порядке `(HLC, id)`. Если автор
@@ -21,6 +75,9 @@ class MembershipEvaluator {
     if (event.kind == SyncEventKind.groupCreated) {
       return MembershipStatus.member;
     }
+    if (!_hasConsistentEnvelope(event)) {
+      return MembershipStatus.notMember;
+    }
 
     final members = <String>{};
     final everMembers = <String>{};
@@ -29,6 +86,7 @@ class MembershipEvaluator {
 
     for (final candidate in timeline) {
       if (candidate.compareTo(event) >= 0) break;
+      if (!_hasConsistentEnvelope(candidate)) continue;
       switch (candidate.kind) {
         case SyncEventKind.groupCreated:
           sawGroup = true;
@@ -140,6 +198,7 @@ class GroupProjection {
     final created = <String, ProjectedMessage>{};
 
     for (final event in sorted) {
+      if (!_hasConsistentEnvelope(event)) continue;
       switch (event.kind) {
         case SyncEventKind.groupCreated:
           members.add(event.authorId.value);

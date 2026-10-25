@@ -23,6 +23,55 @@
 | S4-10 | `packages/core_storage/test/schema_v3_snapshot.dart` | Снимки старых схем созданы вручную; `drift_dev` не закреплён, поэтому нет автоматической генерации migration-test артефактов. | не проверено; требуется закрепить совместимую версию `drift_dev` и сверить CLI (Q26). |
 | S4-12 | `apps/app/android/` | Runtime-версия и источник bundled SQLite в собранном Android-приложении не подтверждены; автоматический integration runner для этого не настроен. | не проверено; обязательный ручной чек-лист — `docs/MANUAL_QA.md` (Q25, Q28). |
 
+## Релей (core_relay, ревью 2026-10-24)
+
+R-01…R-11 закрыты 2026-10-25 (аутентификация первого хопа, LRU-лимиты,
+единый размер, token bucket до парсинга, unknown-поля, seen/in-flight,
+MemberRelay, relay-тег и opt-in только для forwarding). Дополнительно 2026-10-25:
+Ed25519-подпись origin, `originTtl = ttl + hopCount`, подписанный nonce(16),
+отдельный `PeerChannels.relay` и `Transport.relayIncoming/sendRelay`;
+`RelayEnvelope` v3. R-10: `accept`/`deliver` перебирают альтернативы, сбой
+снимает только relay-роль (`disableRelay`), presence сохраняется; исчерпание
+альтернатив в `accept` считается в `forwardExhausted`. R-11: presence
+применяется только при более новом `updatedAt`, будущие метки ограничены
+временем получения, `announce` копирует `neighbors`. R-12…R-15 закрыты:
+ограниченный буфер `incoming`, владение `direct` и закрытие потоков без
+синтетического `'closed'`, fingerprint через `package:cryptography`,
+документированное окно seen-кэша, тесты burst/malformed/close/opt-out/dedupe.
+Повторное ревью 2026-10-25 (reviewer+crypto) блокеров не нашло; остаточные
+R-16–R-27 закрыты в пакете `core_relay`:
+
+- R-16/R-20/R-21/R-25: буфер `incoming` не очищается до фактической доставки,
+  `.first` не теряет остальные кадры; `delivered`/`queuedInbound` разделены;
+  переполнение, отключённый буфер и закрытие потока считаются отдельными
+  счётчиками; после отмены последнего слушателя буфер снова активен. Тесты:
+  `.first`, порядок нескольких кадров, cancel→frames→relisten, close с
+  неотданными кадрами.
+- R-17/R-18: `deliver`/`accept` повторно проверяют `_closed` после каждого
+  `await` до мутаций; shutdown мемоизирован, `direct` закрывается ровно один
+  раз, в том числе после `_onDirectDone`.
+- R-19: остаётся задокументированным at-least-once контрактом: после `seenTtl`
+  идущий выше слой обязан дедуплицировать payload по своему идентификатору.
+- R-22/R-23/R-24: при полном `seen` новые кадры отбрасываются
+  (`droppedSeenFull`), неистёкшие nonce не вытесняются; TTL считается по
+  монотонным часам, wall-clock остаётся для token bucket; ошибки не-awaited
+  `accept` учитываются в `acceptFailed`.
+- R-26/R-27: добавлены тесты overflow без `_remember`, `incomingBufferFrames: 0`,
+  двойного close/close во время in-flight `accept`, проброса `onError` из
+  `direct.events`; auth-тесты реального Ed25519 (tamper/replay/dup), реестр
+  `TestSigner` очищается в `setUp`, сравнение подписи constant-time.
+
+## Группы и DI (ревью 2026-10-25)
+
+G-01…G-08 и G-12…G-24 закрыты, их история — в `git log`. Открыты только
+G-09…G-11 из повторного ревью 2026-10-25.
+
+| id | Место | Риск | Проверка / статус |
+|----|-------|------|-------------------|
+| G-09 | `packages/core_group/test/support/fake_sync.dart:30`; `packages/core_group/test/group_event_codec_test.dart:134`; `packages/core_group/test/group_sync_bridge_test.dart:200` | Fake-подпись forgeable, `prevId` проверяется только на непустоту, «идемпотентный start» уходит в early return; не покрыты конфликт после start, publish после `_fatalError`, исключение в start, невалидный/двойной pending, очистка активной группы, негативный invite после старта. | minor; Ed25519 signer, точные утверждения и provider-тесты. |
+| G-10 | `packages/core_group/lib/src/group_event_codec.dart:484-486` | Пустой `inviteMode` декодируется как `InviteMode.open`, превращая malformed payload в open-инвайт. | minor; пустое значение — `MalformedGroupEvent`, добавить тест. |
+| G-11 | `packages/core_group/lib/src/group_state.dart:782` | Исключение из `InviteProofVerifier.verify` выходит из `apply` вместо `Err(InvalidInviteProof)`. | minor; try/catch и тест с throw-verifier. |
+
 ## Принятые ограничения
 
 - Android: root-доступ компрометирует хранилище; StrongBox не гарантирован; ключи

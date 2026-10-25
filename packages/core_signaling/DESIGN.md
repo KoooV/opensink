@@ -40,6 +40,8 @@ ciphertext_len(u32 BE) | ciphertext | signature(64)
   `(sender, nonce)`, rate limit. Любая ошибка — тихий `RejectReason`, без исключений.
 - `hello` содержит `platform`, `publicIpv6`, `uptime`, `canRelay`, `canSfu`,
   `neighbors` и публикуется раз в `helloInterval` (по умолчанию 20 с).
+  `NeighborAnnouncer.updateNeighbors` сразу публикует актуальный список
+  direct-соседей; `WebRtcTransport` обновляет его при connected/disconnected.
 
 ## 3. Nostr (NIP-01)
 
@@ -121,7 +123,7 @@ ciphertext_len(u32 BE) | ciphertext | signature(64)
 | Держатель инвайта без `group_secret` | Отложено; текущая авторизация = владение `GroupSecret`. |
 | NIP-42 AUTH | Отложено + `TODO(verify)`; использовать реле, разрешающие запись без AUTH. |
 | Cross-topic replay | `topic` включён в AAD, wire format v2; тест `rejects packet moved to another topic`. |
-| Список соседей в hello | caller-supplied; signaling не ведёт топологию. |
+| Список соседей в hello | Начальный список задаёт caller; `WebRtcTransport` обновляет его через `NeighborAnnouncer` по connected/disconnected. Граф строит `core_relay`. |
 | Web-тесты | `test/signaling_web_test.dart` в Chrome на dart2js и dart2wasm; fake-реле на `package:web_socket/testing.dart`. |
 | Replay-кэш | In-memory, TTL 5 минут; после рестарта процесса окно сбрасывается. |
 | Health-score | Старт 0.0; растёт после connect/сообщений, падает при разрыве/ошибке. |

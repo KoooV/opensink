@@ -283,6 +283,7 @@ class WebRtcPeerLink implements PeerLink {
     await _createChannel(pc, PeerChannels.control, ordered: true);
     await _createChannel(pc, PeerChannels.sync, ordered: true);
     await _createChannel(pc, PeerChannels.file, ordered: true);
+    await _createChannel(pc, PeerChannels.relay, ordered: true);
     if (_config.enableUnreliablePresence) {
       await _createChannel(
         pc,

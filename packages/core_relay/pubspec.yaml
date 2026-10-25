@@ -10,6 +10,12 @@ environment:
 dependencies:
   core_domain:
     path: ../core_domain
+  core_protocol:
+    path: ../core_protocol
+  cryptography: ^2.9.0
+  meta: ^1.15.0
 
 dev_dependencies:
+  core_crypto:
+    path: ../core_crypto
   test: ^1.26.0

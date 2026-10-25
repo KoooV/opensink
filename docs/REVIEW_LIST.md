@@ -87,10 +87,12 @@
 |------|---------------|
 | `packages/core_sync/lib/src/hlc.dart`, `hlc_validator.dart` | Монотонность, `observe`, ограничение будущих меток. |
 | `packages/core_sync/lib/src/sync_event.dart` | Канонический protobuf, домены id/подписи, `prevId`, лимит 512 KiB. |
-| `packages/core_sync/lib/src/ingest_pipeline.dart` | Порядок размер → id → подпись → membership → prev → дедуп → запись; pending для неизвестного автора. |
+| `packages/core_sync/lib/src/ingest_pipeline.dart` | Порядок размер → id → подпись → доверенный корень → membership → prev → дедуп → запись; pending для неизвестного автора; чужие `groupCreated` отклоняются до записи. |
 | `packages/core_sync/lib/src/projection.dart` | Membership по `(HLC, id)` строго до события, tombstones только автором. |
 | `packages/core_sync/lib/src/frame.dart` | Кадры summary/range/window/events/gossip/ping, лимиты, курсор `(hlc, id)`. |
-| `packages/core_sync/lib/src/sync_engine_impl.dart` | High/low lanes, одна страница на диапазон, LRU, `hops ≤ 4`, token bucket, `drain`. |
+| `packages/core_sync/lib/src/sync_engine_impl.dart` | High/low lanes, одна страница на диапазон, LRU, `hops ≤ 4`, token bucket, `drain`; `pinGroupRoot` неизменяем, reindex оставляет только историю от корня, store-выдачи фильтруются. |
+| `packages/core_group/lib/src/group_sync_bridge.dart` | `start()` fail-closed и сериализован, `publish()` только после `start` и валидного genesis, `_fatalError` блокирует запись; чужой genesis не замораживает `_refresh`. |
+| `packages/core_group/lib/src/group_lifecycle.dart` | Доверенный корень из метаданных, recovery игнорирует чужие корни и не удаляет метаданные при foreign-only. |
 
 ## 10. DI и приложение
 

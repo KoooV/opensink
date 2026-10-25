@@ -78,12 +78,29 @@ workspace:
 melos:
   scripts:
     analyze: dart analyze
-    test: |
-      if grep -qE '^  flutter:$' pubspec.yaml; then
-        flutter test
-      else
-        dart test
-      fi
+    test:
+      exec:
+        # Последовательно: core_signaling проверяет доставку по таймеру и
+        # не выдерживает конкуренцию с тяжёлыми crypto/property-тестами.
+        concurrency: 1
+        # Паттерн без повторных пробелов: melos 8 склеивает токены скрипта
+        # через `split(' ')` + join и теряет двойные пробелы, поэтому
+        # `^  flutter:$` превращался в `^ flutter:$` и не матчил pubspec.
+        command: |
+          # platform_web требует browser-раннер; его гоняют web-jobs CI.
+          if [ "$MELOS_PACKAGE_NAME" = "platform_web" ]; then
+            echo "platform_web: пропуск, web-jobs CI"
+            exit 0
+          fi
+          if [ ! -d test ]; then
+            echo "нет каталога test/, пропуск"
+            exit 0
+          fi
+          if grep -qE '^[[:space:]]+flutter:' pubspec.yaml; then
+            flutter test
+          else
+            dart test
+          fi
     check:imports: bash tool/check_core_imports.sh && bash tool/check_core_storage_deps.sh
 
   # To add assets to your application, add an assets section, like this:

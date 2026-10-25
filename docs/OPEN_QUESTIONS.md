@@ -11,7 +11,6 @@
 | TODO-01 | `packages/core_crypto/test/bip39_integrity_test.dart:55` | Q33 |
 | TODO-02 | `packages/core_crypto/test/bip39_integrity_test.dart:172` | Q33 |
 | TODO-04 | `packages/core_media/lib/core_media.dart:3` | Q13 |
-| TODO-05 | `packages/core_relay/lib/core_relay.dart:3` | Q16 |
 | TODO-06 | `packages/core_signaling/lib/src/nostr_signaling.dart:31` | Q17 |
 | TODO-07 | `packages/core_signaling/lib/src/tracker_signaling.dart:28` | Q17 |
 | TODO-08 | `packages/core_storage/test/schema_v3_snapshot.dart:3` | Q26 |
@@ -19,10 +18,11 @@
 
 ## Q2 — Production DI для неподключённых портов
 
-Хранилище, identity и `SyncEngineImpl` подключены к реальным реализациям. Для
-`SignalingChannel`, `PeerLink`, `Transport`, `Relay`, `MediaTopology`, `IGroupState`
-и `ScreenCaptureSource` в `apps/app` пока используются fakes или заглушки. Нужно
-определить composition root и конфигурацию (STUN, реле, трекеры) для каждого слоя.
+Хранилище, identity, `SyncEngineImpl`, `SignalingChannel` (Nostr + трекеры),
+`Transport` (`WebRtcTransport` по группе) и `Relay` (через `RelayTransport` +
+`MemberRelay`) подключены к реальным реализациям. Для `PeerLink`,
+`MediaTopology` и `ScreenCaptureSource` в `apps/app` пока используются fakes
+или заглушки. Остаётся конфигурация STUN/реле/трекеров через настройки и UI.
 
 ## Q7 — Обоснование MAX_SKIP и TTL пропущенных ключей
 
@@ -39,11 +39,6 @@ TTL SPK (предлагается 7 дней), grace period и распрост�
 
 `packages/core_media/lib/core_media.dart:3` содержит `TODO(verify)`. Нужно
 реализовать `MediaTopology`, управление звонками и захват экрана.
-
-## Q16 — `core_relay`: маршрутизация через участников
-
-`packages/core_relay/lib/core_relay.dart:3` содержит `TODO(verify)`. Нужно
-реализовать `Relay`, маршруты, capacity и защиту от злоупотреблений.
 
 ## Q17 — `core_signaling`: публичная инфраструктура и LAN/QR
 
@@ -166,6 +161,14 @@ ingest отсекал бы поздние легитимные события; �
 причинный DAG/квитанции. Решение poll (2026-10-24): оставить принятый риск;
 проверка опирается на `inviteProof` и срок по HLC события.
 
+## Q39 — Персистентность GroupSecret
+
+Хранилище выбрано: `GroupSecretStore` поверх `SecureKeyStore` (32 байта,
+hex-токен в инвайте), реестр `GroupInviteProofVerifier` заполняется при
+создании/входе/открытии группы. Остаются политика ротации при удалении
+участника, миграция групп без сохранённого секрета (fail-closed) и UI выдачи
+инвайтов.
+
 ## Принятые допущения
 
 - HLC цепочки `prevId` неубывающий; равный HLC соседних событий автора допустим.
@@ -176,7 +179,10 @@ ingest отсекал бы поздние легитимные события; �
 - `core_group` получает из `core_sync` события с проверенным
   `id == SHA-256(canonical body)`; выбор тела не заменяет проверку id.
 - Корень группы обязателен: `expectedGroupId` и `genesisEventId` в
-  `GroupState.fromEvents` и конструкторе `GroupController`.
+  `GroupState.fromEvents` и конструкторе `GroupController`. Доверенный корень
+  хранится в `GroupMetadataStore`: create генерирует `groupId` до genesis,
+  инвайт несёт `gen`; restore/join при отсутствии или конфликте — fail-closed
+  (`apps/app` больше не выбирает genesis по HLC).
 - Форк цепочки: `fromEvents` выбирает меньшего HLC-валидного ребёнка;
   `GroupController` хранит журнал и пересчитывает проекцию, поэтому порядок
   доставки и форки сходятся.
@@ -190,9 +196,25 @@ ingest отсекал бы поздние легитимные события; �
   `GroupInviteProofVerifier` в `apps/app` (SIG-OPEN-01 не переиспользует
   payload-ключ группы).
 - `GroupSecret` = членство; отдельный invite-путь отложен (SIG-OPEN-01).
+- Метаданные групп v1 без Ed25519-подписи считаются недоверенными: recovery
+  удаляет их, группа открывается заново через create/join (G-15).
 - Публичные реле/трекеры остаются дефолтом с `TODO(verify)` (SIG-OPEN-02).
-- `neighbors` в hello — caller-supplied; signaling не ведёт топологию.
+- Начальный `neighbors` в hello задаёт caller; `WebRtcTransport` обновляет его
+  через `NeighborAnnouncer` по direct-линкам. Граф достижимости строит `core_relay`.
 - WebTorrent payload остаётся `opensink:1:base64url` в `sdp` (SIG-OPEN-04).
 - Replay-кэш in-memory, TTL 5 минут (SIG-OPEN-07).
 - Health-score неподключённого реле — `0.0`.
 - Web-тесты используют fake-реле на `package:web_socket/testing.dart` (SIG-OPEN-05).
+- E2E-шифрование payload — ответственность вызывающего слоя/`core_crypto`;
+  `core_relay` видит только заголовок и непрозрачные байты.
+- Дубль при позднем завершении direct-send допустим и поглощается sync-дедупом.
+- ACK от релея не вводится; failover и потеря кадра компенсируются sync.
+- Presence-анонсы (`neighbors`, `canRelay`, `capacityBytesPerSecond`) передаются
+  только в Ed25519-подписанном `SecureSignalingCodec`; `RelayTopology` в DI
+  наполняется из `RichSignalingChannel.presence` после проверки подписи (Q37).
+- Relay-кадры подписаны Ed25519 origin-ключом над `(src,dst,nonce,originTtl,
+  payload)`, идут по отдельному `PeerChannels.relay` и проверяются на каждом
+  хопе; `RelayTransport` подписывается на `relayIncoming`. `MemberRelay`
+  origin-only. Nonce отсекает replay в пределах seen-окна.
+- Production-сборка `RelayTransport` — в `apps/app` DI; opt-in управляет только
+  пересылкой чужих кадров. `PeerLink` всё ещё не отдельный production-порт (Q2).

@@ -8,6 +8,7 @@ import 'package:collection/collection.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:crypto/crypto.dart';
 
+import 'bytes.dart';
 import 'errors.dart';
 import 'frame.dart';
 import 'hlc.dart';
@@ -30,6 +31,7 @@ class SyncEngineImpl implements SyncEngine {
     this.maxGossipHops = 4,
     this.maxSeenEvents = 20000,
     this.maxPendingEvents = 2048,
+    this.maxUnpinnedGroupEvents = 512,
     this.maxOutboundQueue = 2048,
     Duration? antiEntropyInterval,
   }) : _nowMs = nowMs ?? (() => DateTime.now().millisecondsSinceEpoch),
@@ -38,6 +40,7 @@ class SyncEngineImpl implements SyncEngine {
       store: store,
       signer: signer,
       membershipCheck: _membershipStatus,
+      rootCheck: _checkRoot,
       nowMs: _nowMs,
     );
     if (antiEntropyInterval != null) {
@@ -56,6 +59,7 @@ class SyncEngineImpl implements SyncEngine {
   final int maxGossipHops;
   final int maxSeenEvents;
   final int maxPendingEvents;
+  final int maxUnpinnedGroupEvents;
   final int maxOutboundQueue;
 
   final int Function() _nowMs;
@@ -68,6 +72,7 @@ class SyncEngineImpl implements SyncEngine {
   final Map<GroupId, SplayTreeSet<SyncEvent>> _events = {};
   final Map<GroupId, Map<String, SyncEvent>> _lastAuthorEvent = {};
   final Set<GroupId> _groupIds = {};
+  final Map<GroupId, EventId> _trustedRoots = {};
   final Set<GroupId> _loadedGroups = {};
   final Map<GroupId, Future<void>> _loadFutures = {};
   final Map<String, _LinkSession> _links = {};
@@ -93,6 +98,33 @@ class SyncEngineImpl implements SyncEngine {
   Future<void> registerGroup(GroupId groupId) async {
     _groupIds.add(groupId);
     await _ensureGroup(groupId);
+  }
+
+  /// Закрепляет доверенный `groupCreated` за группой.
+  ///
+  /// Корень неизменяем: повторный вызов с другим id возвращает
+  /// [ForeignGroupRoot], а события `groupCreated` с другим id не принимаются
+  /// конвейером приёма. Если группа уже загружена, чужие корни удаляются из
+  /// индекса, чтобы не блокировать восстановление рабочей группы.
+  Future<Result<void, SyncError>> pinGroupRoot(
+    GroupId groupId,
+    EventId genesisEventId,
+  ) async {
+    final existing = _trustedRoots[groupId];
+    if (existing != null) {
+      if (existing.value == genesisEventId.value) return const Ok(null);
+      return Err(ForeignGroupRoot(existing.value, genesisEventId.value));
+    }
+    _trustedRoots[groupId] = genesisEventId;
+    final current = _events[groupId];
+    if (current != null && current.isNotEmpty) {
+      final source = current.toList();
+      _reindexGroup(groupId, source);
+      await _prunePending(groupId, source);
+    } else {
+      await _prunePending(groupId, const <SyncEvent>[]);
+    }
+    return const Ok(null);
   }
 
   /// Подключает соседа. При появлении линка сразу отправляются приоритетные
@@ -254,7 +286,9 @@ class SyncEngineImpl implements SyncEngine {
     final record = await store.eventById(id);
     if (record == null) return null;
     final decoded = _eventCodec.fromRecord(record);
-    return decoded.isOk ? decoded.unwrap() : null;
+    if (decoded.isErr) return null;
+    final event = decoded.unwrap();
+    return _checkRoot(event) == null ? event : null;
   }
 
   Future<Result<SyncEvent, SyncError>> createGroup(
@@ -363,6 +397,8 @@ class SyncEngineImpl implements SyncEngine {
     ChannelId? channelId,
     String? targetId,
     Uint8List? payload,
+    bool Function(SyncEvent event)? preflight,
+    Future<bool> Function(SyncEvent event)? beforeIngest,
   }) async {
     await registerGroup(groupId);
     final hlc = _clock.tick();
@@ -383,6 +419,17 @@ class SyncEngineImpl implements SyncEngine {
     final unsigned = draft.copyWith(id: EventId(id));
     final signature = await signer.sign(unsigned.signedBytes());
     final event = unsigned.copyWith(signature: signature);
+
+    if (preflight != null && !preflight(event)) {
+      return const Err(
+        LocalEventRejected(MalformedEvent('preflight rejected')),
+      );
+    }
+    if (beforeIngest != null && !await beforeIngest(event)) {
+      return const Err(
+        LocalEventRejected(MalformedEvent('beforeIngest rejected')),
+      );
+    }
 
     final ingested = await _ingest(event);
     if (ingested.isErr) {
@@ -426,8 +473,20 @@ class SyncEngineImpl implements SyncEngine {
     }
 
     await _ensureGroup(event.groupId);
+    final known =
+        _events[event.groupId]?.any((known) => known.id.value == id) ?? false;
+    if (!known &&
+        _trustedRoots[event.groupId] == null &&
+        _unpinnedEventCount(event.groupId) >= maxUnpinnedGroupEvents) {
+      return Err(
+        UnpinnedGroupQuarantine(event.groupId.value, maxUnpinnedGroupEvents),
+      );
+    }
     final result = await _pipeline.ingest(event);
     if (result.isErr) return result;
+
+    final lateRootError = _checkRoot(event);
+    if (lateRootError != null) return Err(lateRootError);
 
     final outcome = result.unwrap().outcome;
     switch (outcome) {
@@ -504,9 +563,98 @@ class SyncEngineImpl implements SyncEngine {
     }
   }
 
+  int _unpinnedEventCount(GroupId groupId) {
+    final accepted = _events[groupId]?.length ?? 0;
+    final pending = _pending.values
+        .where((event) => event.groupId == groupId)
+        .length;
+    return accepted + pending;
+  }
+
   MembershipStatus _membershipStatus(SyncEvent event) {
     final timeline = _events[event.groupId] ?? const <SyncEvent>{};
     return _membershipEvaluator.evaluate(event, timeline);
+  }
+
+  /// Повторно проверяет подпись при восстановлении из локального store:
+  /// подмена БД не должна обходить Ed25519-проверку конвейера приёма.
+  Future<bool> _hasValidSignature(SyncEvent event) async {
+    if (event.signature.isEmpty) return false;
+    if (event.id.value.isEmpty || event.id.value != event.computeId()) {
+      return false;
+    }
+    final authorBytes = hexDecode(event.authorId.value);
+    if (authorBytes == null || authorBytes.length != 32) return false;
+    return signer.verify(
+      event.signedBytes(),
+      event.signature,
+      PeerId(authorBytes),
+    );
+  }
+
+  SyncError? _checkRoot(SyncEvent event) {
+    if (event.kind != SyncEventKind.groupCreated) return null;
+    final trusted = _trustedRoots[event.groupId];
+    if (trusted == null || trusted.value == event.id.value) return null;
+    return ForeignGroupRoot(trusted.value, event.id.value);
+  }
+
+  /// Пересобирает индекс группы, оставляя только историю, достижимую от
+  /// закреплённого корня. События, чьё членство выводится только из чужого
+  /// корня, в набор не попадают.
+  void _reindexGroup(GroupId groupId, Iterable<SyncEvent> source) {
+    final trusted = _trustedRoots[groupId];
+    if (trusted == null) return;
+    final sorted = source.toList()..sort(_compare);
+    final set = SplayTreeSet<SyncEvent>(_compare);
+    for (final event in sorted) {
+      if (event.kind == SyncEventKind.groupCreated) {
+        if (event.id.value != trusted.value) continue;
+      } else if (_membershipEvaluator.evaluate(event, set) !=
+          MembershipStatus.member) {
+        continue;
+      }
+      set.add(event);
+    }
+    _events[groupId] = set;
+    final byAuthor = <String, SyncEvent>{};
+    for (final event in set) {
+      final previous = byAuthor[event.authorId.value];
+      if (previous == null || previous.compareTo(event) < 0) {
+        byAuthor[event.authorId.value] = event;
+      }
+    }
+    _lastAuthorEvent[groupId] = byAuthor;
+  }
+
+  /// Удаляет pending, достижимые только через отброшенный чужой корень.
+  Future<void> _prunePending(
+    GroupId groupId,
+    Iterable<SyncEvent> source,
+  ) async {
+    final trusted = _events[groupId] ?? const <SyncEvent>{};
+    final full = SplayTreeSet<SyncEvent>(_compare)..addAll(source);
+    full.addAll(_pending.values.where((event) => event.groupId == groupId));
+    final remove = <String>[];
+    for (final event
+        in _pending.values
+            .where((event) => event.groupId == groupId)
+            .toList()) {
+      final trustedStatus = _membershipEvaluator.evaluate(event, trusted);
+      if (trustedStatus == MembershipStatus.member) continue;
+      if (trustedStatus == MembershipStatus.notMember) {
+        remove.add(event.id.value);
+        continue;
+      }
+      if (_membershipEvaluator.evaluate(event, full) ==
+          MembershipStatus.member) {
+        remove.add(event.id.value);
+      }
+    }
+    for (final id in remove) {
+      _pending.remove(id);
+      await _deletePending(id);
+    }
   }
 
   Future<void> _ensureGroup(GroupId groupId) {
@@ -522,14 +670,31 @@ class SyncEngineImpl implements SyncEngine {
 
   Future<void> _loadGroup(GroupId groupId) async {
     final records = await store.groupEvents(groupId);
+    final loaded = <SyncEvent>[];
     for (final record in records) {
       final decoded = _eventCodec.fromRecord(record);
-      if (decoded.isOk) _addToIndex(decoded.unwrap());
+      if (decoded.isErr) continue;
+      final event = decoded.unwrap();
+      if (!await _hasValidSignature(event)) continue;
+      loaded.add(event);
     }
     final pending = await store.pendingEvents(groupId, limit: maxPendingEvents);
     for (final record in pending) {
       final decoded = _eventCodec.fromRecord(record);
-      if (decoded.isOk) _pending[record.id] = decoded.unwrap();
+      if (decoded.isErr) continue;
+      final event = decoded.unwrap();
+      if (!await _hasValidSignature(event)) continue;
+      if (_checkRoot(event) != null) continue;
+      _pending[record.id] = event;
+    }
+    final trusted = _trustedRoots[groupId];
+    if (trusted != null) {
+      _reindexGroup(groupId, loaded);
+      await _prunePending(groupId, loaded);
+    } else {
+      for (final event in loaded) {
+        _addToIndex(event);
+      }
     }
     _loadedGroups.add(groupId);
     _groupIds.add(groupId);
@@ -537,6 +702,12 @@ class SyncEngineImpl implements SyncEngine {
   }
 
   void _addToIndex(SyncEvent event) {
+    final trusted = _trustedRoots[event.groupId];
+    if (trusted != null &&
+        event.kind == SyncEventKind.groupCreated &&
+        event.id.value != trusted.value) {
+      return;
+    }
     final set = _events.putIfAbsent(
       event.groupId,
       () => SplayTreeSet<SyncEvent>(_compare),
@@ -672,7 +843,10 @@ class SyncEngineImpl implements SyncEngine {
     final events = <SyncEvent>[];
     for (final record in records) {
       final decoded = _eventCodec.fromRecord(record);
-      if (decoded.isOk) events.add(decoded.unwrap());
+      if (decoded.isErr) continue;
+      final event = decoded.unwrap();
+      if (_checkRoot(event) != null) continue;
+      events.add(event);
     }
     final cursor = events.isEmpty ? null : events.last;
     session.enqueue(
@@ -700,7 +874,10 @@ class SyncEngineImpl implements SyncEngine {
     final events = <SyncEvent>[];
     for (final record in records) {
       final decoded = _eventCodec.fromRecord(record);
-      if (decoded.isOk) events.add(decoded.unwrap());
+      if (decoded.isErr) continue;
+      final event = decoded.unwrap();
+      if (_checkRoot(event) != null) continue;
+      events.add(event);
     }
     events.sort((a, b) => a.compareTo(b));
     session.enqueue(

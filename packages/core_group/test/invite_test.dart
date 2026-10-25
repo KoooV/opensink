@@ -2,6 +2,7 @@ import 'package:core_domain/core_domain.dart' hide GroupState;
 import 'package:core_group/core_group.dart';
 import 'package:test/test.dart';
 
+import 'support/fake_sync.dart';
 import 'support/fixtures.dart';
 
 void main() {
@@ -125,25 +126,58 @@ void main() {
     expect(result.unwrapErr(), isA<Forbidden>());
   });
 
-  test('InviteLink не раскрывает секрет в toString и восстанавливается', () {
-    const link = InviteLink(
-      groupId: testGroupId,
-      inviteId: 'inv-1',
-      secret: 'secret-token',
-      inviterId: owner,
-      relayHint: 'wss://relay.example',
+  test(
+    'InviteLink не раскрывает секрет в toString и восстанавливается',
+    () async {
+      final identity = FakeIdentity(testUserId(1));
+      const genesis = EventId(
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      );
+      final link = await InviteLink.issue(
+        signer: identity.signer,
+        groupId: testGroupId,
+        genesisEventId: genesis,
+        inviteId: 'inv-1',
+        secret: 'secret-token',
+        inviterId: identity.author,
+        expiresAt: 2000,
+        relayHint: 'wss://relay.example',
+      );
+
+      final encoded = link.toUriString();
+      final decoded = InviteLink.parse(encoded);
+
+      expect(decoded.isOk, isTrue);
+      final parsed = decoded.unwrap();
+      expect(parsed.groupId, testGroupId);
+      expect(parsed.genesisEventId, genesis);
+      expect(parsed.inviteId, 'inv-1');
+      expect(parsed.secret, 'secret-token');
+      expect(parsed.inviterId, identity.author);
+      expect(parsed.expiresAt, 2000);
+      expect(parsed.relayHint, 'wss://relay.example');
+      expect(await parsed.verifySignature(identity.signer), isTrue);
+      expect(link.toString(), isNot(contains('secret-token')));
+    },
+  );
+
+  test('инвайт с не-64-hex genesis отклоняется', () {
+    final decoded = InviteLink.parse(
+      'opensink://invite?gid=group&gen=genesis-1&iid=inv-1&s=secret'
+      '&admin=${'a' * 64}&exp=2000&sig=00',
     );
 
-    final encoded = link.toUriString();
-    final decoded = InviteLink.parse(encoded);
+    expect(decoded.isErr, isTrue);
+    expect(decoded.unwrapErr(), isA<MalformedInviteLink>());
+  });
 
-    expect(decoded.isOk, isTrue);
-    final parsed = decoded.unwrap();
-    expect(parsed.groupId, testGroupId);
-    expect(parsed.inviteId, 'inv-1');
-    expect(parsed.secret, 'secret-token');
-    expect(parsed.inviterId, owner);
-    expect(parsed.relayHint, 'wss://relay.example');
-    expect(link.toString(), isNot(contains('secret-token')));
+  test('инвайт без genesis отклоняется', () {
+    final decoded = InviteLink.parse(
+      'opensink://invite?gid=group&iid=inv-1&s=secret&admin=$owner',
+    );
+
+    expect(decoded.isErr, isTrue);
+    expect(decoded.unwrapErr(), isA<MissingInviteField>());
+    expect((decoded.unwrapErr() as MissingInviteField).field, 'gen');
   });
 }

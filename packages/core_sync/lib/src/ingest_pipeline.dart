@@ -22,16 +22,21 @@ class IngestResult {
 
 typedef MembershipCheck = MembershipStatus Function(SyncEvent event);
 
+/// Проверка доверенного корня группы. Вызывается после проверки подписи и до
+/// membership: чужие `groupCreated` не должны попадать в лог и проекцию.
+typedef SyncRootCheck = SyncError? Function(SyncEvent event);
+
 /// Конвейер приёма события.
 ///
-/// Порядок строго задан: размер → id → подпись → членство на момент
-/// события → дедупликация → запись. Ни исключения, ни секреты не
-/// покидают слой.
+/// Порядок строго задан: размер → id → подпись → доверенный корень →
+/// членство на момент события → дедупликация → запись. Ни исключения, ни
+/// секреты не покидают слой.
 class SyncIngestPipeline {
   SyncIngestPipeline({
     required this.store,
     required this.signer,
     required this.membershipCheck,
+    this.rootCheck,
     this.maxEventBytes = maxSyncEventBytes,
     int Function()? nowMs,
     this.maxFutureSkewMs = HlcValidator.maxClockSkewMs,
@@ -40,6 +45,7 @@ class SyncIngestPipeline {
   final SyncEventStore store;
   final Signer signer;
   final MembershipCheck membershipCheck;
+  final SyncRootCheck? rootCheck;
   final int maxEventBytes;
   final int maxFutureSkewMs;
   final int Function() _nowMs;
@@ -77,6 +83,9 @@ class SyncIngestPipeline {
       PeerId(authorBytes),
     );
     if (!signatureValid) return const Err(InvalidSignature());
+
+    final rootError = rootCheck?.call(event);
+    if (rootError != null) return Err(rootError);
 
     switch (membershipCheck(event)) {
       case MembershipStatus.unknown:

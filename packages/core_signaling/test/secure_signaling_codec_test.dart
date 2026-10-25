@@ -292,6 +292,7 @@ void main() {
       uptime: const Duration(hours: 2),
       canRelay: true,
       canSfu: true,
+      capacityBytesPerSecond: 65536,
       neighbors: <PeerId>[alice.peerId],
     );
     final encoded = SecureSignalingCodec.encodeHello(capabilities);
@@ -302,6 +303,40 @@ void main() {
     expect(decoded.uptime, const Duration(hours: 2));
     expect(decoded.canRelay, isTrue);
     expect(decoded.canSfu, isTrue);
+    expect(decoded.capacityBytesPerSecond, 65536);
     expect(decoded.neighbors.single, alice.peerId);
+  });
+
+  test('подписанный presence с capacity открывается только с валидной подписью',
+      () async {
+    final capabilities = NodeCapabilities(
+      canRelay: true,
+      capacityBytesPerSecond: 32000,
+      neighbors: <PeerId>[alice.peerId],
+    );
+    final packet = await aliceCodec.seal(
+      topic: topic,
+      kind: SignalingKind.hello,
+      body: SecureSignalingCodec.encodeHello(capabilities),
+    );
+
+    final tampered = Uint8List.fromList(packet);
+    tampered[tampered.length - 1] ^= 0xFF;
+    final rejected = await bobCodec.open(
+      Uint8List.fromList(tampered),
+      topic: topic,
+    );
+    expect(rejected, isA<OpenSignalingRejected>());
+    expect(
+      (rejected as OpenSignalingRejected).reason,
+      SignalingReject.badSignature,
+    );
+
+    final opened = await bobCodec.open(packet, topic: topic);
+    expect(opened, isA<OpenSignalingOk>());
+    final value = (opened as OpenSignalingOk).value;
+    expect(value.from, alice.peerId);
+    final decoded = SecureSignalingCodec.decodeHello(value.body);
+    expect(decoded?.capacityBytesPerSecond, 32000);
   });
 }
