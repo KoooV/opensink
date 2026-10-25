@@ -18,6 +18,7 @@ class RelayConfig {
     this.seenMaxEntries = 4096,
     this.maxSourceEntries = 256,
     this.maxTrackedSources = 256,
+    this.incomingBufferFrames = 64,
   });
 
   /// Сколько ждём прямое ICE-соединение до перехода на релей.
@@ -42,10 +43,18 @@ class RelayConfig {
   final int perSourceBurstBytes;
 
   /// Время жизни записи в кэше виденных кадров.
+  ///
+  /// Дедупликация best-effort: после [seenTtl] кадр с тем же nonce снова
+  /// принимается. Групповые события защищены собственным дедупом в
+  /// `core_sync`, остальные payload обязаны иметь свой идентификатор.
   final Duration seenTtl;
 
   /// Предел числа записей кэша.
   final int seenMaxEntries;
+
+  /// Сколько входящих payload'ов буферизуется до первой подписки на
+  /// `RelayTransport.incoming`. `0` отключает буфер: такие кадры теряются.
+  final int incomingBufferFrames;
 
   /// Предел числа token bucket'ов (LRU) по источникам.
   final int maxSourceEntries;

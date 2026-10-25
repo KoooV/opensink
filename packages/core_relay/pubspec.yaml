@@ -12,7 +12,7 @@ dependencies:
     path: ../core_domain
   core_protocol:
     path: ../core_protocol
-  crypto: ^3.0.7
+  cryptography: ^2.9.0
   meta: ^1.15.0
 
 dev_dependencies:

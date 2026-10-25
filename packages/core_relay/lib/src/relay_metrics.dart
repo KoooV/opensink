@@ -27,6 +27,7 @@ class RelayMetrics {
   int droppedLoop = 0;
   int droppedUnauthenticated = 0;
   int droppedBadSignature = 0;
+  int droppedInboundOverflow = 0;
   int noRoute = 0;
 
   final LinkedHashMap<PeerId, int> forwardedBytesBySource =
@@ -55,6 +56,7 @@ class RelayMetrics {
       'rate=$droppedRateLimited, oversize=$droppedOversize, '
       'malformed=$droppedMalformed, loop=$droppedLoop, '
       'unauthenticated=$droppedUnauthenticated, '
-      'badSignature=$droppedBadSignature, noRoute=$noRoute, '
+      'badSignature=$droppedBadSignature, '
+      'inboundOverflow=$droppedInboundOverflow, noRoute=$noRoute, '
       'forwardFailed=$forwardFailed, forwardExhausted=$forwardExhausted)';
 }

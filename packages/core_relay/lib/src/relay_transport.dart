@@ -5,7 +5,7 @@ import 'dart:typed_data';
 
 import 'package:core_domain/core_domain.dart' hide RelayFrame;
 import 'package:core_protocol/core_protocol.dart' show RelayFrame;
-import 'package:crypto/crypto.dart';
+import 'package:cryptography/cryptography.dart' show Sha256;
 import 'package:meta/meta.dart';
 
 import 'relay_config.dart';
@@ -72,16 +72,21 @@ class RelayTransport implements Transport {
   }) : _clock = clock ?? DateTime.now,
        _random = random ?? Random.secure(),
        metrics = RelayMetrics(maxTrackedSources: config.maxTrackedSources) {
+    _incoming = StreamController<RelayInbound>.broadcast(
+      onListen: _flushBufferedInbound,
+    );
     _directEvents = direct.events.listen(
-      _events.add,
-      onError: _events.addError,
+      _onDirectEvent,
+      onError: _onDirectError,
       onDone: _onDirectDone,
     );
     _relayEvents = direct.relayIncoming.listen(
       (datagram) {
-        unawaited(accept(datagram.from, datagram.bytes));
+        if (!_closed) {
+          unawaited(accept(datagram.from, datagram.bytes));
+        }
       },
-      onError: _events.addError,
+      onError: _onDirectError,
     );
   }
 
@@ -99,8 +104,9 @@ class RelayTransport implements Transport {
   final RelayMetrics metrics;
   final StreamController<PeerLinkEvent> _events =
       StreamController<PeerLinkEvent>.broadcast();
-  final StreamController<RelayInbound> _incoming =
-      StreamController<RelayInbound>.broadcast();
+  late final StreamController<RelayInbound> _incoming;
+  final List<RelayInbound> _incomingBuffer = <RelayInbound>[];
+  final Sha256 _sha256 = Sha256();
 
   final Map<String, DateTime> _seen = <String, DateTime>{};
   final Set<String> _inFlight = <String>{};
@@ -112,6 +118,10 @@ class RelayTransport implements Transport {
   bool _closed = false;
 
   /// Входящие payload'ы, дошедшие через релей.
+  ///
+  /// До первой подписки кадры буферизуются (не более
+  /// [RelayConfig.incomingBufferFrames]); при переполнении новые кадры
+  /// отбрасываются.
   Stream<RelayInbound> get incoming => _incoming.stream;
 
   /// Сколько источников сейчас учитывается в token bucket (для тестов).
@@ -273,7 +283,8 @@ class RelayTransport implements Transport {
       return;
     }
 
-    final key = _frameKey(src, dst, frame.nonce);
+    final key = await _frameKey(src, dst, frame.nonce);
+    _pruneSeen();
     if (_seen.containsKey(key)) {
       metrics.droppedDuplicate += 1;
       return;
@@ -285,16 +296,17 @@ class RelayTransport implements Transport {
 
     try {
       if (dst == localPeerId) {
+        final queued = _enqueueInbound(
+          RelayInbound(
+            src: src,
+            payload: List<int>.unmodifiable(frame.payload),
+          ),
+        );
+        if (!queued) {
+          return;
+        }
         metrics.delivered += 1;
         _remember(key);
-        if (!_incoming.isClosed) {
-          _incoming.add(
-            RelayInbound(
-              src: src,
-              payload: List<int>.unmodifiable(frame.payload),
-            ),
-          );
-        }
         return;
       }
 
@@ -358,7 +370,9 @@ class RelayTransport implements Transport {
   }
 
   @override
-  Future<void> close() async {
+  Future<void> close() => _shutdown(closeDirect: true);
+
+  Future<void> _shutdown({required bool closeDirect}) async {
     if (_closed) {
       return;
     }
@@ -367,17 +381,62 @@ class RelayTransport implements Transport {
     _directEvents = null;
     await _relayEvents?.cancel();
     _relayEvents = null;
+    _incomingBuffer.clear();
     if (!_incoming.isClosed) {
       await _incoming.close();
     }
     if (!_events.isClosed) {
       await _events.close();
     }
+    if (closeDirect) {
+      await direct.close();
+    }
+  }
+
+  void _onDirectEvent(PeerLinkEvent event) {
+    if (!_events.isClosed) {
+      _events.add(event);
+    }
+  }
+
+  void _onDirectError(Object error, StackTrace stackTrace) {
+    if (!_events.isClosed) {
+      _events.addError(error, stackTrace);
+    }
   }
 
   void _onDirectDone() {
-    if (!_events.isClosed) {
-      _events.add(const PeerLinkEvent('closed', null));
+    unawaited(_shutdown(closeDirect: false));
+  }
+
+  bool _enqueueInbound(RelayInbound inbound) {
+    if (_incoming.isClosed) {
+      return false;
+    }
+    if (_incoming.hasListener) {
+      _incoming.add(inbound);
+      return true;
+    }
+    if (config.incomingBufferFrames <= 0 ||
+        _incomingBuffer.length >= config.incomingBufferFrames) {
+      metrics.droppedInboundOverflow += 1;
+      return false;
+    }
+    _incomingBuffer.add(inbound);
+    return true;
+  }
+
+  void _flushBufferedInbound() {
+    if (_incomingBuffer.isEmpty) {
+      return;
+    }
+    final pending = List<RelayInbound>.of(_incomingBuffer);
+    _incomingBuffer.clear();
+    for (final inbound in pending) {
+      if (_incoming.isClosed) {
+        return;
+      }
+      _incoming.add(inbound);
     }
   }
 
@@ -406,18 +465,23 @@ class RelayTransport implements Transport {
     if (config.seenMaxEntries <= 0) {
       return true;
     }
-    final now = _clock();
-    _seen.removeWhere(
-      (_, at) => now.difference(at) > config.seenTtl,
-    );
+    _pruneSeen();
     if (_seen.containsKey(key)) {
       return false;
     }
     while (_seen.length >= config.seenMaxEntries) {
       _seen.remove(_seen.keys.first);
     }
-    _seen[key] = now;
+    _seen[key] = _clock();
     return true;
+  }
+
+  void _pruneSeen() {
+    if (config.seenMaxEntries <= 0) {
+      return;
+    }
+    final now = _clock();
+    _seen.removeWhere((_, at) => now.difference(at) > config.seenTtl);
   }
 
   Uint8List _nonce() {
@@ -426,13 +490,15 @@ class RelayTransport implements Transport {
     );
   }
 
-  String _frameKey(PeerId src, PeerId dst, List<int> nonce) {
-    final hasher = sha256.convert(<int>[
+  Future<String> _frameKey(PeerId src, PeerId dst, List<int> nonce) async {
+    final hash = await _sha256.hash(<int>[
       ...src.publicKey,
       ...dst.publicKey,
       ...nonce,
     ]);
-    return hasher.toString();
+    return hash.bytes
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
   }
 }
 

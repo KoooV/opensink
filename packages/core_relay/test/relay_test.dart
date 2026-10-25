@@ -7,7 +7,6 @@ import 'package:core_domain/core_domain.dart' hide RelayFrame;
 import 'package:core_domain/core_domain.dart' as domain show RelayFrame;
 import 'package:core_protocol/core_protocol.dart' show ProtoWriter, RelayFrame;
 import 'package:core_relay/core_relay.dart';
-import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
 
 PeerId peer(int value) {
@@ -52,10 +51,13 @@ class TestSigner implements Signer {
 
   @override
   Future<String> sign(Uint8List data) async {
-    final signature = sha512.convert(<int>[
-      ...localPeerId.publicKey,
-      ...data,
-    ]).toString();
+    final signature = List<int>.generate(64, (i) {
+      var value = localPeerId.publicKey[i % localPeerId.publicKey.length];
+      for (var j = i; j < data.length; j += 64) {
+        value ^= data[j];
+      }
+      return value & 0xff;
+    }).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
     registry[_key(localPeerId, data)] = signature;
     return signature;
   }
@@ -77,6 +79,7 @@ class ScriptedTransport implements Transport {
   final sent = <Sent>[];
   final reachable = <PeerId>{};
   final blackhole = <PeerId>{};
+  bool closed = false;
 
   @override
   Stream<PeerLinkEvent> get events => _events.stream;
@@ -121,10 +124,17 @@ class ScriptedTransport implements Transport {
     );
   }
 
+  void finishEvents() => _events.close();
+
   @override
   Future<void> close() async {
-    await _relayIncoming.close();
-    await _events.close();
+    closed = true;
+    if (!_relayIncoming.isClosed) {
+      await _relayIncoming.close();
+    }
+    if (!_events.isClosed) {
+      await _events.close();
+    }
   }
 }
 
@@ -181,7 +191,10 @@ RelayConfig relayConfig({
   int seenMaxEntries = 4096,
   int maxSourceEntries = 256,
   int maxTrackedSources = 256,
+  int incomingBufferFrames = 64,
   Duration directTimeout = const Duration(seconds: 5),
+  Duration forwardTimeout = const Duration(seconds: 5),
+  Duration seenTtl = const Duration(minutes: 5),
 }) {
   return RelayConfig(
     relayEnabled: relayEnabled,
@@ -191,7 +204,10 @@ RelayConfig relayConfig({
     seenMaxEntries: seenMaxEntries,
     maxSourceEntries: maxSourceEntries,
     maxTrackedSources: maxTrackedSources,
+    incomingBufferFrames: incomingBufferFrames,
     directTimeout: directTimeout,
+    forwardTimeout: forwardTimeout,
+    seenTtl: seenTtl,
   );
 }
 
@@ -497,7 +513,7 @@ void main() {
       expect((await received).payload, utf8.encode('timeout'));
     });
 
-    test('A→B через C: payload непрозрачен для релея', () async {
+    test('A→B через C: релей не меняет payload, а только заголовок', () async {
       final topology = RelayTopology();
       final a = SimNode(id: peer(1), topology: topology);
       final b = SimNode(id: peer(2), topology: topology);
@@ -507,11 +523,10 @@ void main() {
       a.direct.reachable.add(c.id);
       c.direct.reachable.add(b.id);
 
-      const plaintext = 'secret-message';
-      final ciphertext = Uint8List.fromList([0xde, 0xad, 0xbe, 0xef, 7, 8, 9]);
+      final payload = Uint8List.fromList([0xde, 0xad, 0xbe, 0xef, 7, 8, 9]);
 
       final received = b.relay.incoming.first;
-      final result = await a.relay.deliver(b.id, ciphertext);
+      final result = await a.relay.deliver(b.id, payload);
 
       expect(result, isA<RelayedSent>());
       expect((result as RelayedSent).relay, c.id);
@@ -520,8 +535,7 @@ void main() {
 
       final forwarded = decodeFrame(c.direct.sent.single.bytes);
       expect(forwarded, isNotNull);
-      expect(forwarded!.payload, ciphertext);
-      expect(utf8.decode(forwarded.payload, allowMalformed: true), isNot(plaintext));
+      expect(forwarded!.payload, payload);
       expect(forwarded.src, a.id.publicKey);
       expect(forwarded.dst, b.id.publicKey);
       expect(forwarded.hopCount, 1);
@@ -529,8 +543,7 @@ void main() {
 
       final inbound = await received;
       expect(inbound.src, a.id);
-      expect(inbound.payload, ciphertext);
-      expect(utf8.decode(inbound.payload, allowMalformed: true), isNot(plaintext));
+      expect(inbound.payload, payload);
     });
 
     test('пропажа релея: пересчёт на запасной путь, затем noRoute', () async {
@@ -1347,6 +1360,297 @@ void main() {
       expect(topology.infoFor(c.id), isNotNull);
       expect(topology.infoFor(c.id)?.canRelay, isFalse);
       expect(topology.infoFor(d.id)?.canRelay, isTrue);
+    });
+  });
+
+  group('R-12…R-15: потоки, закрытие и границы', () {
+    test('R-12: кадры до подписки буферизуются', () async {
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final b = SimNode(id: peer(2), topology: topology);
+      final frame = RelayFrame(
+        dst: b.id.publicKey,
+        src: a.id.publicKey,
+        ttl: 2,
+        hopCount: 0,
+        nonce: frameNonce(30),
+        payload: Uint8List.fromList([1, 2, 3]),
+      );
+
+      await b.relay.accept(a.id, await signedEnvelope(a, frame));
+
+      expect(b.relay.metrics.delivered, 1);
+      final inbound = await b.relay.incoming.first.timeout(
+        const Duration(seconds: 1),
+      );
+      expect(inbound.src, a.id);
+      expect(inbound.payload, [1, 2, 3]);
+    });
+
+    test('R-12: буфер ограничен, переполнение считается', () async {
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final b = SimNode(
+        id: peer(2),
+        topology: topology,
+        config: relayConfig(incomingBufferFrames: 1),
+      );
+
+      RelayFrame frame(int nonce, int payload) => RelayFrame(
+        dst: b.id.publicKey,
+        src: a.id.publicKey,
+        ttl: 2,
+        hopCount: 0,
+        nonce: frameNonce(nonce),
+        payload: Uint8List.fromList([payload]),
+      );
+
+      await b.relay.accept(a.id, await signedEnvelope(a, frame(31, 1)));
+      await b.relay.accept(a.id, await signedEnvelope(a, frame(32, 2)));
+
+      expect(b.relay.metrics.delivered, 1);
+      expect(b.relay.metrics.droppedInboundOverflow, 1);
+      final inbound = await b.relay.incoming.first.timeout(
+        const Duration(seconds: 1),
+      );
+      expect(inbound.payload, [1]);
+    });
+
+    test('R-12: close закрывает direct и оба потока', () async {
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final eventsDone = expectLater(a.relay.events, emitsDone);
+      final incomingDone = expectLater(a.relay.incoming, emitsDone);
+
+      await a.relay.close();
+      await eventsDone;
+      await incomingDone;
+
+      expect(a.direct.closed, isTrue);
+      final failed = await a.relay.deliver(peer(2), [1]);
+      expect(failed, isA<RelaySendFailed>());
+      expect((failed as RelaySendFailed).reason, RelayFailureReason.closed);
+      await a.relay.accept(peer(2), [1]);
+    });
+
+    test('R-12: завершение direct не синтезирует closed', () async {
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final types = <String>[];
+      a.relay.events.listen((event) => types.add(event.type));
+      final done = expectLater(a.relay.events, emitsDone);
+
+      a.direct.finishEvents();
+      await done;
+
+      expect(types, isNot(contains('closed')));
+      final failed = await a.relay.deliver(peer(2), [1]);
+      expect(failed, isA<RelaySendFailed>());
+      expect((failed as RelaySendFailed).reason, RelayFailureReason.closed);
+    });
+
+    test('R-14: после seenTtl повтор снова принимается', () async {
+      final clock = FakeClock(DateTime.utc(2026));
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final b = SimNode(id: peer(2), topology: topology);
+      final c = SimNode(
+        id: peer(3),
+        topology: topology,
+        clock: clock.call,
+        config: relayConfig(seenTtl: const Duration(seconds: 5)),
+      );
+
+      announce(topology, c.id, neighbors: [a.id, b.id]);
+      c.direct.reachable.add(b.id);
+
+      final bytes = await signedEnvelope(
+        a,
+        RelayFrame(
+          dst: b.id.publicKey,
+          src: a.id.publicKey,
+          ttl: 2,
+          hopCount: 0,
+          nonce: frameNonce(33),
+          payload: Uint8List.fromList([1]),
+        ),
+      );
+
+      await c.relay.accept(a.id, bytes);
+      await c.relay.accept(a.id, bytes);
+      expect(c.relay.metrics.forwarded, 1);
+      expect(c.relay.metrics.droppedDuplicate, 1);
+
+      clock.advance(const Duration(seconds: 6));
+      await c.relay.accept(a.id, bytes);
+      expect(c.relay.metrics.forwarded, 2);
+    });
+
+    test('R-15: malformed и неверные длины полей отбрасываются', () async {
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final b = SimNode(id: peer(2), topology: topology);
+      final c = SimNode(id: peer(3), topology: topology);
+      announce(topology, c.id, neighbors: [a.id, b.id]);
+      c.direct.reachable.add(b.id);
+
+      final valid = RelayEnvelope.decode(
+        await signedEnvelope(
+          a,
+          RelayFrame(
+            dst: b.id.publicKey,
+            src: a.id.publicKey,
+            ttl: 2,
+            hopCount: 0,
+            nonce: frameNonce(34),
+            payload: Uint8List.fromList([1]),
+          ),
+        ),
+      )!;
+      final cases = <Uint8List>[
+        Uint8List(0),
+        Uint8List.fromList(RelayEnvelope.magic),
+        RelayEnvelope.encode(valid.copyWith(nonce: Uint8List(15))),
+        RelayEnvelope.encode(valid.copyWith(src: Uint8List(31))),
+        RelayEnvelope.encode(valid.copyWith(dst: Uint8List(31))),
+        RelayEnvelope.encode(valid.copyWith(signature: Uint8List(63))),
+      ];
+
+      for (final bytes in cases) {
+        await c.relay.accept(a.id, bytes);
+      }
+
+      expect(c.relay.metrics.droppedMalformed, cases.length);
+      expect(c.direct.sent, isEmpty);
+    });
+
+    test('R-15: burst — ровно до лимита, затем отказ', () async {
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final b = SimNode(id: peer(2), topology: topology);
+      final frame = RelayFrame(
+        dst: b.id.publicKey,
+        src: a.id.publicKey,
+        ttl: 2,
+        hopCount: 0,
+        nonce: frameNonce(35),
+        payload: Uint8List.fromList([1, 2, 3]),
+      );
+      final bytes = await signedEnvelope(a, frame);
+      final c = SimNode(
+        id: peer(3),
+        topology: topology,
+        config: relayConfig(
+          perSourceBurstBytes: bytes.length,
+          perSourceBytesPerSecond: 1,
+        ),
+      );
+      announce(topology, c.id, neighbors: [a.id, b.id]);
+      c.direct.reachable.add(b.id);
+
+      await c.relay.accept(a.id, bytes);
+      await c.relay.accept(
+        a.id,
+        await signedEnvelope(
+          a,
+          frame.copyWith(nonce: frameNonce(36)),
+        ),
+      );
+
+      expect(c.relay.metrics.forwarded, 1);
+      expect(c.relay.metrics.droppedRateLimited, 1);
+      expect(c.direct.sent, hasLength(1));
+    });
+
+    test('R-15: opt-out узел доставляет локально, но не пересылает', () async {
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final b = SimNode(id: peer(2), topology: topology);
+      final c = SimNode(
+        id: peer(3),
+        topology: topology,
+        config: const RelayConfig(relayEnabled: false),
+      );
+      announce(topology, c.id, neighbors: [a.id, b.id]);
+      c.direct.reachable.add(b.id);
+
+      final received = c.relay.incoming.first;
+      await c.relay.accept(
+        a.id,
+        await signedEnvelope(
+          a,
+          RelayFrame(
+            dst: c.id.publicKey,
+            src: a.id.publicKey,
+            ttl: 2,
+            hopCount: 0,
+            nonce: frameNonce(37),
+            payload: Uint8List.fromList([4]),
+          ),
+        ),
+      );
+      expect((await received).payload, [4]);
+      expect(c.relay.metrics.delivered, 1);
+
+      await c.relay.accept(
+        a.id,
+        await signedEnvelope(
+          a,
+          RelayFrame(
+            dst: b.id.publicKey,
+            src: a.id.publicKey,
+            ttl: 2,
+            hopCount: 0,
+            nonce: frameNonce(38),
+            payload: Uint8List.fromList([5]),
+          ),
+        ),
+      );
+
+      expect(c.relay.metrics.droppedDisabled, 1);
+      expect(c.direct.sent, isEmpty);
+    });
+
+    test('R-15: сбой пересылки не фиксирует seen, успех дедуплицируется',
+        () async {
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final b = SimNode(id: peer(2), topology: topology);
+      final c = SimNode(
+        id: peer(3),
+        topology: topology,
+        config: relayConfig(forwardTimeout: const Duration(milliseconds: 5)),
+      );
+      final d = SimNode(id: peer(4), topology: topology);
+      final e = SimNode(id: peer(5), topology: topology);
+
+      announce(topology, d.id, neighbors: [c.id, b.id]);
+      c.direct.blackhole.add(d.id);
+
+      final bytes = await signedEnvelope(
+        a,
+        RelayFrame(
+          dst: b.id.publicKey,
+          src: a.id.publicKey,
+          ttl: 2,
+          hopCount: 0,
+          nonce: frameNonce(39),
+          payload: Uint8List.fromList([6]),
+        ),
+      );
+
+      await c.relay.accept(a.id, bytes);
+      expect(c.relay.metrics.forwardFailed, 1);
+      expect(c.relay.metrics.forwarded, 0);
+      expect(c.direct.sent, isEmpty);
+
+      announce(topology, e.id, neighbors: [c.id, b.id]);
+      c.direct.reachable.add(e.id);
+      await c.relay.accept(a.id, bytes);
+      expect(c.relay.metrics.forwarded, 1);
+      await c.relay.accept(a.id, bytes);
+      expect(c.relay.metrics.droppedDuplicate, 1);
+      expect(c.direct.sent, hasLength(1));
     });
   });
 

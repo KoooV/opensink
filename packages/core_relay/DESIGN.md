@@ -25,24 +25,36 @@
    `Transport.sendRelay` (отдельный `PeerChannels.relay`).
 3. Промежуточный узел принимает кадр из `Transport.relayIncoming` в
    `accept(from, bytes)` и проверяет: полный размер → token bucket по `from` →
-   тег/заголовок → `src == local` → `src == from` на первом хопе →
-   Ed25519-подпись origin → `originTtl <= maxHops` → seen/in-flight → адресат →
+   тег/заголовок и длины полей → `src == local` → `src == from` на первом хопе →
+   `originTtl <= maxHops` → Ed25519-подпись origin → seen/in-flight → адресат →
    opt-in → TTL/hop-limit → следующий хоп.
-4. Если `dst` локальный, payload отдаётся в `RelayTransport.incoming`.
+4. Если `dst` локальный, payload отдаётся в `RelayTransport.incoming`; пока у
+   потока нет слушателей, кадры копятся в ограниченном буфере
+   (`incomingBufferFrames`, по умолчанию 64), при переполнении новые
+   отбрасываются. После отмены последнего слушателя буфер снова активен
+   (R-25).
    Иначе `RelayFrame.forward()` (TTL−1, hop+1) без unknown-полей уходит
    следующему хопу.
-5. `_seen` фиксируется только после успешной доставки/пересылки; неудачная
-   попытка не блокирует запасной маршрут. `seenMaxEntries == 0` отключает кэш.
+5. `_seen` фиксируется после успешной пересылки; для локальной доставки — после
+   постановки в буфер (R-20). Неудачная попытка не блокирует запасной маршрут.
+   `seenMaxEntries == 0` отключает кэш.
 6. При ошибке отправки узел теряет только relay-роль (`disableRelay`), его
    presence и прямые линки сохраняются; выбирается запасной маршрут.
    Если маршрутов нет — `RelaySendFailed(noRoute)`, доставку догоняет sync.
+7. По контракту `RelayTransport` владеет `direct`: `close()` закрывает оба
+   транспорта и завершает `events`/`incoming`; завершение `direct.events`
+   переводит relay в `closed` без синтетических событий. Закрытие `direct` и
+   мемоизация shutdown в ветке `_onDirectDone` — R-18.
 
 ## Безопасность и лимиты
 
 - Payload считается end-to-end зашифрованным выше по стеку; `core_relay` не
   содержит ключей и API расшифровки. Релей видит `src`, `dst`, `ttl`,
   `hop_count` и непрозрачные байты.
-- Идентичность кадра для кэша — SHA-256(`src || dst || payload`), TTL кэша 5 мин.
+- Идентичность кадра для кэша — SHA-256(`src || dst || nonce`) через
+  `package:cryptography`. Окно дедупа `seenTtl` (5 мин) — best-effort: после
+  него повтор снова принимается. Для group-sync replay закрывает собственный
+  дедуп `core_sync`; остальные payload обязаны иметь свой идентификатор.
 - Token bucket на `from`: `perSourceBurstBytes` и `perSourceBytesPerSecond`;
   списывается фактический размер принятых байт до парсинга. Число bucket'ов и
   cardinality метрик ограничены LRU (`maxSourceEntries`, `maxTrackedSources`).
@@ -76,7 +88,12 @@ R-11: `applyPresence`/`announce` применяют только более но
 будущие метки ограничивают локальным временем получения, а `announce`
 копирует `neighbors` в unmodifiable-set; старый presence не откатывает
 маршруты и снятую relay-роль.
-Остаточные пункты `R-12`–`R-15` — в `docs/DEFECTS.md`, раздел «Релей».
+R-12–R-15 закрыты: буферизация `incoming` с лимитом, владение `direct` и
+закрытие потоков, fingerprint через `package:cryptography`, документированное
+окно seen-кэша, усиленные тесты и синхронизированный порядок проверок.
+Повторное ревью 2026-10-25 блокеров не выявило; остаточные R-16–R-27
+(буфер/close, delivered/overflow, replay-окно и LRU, wall-clock TTL, async
+fingerprint, пробелы тестов) — в `docs/DEFECTS.md`.
 
 ## Решения poll (2026-10-25)
 
@@ -86,7 +103,7 @@ R-11: `applyPresence`/`announce` применяют только более но
 | Восстановление после `disableRelay` | до следующего presence-анонса, без TTL/backoff |
 | Область `attempted` | per-frame перебор; relay-роль снимается глобально в локальной топологии |
 | Метрика исчерпания | добавлен `forwardExhausted` на кадр при исчерпании альтернатив в `accept` |
-| Границы R-10 | буферизация `incoming`, synthetic `'closed'` и `close()` — в R-12 |
+| Границы R-10 | закрыто в R-12: буфер `incoming`, без synthetic `'closed'`, `close()` закрывает `direct` |
 | Будущий `at` | clamp до локального времени получения |
 | Равный `updatedAt` | игнорировать (строгая монотонность) |
 | `disableRelay` | не двигает `updatedAt`; ждать более новый presence |
@@ -97,4 +114,5 @@ R-11: `applyPresence`/`announce` применяют только более но
 Relay-кадры подписаны и идут по отдельному `PeerChannels.relay`;
 `RelayTransport` сам подписывается на `relayIncoming` и вызывает `accept`.
 Presence в DI наполняет `RelayTopology` только из `RichSignalingChannel.presence`,
-то есть после Ed25519-проверки конверта (Q37).
+то есть после Ed25519-проверки конверта (Q37). Открытые остатки повторного
+ревью — R-16–R-27 в `docs/DEFECTS.md`.
