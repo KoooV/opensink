@@ -10,6 +10,7 @@ class ChatNotificationRouter {
   Future<void> handle(
     ChatView view, {
     required UserId currentUser,
+    required GroupId groupId,
     bool dnd = false,
   }) async {
     for (final message in view.messages) {
@@ -23,7 +24,7 @@ class ChatNotificationRouter {
       await notifications.show(
         ChatNotification(
           id: message.id,
-          groupId: const GroupId(''),
+          groupId: groupId,
           channelId: view.channelId,
           messageId: message.id,
           authorId: UserId(message.authorId),
@@ -39,17 +40,14 @@ class ChatNotificationRouter {
     ChatView view, {
     required UserId currentUser,
     bool allInChannel = false,
-  }) async {
-    final marker =
-        view.readMarkers['${view.channelId.value}:${currentUser.value}'];
+  }) {
+    return markChannelRead(view.channelId);
+  }
+
+  Future<void> markChannelRead(ChannelId channelId) async {
     for (final id in _channelOf.keys.toList()) {
       final channel = _channelOf[id];
-      if (channel != view.channelId.value) continue;
-      if (!allInChannel && marker == null) {
-        await notifications.cancel(id);
-        _channelOf.remove(id);
-        continue;
-      }
+      if (channel != channelId.value) continue;
       await notifications.cancel(id);
       _channelOf.remove(id);
     }

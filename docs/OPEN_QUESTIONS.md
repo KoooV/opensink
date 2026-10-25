@@ -230,7 +230,7 @@ approval-заявок и QR инвайта реализован. Режим appr
 - QR используется только для invite-URI; LAN/QR signaling (SIG-OPEN-06) отложен.
 - Режим approval не входит в `InviteLink`; он выводится из подписанного `InviteIssued`,
   до загрузки истории join остаётся pending.
-- Production `ChatService` не включается до E2E-доставки sender keys; кэш/карантин `GroupKeyDistributor` готовы, доставка pending/fail-closed.
+- Production `ChatService` не включается на отправку до E2E-доставки sender keys; чтение и уведомления разрешены; кэш/карантин `GroupKeyDistributor` готовы, доставка pending/fail-closed.
 
 ## Решения poll 2026-10-25 (sender keys)
 
@@ -251,3 +251,11 @@ approval-заявок и QR инвайта реализован. Режим appr
 - `NotificationHost` при инициализации проигрывает активные in-app уведомления.
 - `ChatNotificationRouter` подключается к production `ChatService`/UI отдельной задачей.
 - Двойной `cancel` в in-app (OS-fallback + политика) остаётся: операция идемпотентна.
+
+## Решения poll 2026-10-25 (уведомления чата)
+
+- Канал по умолчанию — `general`; bridge слушает `general` плюс `channelIds` из `GroupState`.
+- Production `ChatService` включён только для чтения и уведомлений; отправка из UI и composer — после E2E.
+- DND хранится в `chatDndProvider`; UI-переключатель отложен.
+- Read marker при открытии канала ставится на последнее известное сообщение.
+- `ChannelScreen` остаётся read-only до подключения E2E-канала.

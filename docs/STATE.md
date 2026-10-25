@@ -18,8 +18,9 @@
 - apps/app+core_storage: production DI Layer-10 (`DriftBlobStore`, `FileTransferService`, in-app `NotificationService`), schema v8 `blob_transfers`, approval-инвайты (issue/join/approve+UI) и QR/share инвайта; 39 app, 93 core_storage тестов.
 - apps/app/core_group: OS-уведомления Android/Linux/Web с in-app fallback; sender-key пакет подписан Ed25519 (groupId/epoch/sender/recipient/keyPackage), `E2eSenderKeyDelivery`+`SenderKeyChannel`, подпись в SecureKeyStore, `signer` опционален (fail-closed); production E2E-канал fail-closed.
 - apps/app: foreground-политика OS/in-app (foreground → in-app, background → OS с fallback), lifecycle-трекер в DI, replay активных в `NotificationHost`; 57 тестов app зелёные.
+- apps/app: production `ChatService`+`ChatNotificationBridge` (каналы группы и `general`, DND, read-cancel), binding активной группы и экран канала; 66 тестов app.
 ## Дальше
-- `apps/app`: подключить `ChatNotificationRouter` к production `ChatService`/UI; `core_group`: design+feature E2E-канала (X3DH/DoubleRatchet, bundle в signaling presence).
+- `core_group`: design+feature E2E-канала (X3DH/DoubleRatchet, bundle в signaling presence).
 - `core_sync`: ingress rate limit по автору + квота блобов на группу; компакция read markers/reactions; `core_storage`: квота `blob_transfers` по группе.
 ## Открытые вопросы
 - Legacy GroupState; trusted time (Q36); аутентификация снапшота и fingerprints; ротация GroupSecret при удалении; Q39 (ротация); sender-key G-25…G-35.

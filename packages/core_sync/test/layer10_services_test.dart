@@ -360,11 +360,12 @@ void main() {
       readMarkers: const {},
     );
 
-    await router.handle(view, currentUser: user);
+    await router.handle(view, currentUser: user, groupId: _group);
     expect(notifications.shown, hasLength(1));
     expect(notifications.shown.single.kind, ChatNotificationKind.mention);
+    expect(notifications.shown.single.groupId, _group);
 
-    await router.handle(view, currentUser: user, dnd: true);
+    await router.handle(view, currentUser: user, groupId: _group, dnd: true);
     expect(notifications.shown, hasLength(1));
 
     await router.handleRead(view, currentUser: user);
@@ -384,6 +385,7 @@ void main() {
     await router2.handle(
       ChatView(channelId: _channel, messages: [reply], readMarkers: const {}),
       currentUser: other,
+      groupId: _group,
     );
     expect(replyNotifications.shown.single.kind, ChatNotificationKind.reply);
   });

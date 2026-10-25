@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../di/providers.dart';
+import 'channel_screen.dart';
 import 'messages.dart';
 
 class GroupScreen extends ConsumerWidget {
@@ -138,6 +139,10 @@ class _GroupBody extends ConsumerWidget {
     final localUser = ref.watch(localIdentityProvider).valueOrNull?.userId;
     final localRole = localUser == null ? null : state.memberRoles[localUser];
     final canApprove = localRole != null && localRole.atLeast(GroupRole.admin);
+    final channels = <ChannelId>{
+      defaultChatChannel,
+      ...state.channelIds,
+    }.toList()..sort((a, b) => a.value.compareTo(b.value));
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -188,6 +193,22 @@ class _GroupBody extends ConsumerWidget {
                 member == state.ownerId
                     ? '${_shortUserId(member)} · владелец'
                     : _shortUserId(member),
+              ),
+            ),
+          const SizedBox(height: 16),
+          Text('Каналы', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          for (final channel in channels)
+            ListTile(
+              dense: true,
+              leading: const Icon(Icons.tag),
+              title: Text(channel.value),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      ChannelScreen(groupId: groupId, channelId: channel),
+                ),
               ),
             ),
         ],

@@ -22,6 +22,7 @@ import '../group/group_invite_service.dart';
 import '../group/group_secret_store.dart';
 import '../group/sender_key_package_store.dart';
 import '../group/sender_key_verifier.dart';
+import '../notifications/chat_notification_bridge.dart';
 import '../notifications/foreground_notification_service.dart';
 import '../notifications/foreground_state.dart';
 import '../notifications/in_app_notification_service.dart';
@@ -325,6 +326,60 @@ final notificationRouterProvider = Provider<ChatNotificationRouter>((ref) {
     notifications: ref.watch(notificationServiceProvider),
   );
 });
+
+/// Канал по умолчанию до появления управления каналами в UI.
+const ChannelId defaultChatChannel = ChannelId('general');
+
+/// Локальный режим «не беспокоить» для уведомлений чата.
+final chatDndProvider = StateProvider<bool>((ref) => false);
+
+/// Production-сервис чата поверх общего `SyncEngine`.
+final chatServiceProvider = FutureProvider.autoDispose
+    .family<ChatService, GroupId>((ref, groupId) async {
+      final engine = await ref.watch(syncEngineProvider.future);
+      final identity = await ref.watch(localIdentityProvider.future);
+      final service = ChatServiceImpl(
+        engine: engine,
+        localUser: identity.userId,
+        bus: ref.watch(ephemeralChatBusProvider),
+      );
+      ref.onDispose(() => unawaited(service.close()));
+      return service;
+    });
+
+/// Уведомления чата для группы: каналы из состояния плюс `general`.
+final chatNotificationBridgeProvider = FutureProvider.autoDispose
+    .family<ChatNotificationBridge, GroupId>((ref, groupId) async {
+      final chat = await ref.watch(chatServiceProvider(groupId).future);
+      final identity = await ref.watch(localIdentityProvider.future);
+      final group = await ref.watch(groupStateProvider(groupId).future);
+      final bridge = ChatNotificationBridge(
+        chat: chat,
+        router: ref.watch(notificationRouterProvider),
+        groupId: groupId,
+        currentUser: identity.userId,
+        channels: <ChannelId>{defaultChatChannel, ...group.state.channelIds},
+        isDnd: () => ref.read(chatDndProvider),
+      );
+      await bridge.start();
+      ref.onDispose(() => unawaited(bridge.close()));
+      return bridge;
+    });
+
+/// Уведомления активной группы; `null`, если группа не выбрана.
+final activeChatNotificationsProvider =
+    FutureProvider.autoDispose<ChatNotificationBridge?>((ref) async {
+      final groupId = await ref.watch(activeGroupIdProvider.future);
+      if (groupId == null) return null;
+      return ref.watch(chatNotificationBridgeProvider(groupId).future);
+    });
+
+/// Живой снимок канала.
+final chatViewProvider = StreamProvider.autoDispose
+    .family<ChatView, (GroupId, ChannelId)>((ref, key) async* {
+      final chat = await ref.watch(chatServiceProvider(key.$1).future);
+      yield* chat.watch(key.$1, key.$2);
+    });
 
 final ephemeralChatBusProvider = Provider<EphemeralChatBus>((ref) {
   final bus = FakeEphemeralChatBus();
