@@ -23,11 +23,13 @@ class GroupSyncBridge implements domain.IGroupState {
     required domain.GroupId groupId,
     GroupEventCodec codec = const GroupEventCodec(),
     bool allowMissingGenesis = false,
+    bool requireLocalAuthor = false,
   }) : _syncEngine = syncEngine,
        _controller = controller,
        _groupId = groupId,
        _codec = codec,
-       _allowMissingGenesis = allowMissingGenesis;
+       _allowMissingGenesis = allowMissingGenesis,
+       _requireLocalAuthor = requireLocalAuthor;
 
   final SyncEngineImpl _syncEngine;
   final GroupController _controller;
@@ -37,12 +39,17 @@ class GroupSyncBridge implements domain.IGroupState {
   /// Для join по инвайту genesis может ещё не прийти из sync.
   final bool _allowMissingGenesis;
 
+  /// Для `created` genesis обязан быть подписан локальным ключом.
+  final bool _requireLocalAuthor;
+
   final StreamController<domain.GroupState> _changes =
       StreamController<domain.GroupState>.broadcast();
   final Set<String> _rejected = <String>{};
 
   StreamSubscription<void>? _subscription;
   Future<void> _refreshTail = Future<void>.value();
+  Future<void> _mutationTail = Future<void>.value();
+  final Set<String> _verifiedEvents = <String>{};
   Future<domain.Result<void, GroupSyncError>>? _startAttempt;
   bool _started = false;
   bool _closed = false;
@@ -117,22 +124,22 @@ class GroupSyncBridge implements domain.IGroupState {
         return domain.Err(_fatalError!);
       }
       await _syncEngine.registerGroup(_groupId);
-      final validated = await _validateGenesis();
-      if (validated.isErr) {
-        _fatalError = validated.unwrapErr();
-        return domain.Err(_fatalError!);
-      }
-      _genesisValidated = validated.unwrap();
 
       _subscription = _syncEngine.changes.listen((_) {
-        _refreshTail = _refreshTail.then((_) => _refresh());
+        unawaited(_enqueueRefresh());
       });
-      await _refresh();
+      await _enqueueRefresh();
       if (_closed) {
         await _stopSubscription();
         return const domain.Err(MalformedGroupEvent('bridge is closed'));
       }
-      if (_fatalError != null) {
+      final fatal = _fatalError;
+      if (fatal != null) {
+        await _stopSubscription();
+        return domain.Err(fatal);
+      }
+      if (!_genesisValidated && !_allowMissingGenesis) {
+        _fatalError = GenesisMissing(_groupId, _controller.genesisEventId);
         await _stopSubscription();
         return domain.Err(_fatalError!);
       }
@@ -149,6 +156,42 @@ class GroupSyncBridge implements domain.IGroupState {
     _subscription = null;
   }
 
+  Future<void> _enqueueRefresh() {
+    final next = _refreshTail.then((_) => _serializedMutation(_refresh));
+    _refreshTail = next.catchError((Object _) {});
+    return next;
+  }
+
+  /// Сериализует изменения журнала и публикацию локальных событий.
+  Future<T> _serializedMutation<T>(Future<T> Function() action) {
+    final result = Completer<T>();
+    _mutationTail = _mutationTail.then((_) async {
+      try {
+        result.complete(await action());
+      } on Object catch (error, stackTrace) {
+        result.completeError(error, stackTrace);
+      }
+    });
+    return result.future;
+  }
+
+  /// Проверяет id и Ed25519-подпись до разбора payload.
+  Future<bool> _isAuthentic(SyncEvent event) async {
+    final id = event.id.value;
+    if (id.isEmpty || id != event.computeId()) return false;
+    if (_verifiedEvents.contains(id)) return true;
+    final authorBytes = hexDecode(event.authorId.value);
+    if (authorBytes == null || authorBytes.length != 32) return false;
+    if (event.signature.isEmpty) return false;
+    final valid = await _syncEngine.signer.verify(
+      event.signedBytes(),
+      event.signature,
+      domain.PeerId(authorBytes),
+    );
+    if (valid) _verifiedEvents.add(id);
+    return valid;
+  }
+
   /// Публикует доменное событие и применяет его к контроллеру.
   ///
   /// Требует успешного [start] и отсутствия неустранимой ошибки корня. Для
@@ -157,7 +200,7 @@ class GroupSyncBridge implements domain.IGroupState {
   Future<domain.Result<domain.GroupEvent, GroupSyncError>> publish(
     domain.GroupEvent draft,
   ) {
-    return _publish(draft, requireStarted: true);
+    return _serializedMutation(() => _publish(draft, requireStarted: true));
   }
 
   Future<domain.Result<domain.GroupEvent, GroupSyncError>> _publish(
@@ -225,6 +268,11 @@ class GroupSyncBridge implements domain.IGroupState {
       return domain.Err(SyncEngineFailure(created.unwrapErr()));
     }
     final syncEvent = created.unwrap();
+    final fatalAfterCreate = _fatalError;
+    if (fatalAfterCreate != null) return domain.Err(fatalAfterCreate);
+    if (_closed) {
+      return const domain.Err(MalformedGroupEvent('bridge is closed'));
+    }
     final decoded = _codec.decode(syncEvent);
     if (decoded.isErr) return domain.Err(decoded.unwrapErr());
     final event = decoded.unwrap();
@@ -280,6 +328,11 @@ class GroupSyncBridge implements domain.IGroupState {
       return domain.Err(GenesisMissing(_groupId, expectedId));
     }
 
+    if (!await _isAuthentic(expected)) {
+      return const domain.Err(
+        InvalidGenesis('event id or signature is invalid'),
+      );
+    }
     final decoded = _codec.decode(expected);
     if (decoded.isErr) {
       return domain.Err(InvalidGenesis(decoded.unwrapErr().toString()));
@@ -294,29 +347,14 @@ class GroupSyncBridge implements domain.IGroupState {
     if (event.authorId != event.ownerId) {
       return const domain.Err(InvalidGenesis('author is not owner'));
     }
+    if (_requireLocalAuthor && event.authorId != _syncEngine.localAuthor) {
+      return const domain.Err(InvalidGenesis('author is not local'));
+    }
     if (!event.initialMembers.contains(event.ownerId)) {
       return const domain.Err(InvalidGenesis('owner is not a member'));
     }
     if (event.validateInvariants().isErr) {
       return const domain.Err(InvalidGenesis('invariants failed'));
-    }
-    if (expected.id.value != expected.computeId()) {
-      return const domain.Err(InvalidGenesis('event id does not match body'));
-    }
-    final authorBytes = hexDecode(expected.authorId.value);
-    if (authorBytes == null || authorBytes.length != 32) {
-      return const domain.Err(InvalidGenesis('invalid author key'));
-    }
-    if (expected.signature.isEmpty) {
-      return const domain.Err(InvalidGenesis('missing signature'));
-    }
-    final signatureValid = await _syncEngine.signer.verify(
-      expected.signedBytes(),
-      expected.signature,
-      domain.PeerId(authorBytes),
-    );
-    if (!signatureValid) {
-      return const domain.Err(InvalidGenesis('invalid signature'));
     }
     return const domain.Ok(true);
   }
@@ -332,6 +370,7 @@ class GroupSyncBridge implements domain.IGroupState {
           syncEvent.id != genesisId) {
         continue;
       }
+      if (!await _isAuthentic(syncEvent)) continue;
       final decoded = _codec.decode(syncEvent);
       if (decoded.isErr) continue;
       groupEvents.add(decoded.unwrap());
@@ -350,6 +389,7 @@ class GroupSyncBridge implements domain.IGroupState {
       _genesisValidated = true;
     }
     groupEvents.sort(GroupState.compareEvents);
+    var changed = false;
     for (final event in groupEvents) {
       if (_closed || _fatalError != null) return;
       if (event is domain.GroupCreated && event.id != genesisId) continue;
@@ -359,11 +399,22 @@ class GroupSyncBridge implements domain.IGroupState {
       }
       if (_rejected.contains(event.id.value)) continue;
       final applied = await _controller.apply(event);
-      if (applied.isErr && _isPermanent(applied.unwrapErr())) {
-        _rejected.add(event.id.value);
+      changed = true;
+      if (applied.isErr) {
+        final error = applied.unwrapErr();
+        if (event is domain.GroupCreated && event.id == genesisId) {
+          _fatalError = InvalidGenesis(
+            'trusted genesis failed to apply: $error',
+          );
+          await _emit();
+          return;
+        }
+        if (_isPermanent(error)) {
+          _rejected.add(event.id.value);
+        }
       }
     }
-    await _emit();
+    if (changed) await _emit();
   }
 
   bool _isPermanent(GroupError error) =>
@@ -412,10 +463,7 @@ class GroupSyncBridge implements domain.IGroupState {
     GroupEventCodec codec = const GroupEventCodec(),
   }) async {
     final owner = syncEngine.localAuthor;
-    final members = initialMembers ?? {owner};
-    if (members.isEmpty) {
-      return const domain.Err(MalformedGroupEvent('initial members are empty'));
-    }
+    final members = {...?initialMembers, owner};
     final draft = domain.GroupCreated(
       id: const domain.EventId(''),
       groupId: groupId,
@@ -425,21 +473,43 @@ class GroupSyncBridge implements domain.IGroupState {
       ownerId: owner,
       initialMembers: members,
     );
+    final invalid = draft.validateInvariants();
+    if (invalid.isErr) {
+      return domain.Err(MalformedGroupEvent(invalid.unwrapErr().toString()));
+    }
+    if (groupId.value.isEmpty) {
+      return const domain.Err(MalformedGroupEvent('groupId is empty'));
+    }
+    for (final member in members) {
+      final key = hexDecode(member.value);
+      if (key == null || key.length != 32) {
+        return const domain.Err(
+          MalformedGroupEvent('initial member is not 64-hex'),
+        );
+      }
+    }
     final payload = codec.encode(draft);
     if (payload.isErr) return domain.Err(payload.unwrapErr());
+    GroupSyncError? pinError;
     final created = await syncEngine.createEvent(
       groupId: groupId,
       kind: SyncEventKind.groupCreated,
       payload: payload.unwrap(),
+      beforeIngest: (syncEvent) async {
+        final pinned = await syncEngine.pinGroupRoot(groupId, syncEvent.id);
+        if (pinned.isErr) {
+          pinError = SyncEngineFailure(pinned.unwrapErr());
+          return false;
+        }
+        return true;
+      },
     );
     if (created.isErr) {
+      final rejected = pinError;
+      if (rejected != null) return domain.Err(rejected);
       return domain.Err(SyncEngineFailure(created.unwrapErr()));
     }
     final syncEvent = created.unwrap();
-    final pinned = await syncEngine.pinGroupRoot(groupId, syncEvent.id);
-    if (pinned.isErr) {
-      return domain.Err(SyncEngineFailure(pinned.unwrapErr()));
-    }
     final controller = GroupController(
       distributor: distributor,
       expectedGroupId: groupId,
@@ -452,6 +522,7 @@ class GroupSyncBridge implements domain.IGroupState {
       controller: controller,
       groupId: groupId,
       codec: codec,
+      requireLocalAuthor: true,
     );
     final decoded = codec.decode(syncEvent);
     if (decoded.isErr) {

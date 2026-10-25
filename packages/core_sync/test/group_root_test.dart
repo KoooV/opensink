@@ -106,6 +106,53 @@ void main() {
       expect(await engine.allEvents(group), isEmpty);
     });
 
+    test('незакреплённая группа ограничена по числу событий', () async {
+      final limited = SyncEngineImpl(
+        store: store,
+        signer: ownerSigner,
+        localAuthor: owner,
+        maxUnpinnedGroupEvents: 2,
+      );
+      addTearDown(limited.close);
+      final foreign = await root(signer: attackerSigner, author: attacker);
+      expect((await limited.ingest(foreign)).isOk, isTrue);
+      final added = await signedEvent(
+        signer: attackerSigner,
+        author: attacker,
+        groupId: group,
+        hlc: const Hlc(1001, 0),
+        kind: SyncEventKind.memberAdded,
+        targetId: attacker.value,
+      );
+      expect((await limited.ingest(added)).isOk, isTrue);
+      final blocked = await signedEvent(
+        signer: attackerSigner,
+        author: attacker,
+        groupId: group,
+        hlc: const Hlc(1002, 0),
+        kind: SyncEventKind.messageCreated,
+        payload: Uint8List(0),
+      );
+      final rejected = await limited.ingest(blocked);
+      expect(rejected.isErr, isTrue);
+      expect(rejected.unwrapErr(), isA<UnpinnedGroupQuarantine>());
+
+      final expected = await root(signer: ownerSigner, author: owner);
+      expect((await limited.pinGroupRoot(group, expected.id)).isOk, isTrue);
+      expect((await limited.ingest(expected)).isOk, isTrue);
+      final ownerMessage = await signedEvent(
+        signer: ownerSigner,
+        author: owner,
+        groupId: group,
+        hlc: const Hlc(1003, 0),
+        kind: SyncEventKind.messageCreated,
+        payload: Uint8List(0),
+      );
+      final accepted = await limited.ingest(ownerMessage);
+      expect(accepted.isOk, isTrue);
+      expect(accepted.unwrap().outcome, IngestOutcome.inserted);
+    });
+
     test('потомки чужого корня не переживают pin', () async {
       final expected = await root(signer: ownerSigner, author: owner);
       final foreign = await root(signer: attackerSigner, author: attacker);

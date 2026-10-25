@@ -87,6 +87,32 @@ void main() {
       expect(loaded.unwrapErr(), isA<CorruptedGroupMetadata>());
     });
 
+    test('list пропускает повреждённые и чужие записи', () async {
+      final valid = metadata(groupId: 'g3', genesis: 'gen-3');
+      await store.save(valid);
+      await db.upsertGroupSetting(
+        id: 'broken',
+        groupId: 'g1',
+        key: DriftGroupMetadataStore.metadataKey,
+        value: '{not-json',
+        updatedAt: 1,
+      );
+      await db.upsertGroupSetting(
+        id: 'wrong',
+        groupId: 'g2',
+        key: DriftGroupMetadataStore.metadataKey,
+        value:
+            '{"version":1,"group_id":"other","genesis_event_id":"gen",'
+            '"origin":"created","created_at":1}',
+        updatedAt: 1,
+      );
+
+      final listed = await store.list();
+
+      expect(listed.isOk, isTrue);
+      expect(listed.unwrap(), [valid]);
+    });
+
     test('несовпадающий group_id внутри записи отклоняется', () async {
       await db.upsertGroupSetting(
         id: 'wrong',

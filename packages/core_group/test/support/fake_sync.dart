@@ -41,6 +41,17 @@ UserId testUserId(int index) {
   return UserId(byte * 32);
 }
 
+/// Подписывает метаданные ключом локальной identity.
+Future<GroupMetadata> signedMetadata(
+  GroupMetadata metadata,
+  FakeIdentity identity,
+) async {
+  final signature = await identity.signer.sign(
+    metadata.signingBytes(identity.author),
+  );
+  return metadata.withAuth(signerId: identity.author, signature: signature);
+}
+
 /// In-memory реализация `SyncEventStore` для тестов моста.
 class MemorySyncEventStore implements SyncEventStore {
   final Map<String, EventRecord> _records = {};

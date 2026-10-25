@@ -116,12 +116,14 @@ void main() {
         engine: bobEngine,
         metadataStore: bobMetadata,
       );
-      final link = InviteLink(
+      final link = await InviteLink.issue(
+        signer: owner.signer,
         groupId: groupId,
         genesisEventId: genesisId,
         inviteId: 'inv-1',
         secret: 'secret',
         inviterId: owner.author,
+        expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
       );
 
       final joined = await bobLifecycle.joinFromInvite(link);
@@ -152,14 +154,17 @@ void main() {
       () async {
         const groupId = GroupId('group');
         final metadataStore = MemoryGroupMetadataStore();
-        const existing = GroupMetadata(
-          groupId: groupId,
-          genesisEventId: EventId('gen-a'),
-          origin: GroupOrigin.created,
-          createdAt: 1,
+        final owner = FakeIdentity(testUserId(1));
+        final existing = await signedMetadata(
+          GroupMetadata(
+            groupId: groupId,
+            genesisEventId: EventId('a' * 64),
+            origin: GroupOrigin.created,
+            createdAt: 1,
+          ),
+          owner,
         );
         await metadataStore.save(existing);
-        final owner = FakeIdentity(testUserId(1));
         final engine = SyncEngineImpl(
           store: MemorySyncEventStore(),
           signer: owner.signer,
@@ -172,12 +177,14 @@ void main() {
         );
 
         final joined = await lifecycle.joinFromInvite(
-          InviteLink(
+          await InviteLink.issue(
+            signer: owner.signer,
             groupId: groupId,
-            genesisEventId: const EventId('gen-b'),
+            genesisEventId: EventId('b' * 64),
             inviteId: 'inv-1',
             secret: 'secret',
             inviterId: owner.author,
+            expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
           ),
         );
 
@@ -219,10 +226,13 @@ void main() {
         );
         final metadataStore = MemoryGroupMetadataStore();
         await metadataStore.save(
-          const GroupMetadata(
-            groupId: groupId,
-            origin: GroupOrigin.created,
-            createdAt: 1,
+          await signedMetadata(
+            const GroupMetadata(
+              groupId: groupId,
+              origin: GroupOrigin.created,
+              createdAt: 1,
+            ),
+            owner,
           ),
         );
         final lifecycle = lifecycleFor(
@@ -291,10 +301,13 @@ void main() {
 
         final metadataStore = MemoryGroupMetadataStore();
         await metadataStore.save(
-          const GroupMetadata(
-            groupId: groupId,
-            origin: GroupOrigin.created,
-            createdAt: 1,
+          await signedMetadata(
+            const GroupMetadata(
+              groupId: groupId,
+              origin: GroupOrigin.created,
+              createdAt: 1,
+            ),
+            owner,
           ),
         );
         final lifecycle = lifecycleFor(
@@ -341,10 +354,13 @@ void main() {
       expect((await engine.ingest(foreign)).isOk, isTrue);
       final metadataStore = MemoryGroupMetadataStore();
       await metadataStore.save(
-        const GroupMetadata(
-          groupId: groupId,
-          origin: GroupOrigin.created,
-          createdAt: 1,
+        await signedMetadata(
+          const GroupMetadata(
+            groupId: groupId,
+            origin: GroupOrigin.created,
+            createdAt: 1,
+          ),
+          owner,
         ),
       );
 
@@ -369,10 +385,13 @@ void main() {
       final metadataStore = MemoryGroupMetadataStore();
       const groupId = GroupId('empty-pending');
       await metadataStore.save(
-        const GroupMetadata(
-          groupId: groupId,
-          origin: GroupOrigin.created,
-          createdAt: 1,
+        await signedMetadata(
+          const GroupMetadata(
+            groupId: groupId,
+            origin: GroupOrigin.created,
+            createdAt: 1,
+          ),
+          owner,
         ),
       );
       final lifecycle = lifecycleFor(

@@ -34,13 +34,19 @@ GroupRenamed renameDraft(
   );
 }
 
-InviteLink inviteFor(GroupId groupId, String genesisId, UserId inviter) {
-  return InviteLink(
+Future<InviteLink> inviteFor(
+  GroupId groupId,
+  String genesisId,
+  FakeIdentity inviter,
+) {
+  return InviteLink.issue(
+    signer: inviter.signer,
     groupId: groupId,
     genesisEventId: EventId(genesisId),
     inviteId: 'inv-1',
     secret: 'secret',
-    inviterId: inviter,
+    inviterId: inviter.author,
+    expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
   );
 }
 
@@ -63,8 +69,8 @@ void main() {
       const groupId = GroupId('join-race');
 
       final results = await Future.wait([
-        lifecycle.joinFromInvite(inviteFor(groupId, 'gen-a', owner.author)),
-        lifecycle.joinFromInvite(inviteFor(groupId, 'gen-b', owner.author)),
+        lifecycle.joinFromInvite(await inviteFor(groupId, 'a' * 64, owner)),
+        lifecycle.joinFromInvite(await inviteFor(groupId, 'b' * 64, owner)),
       ]);
 
       expect(results.where((result) => result.isOk), hasLength(1));
@@ -75,7 +81,7 @@ void main() {
       final stored = (await metadataStore.load(groupId)).unwrap()!;
       expect(
         stored.genesisEventId,
-        isIn([const EventId('gen-a'), const EventId('gen-b')]),
+        isIn([EventId('a' * 64), EventId('b' * 64)]),
       );
       expect((await metadataStore.loadActiveGroup()).unwrap(), groupId);
     });
@@ -114,10 +120,13 @@ void main() {
         );
         final metadataStore = MemoryGroupMetadataStore();
         await metadataStore.save(
-          const GroupMetadata(
-            groupId: groupId,
-            origin: GroupOrigin.created,
-            createdAt: 1,
+          await signedMetadata(
+            const GroupMetadata(
+              groupId: groupId,
+              origin: GroupOrigin.created,
+              createdAt: 1,
+            ),
+            owner,
           ),
         );
         final lifecycle = lifecycleFor(
@@ -278,7 +287,7 @@ void main() {
       const groupId = GroupId('invite-disabled');
 
       final joined = await lifecycle.joinFromInvite(
-        inviteFor(groupId, 'gen-a', owner.author),
+        await inviteFor(groupId, 'a' * 64, owner),
       );
 
       expect(joined.isErr, isTrue);

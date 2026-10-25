@@ -31,6 +31,7 @@ class SyncEngineImpl implements SyncEngine {
     this.maxGossipHops = 4,
     this.maxSeenEvents = 20000,
     this.maxPendingEvents = 2048,
+    this.maxUnpinnedGroupEvents = 512,
     this.maxOutboundQueue = 2048,
     Duration? antiEntropyInterval,
   }) : _nowMs = nowMs ?? (() => DateTime.now().millisecondsSinceEpoch),
@@ -58,6 +59,7 @@ class SyncEngineImpl implements SyncEngine {
   final int maxGossipHops;
   final int maxSeenEvents;
   final int maxPendingEvents;
+  final int maxUnpinnedGroupEvents;
   final int maxOutboundQueue;
 
   final int Function() _nowMs;
@@ -116,7 +118,11 @@ class SyncEngineImpl implements SyncEngine {
     _trustedRoots[groupId] = genesisEventId;
     final current = _events[groupId];
     if (current != null && current.isNotEmpty) {
-      _reindexGroup(groupId, current.toList());
+      final source = current.toList();
+      _reindexGroup(groupId, source);
+      await _prunePending(groupId, source);
+    } else {
+      await _prunePending(groupId, const <SyncEvent>[]);
     }
     return const Ok(null);
   }
@@ -392,6 +398,7 @@ class SyncEngineImpl implements SyncEngine {
     String? targetId,
     Uint8List? payload,
     bool Function(SyncEvent event)? preflight,
+    Future<bool> Function(SyncEvent event)? beforeIngest,
   }) async {
     await registerGroup(groupId);
     final hlc = _clock.tick();
@@ -416,6 +423,11 @@ class SyncEngineImpl implements SyncEngine {
     if (preflight != null && !preflight(event)) {
       return const Err(
         LocalEventRejected(MalformedEvent('preflight rejected')),
+      );
+    }
+    if (beforeIngest != null && !await beforeIngest(event)) {
+      return const Err(
+        LocalEventRejected(MalformedEvent('beforeIngest rejected')),
       );
     }
 
@@ -461,6 +473,15 @@ class SyncEngineImpl implements SyncEngine {
     }
 
     await _ensureGroup(event.groupId);
+    final known =
+        _events[event.groupId]?.any((known) => known.id.value == id) ?? false;
+    if (!known &&
+        _trustedRoots[event.groupId] == null &&
+        _unpinnedEventCount(event.groupId) >= maxUnpinnedGroupEvents) {
+      return Err(
+        UnpinnedGroupQuarantine(event.groupId.value, maxUnpinnedGroupEvents),
+      );
+    }
     final result = await _pipeline.ingest(event);
     if (result.isErr) return result;
 
@@ -542,6 +563,14 @@ class SyncEngineImpl implements SyncEngine {
     }
   }
 
+  int _unpinnedEventCount(GroupId groupId) {
+    final accepted = _events[groupId]?.length ?? 0;
+    final pending = _pending.values
+        .where((event) => event.groupId == groupId)
+        .length;
+    return accepted + pending;
+  }
+
   MembershipStatus _membershipStatus(SyncEvent event) {
     final timeline = _events[event.groupId] ?? const <SyncEvent>{};
     return _membershipEvaluator.evaluate(event, timeline);
@@ -598,6 +627,36 @@ class SyncEngineImpl implements SyncEngine {
     _lastAuthorEvent[groupId] = byAuthor;
   }
 
+  /// Удаляет pending, достижимые только через отброшенный чужой корень.
+  Future<void> _prunePending(
+    GroupId groupId,
+    Iterable<SyncEvent> source,
+  ) async {
+    final trusted = _events[groupId] ?? const <SyncEvent>{};
+    final full = SplayTreeSet<SyncEvent>(_compare)..addAll(source);
+    full.addAll(_pending.values.where((event) => event.groupId == groupId));
+    final remove = <String>[];
+    for (final event
+        in _pending.values
+            .where((event) => event.groupId == groupId)
+            .toList()) {
+      final trustedStatus = _membershipEvaluator.evaluate(event, trusted);
+      if (trustedStatus == MembershipStatus.member) continue;
+      if (trustedStatus == MembershipStatus.notMember) {
+        remove.add(event.id.value);
+        continue;
+      }
+      if (_membershipEvaluator.evaluate(event, full) ==
+          MembershipStatus.member) {
+        remove.add(event.id.value);
+      }
+    }
+    for (final id in remove) {
+      _pending.remove(id);
+      await _deletePending(id);
+    }
+  }
+
   Future<void> _ensureGroup(GroupId groupId) {
     if (_loadedGroups.contains(groupId)) return Future<void>.value();
     final inFlight = _loadFutures[groupId];
@@ -631,6 +690,7 @@ class SyncEngineImpl implements SyncEngine {
     final trusted = _trustedRoots[groupId];
     if (trusted != null) {
       _reindexGroup(groupId, loaded);
+      await _prunePending(groupId, loaded);
     } else {
       for (final event in loaded) {
         _addToIndex(event);

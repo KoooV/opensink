@@ -75,6 +75,16 @@ class GroupInviteUnsupported extends GroupLifecycleError {
   String toString() => 'GroupInviteUnsupported';
 }
 
+/// Инвайт-ссылка не прошла проверку подписи или срока.
+class GroupInviteRejected extends GroupLifecycleError {
+  const GroupInviteRejected(this.reason);
+
+  final String reason;
+
+  @override
+  String toString() => 'GroupInviteRejected($reason)';
+}
+
 /// Создание, join и открытие группы по доверенным метаданным.
 ///
 /// `groupId` и `genesisEventId` не выводятся из лога. Создание генерирует
@@ -122,6 +132,77 @@ class GroupLifecycle {
     return result.future;
   }
 
+  Future<GroupMetadata> _signMetadata(GroupMetadata metadata) async {
+    final signerId = _syncEngine.localAuthor;
+    final signature = await _syncEngine.signer.sign(
+      metadata.signingBytes(signerId),
+    );
+    return metadata.withAuth(signerId: signerId, signature: signature);
+  }
+
+  Future<Result<void, GroupMetadataError>> _saveMetadata(
+    GroupMetadata metadata,
+  ) async {
+    final signed = await _signMetadata(metadata);
+    return _metadataStore.save(signed);
+  }
+
+  Future<Result<GroupMetadata, GroupMetadataError>> _verifyMetadata(
+    GroupMetadata metadata,
+  ) async {
+    final signerId = metadata.signerId;
+    final signature = metadata.signature;
+    if (signerId == null || signature == null) {
+      return const Err(CorruptedGroupMetadata('metadata is not signed'));
+    }
+    if (signerId != _syncEngine.localAuthor) {
+      return const Err(CorruptedGroupMetadata('metadata signer mismatch'));
+    }
+    final key = hexDecode(signerId.value);
+    if (key == null || key.length != 32) {
+      return const Err(CorruptedGroupMetadata('metadata signer key invalid'));
+    }
+    final valid = await _syncEngine.signer.verify(
+      metadata.signingBytes(signerId),
+      signature,
+      PeerId(key),
+    );
+    if (!valid) {
+      return const Err(CorruptedGroupMetadata('metadata signature invalid'));
+    }
+    return Ok(metadata);
+  }
+
+  Future<Result<GroupMetadata?, GroupMetadataError>> _loadVerifiedMetadata(
+    GroupId groupId,
+  ) async {
+    final loaded = await _metadataStore.load(groupId);
+    if (loaded.isErr) return Err(loaded.unwrapErr());
+    final metadata = loaded.unwrap();
+    if (metadata == null) return const Ok(null);
+    final verified = await _verifyMetadata(metadata);
+    if (verified.isErr) return Err(verified.unwrapErr());
+    return Ok(verified.unwrap());
+  }
+
+  Future<GroupLifecycleError?> _verifyInvite(InviteLink link) async {
+    if (link.groupId.value.isEmpty) {
+      return const GroupInviteRejected('empty groupId');
+    }
+    final genesis = hexDecode(link.genesisEventId.value);
+    if (genesis == null || genesis.length != 32) {
+      return const GroupInviteRejected('genesis is not 64-hex');
+    }
+    if (link.expiresAt <= _nowMs()) {
+      return const GroupInviteRejected('invite expired');
+    }
+    final valid = await link.verifySignature(_syncEngine.signer);
+    if (!valid) {
+      return const GroupInviteRejected('invalid inviter signature');
+    }
+    return null;
+  }
+
   /// Создаёт группу с новым случайным `groupId` и сохраняет корень.
   Future<Result<GroupId, GroupLifecycleError>> createGroup({
     required String name,
@@ -134,7 +215,7 @@ class GroupLifecycle {
         origin: GroupOrigin.created,
         createdAt: _nowMs(),
       );
-      final saved = await _metadataStore.save(pending);
+      final saved = await _saveMetadata(pending);
       if (saved.isErr) {
         return Err(GroupMetadataUnavailable(saved.unwrapErr()));
       }
@@ -156,7 +237,7 @@ class GroupLifecycle {
 
       final bridge = created.unwrap();
       final ready = pending.withGenesis(bridge.genesisEventId);
-      final savedReady = await _metadataStore.save(ready);
+      final savedReady = await _saveMetadata(ready);
       if (savedReady.isErr) {
         await bridge.close();
         return Err(GroupMetadataUnavailable(savedReady.unwrapErr()));
@@ -178,7 +259,10 @@ class GroupLifecycle {
       );
     }
     return _serialized(() async {
-      final loaded = await _metadataStore.load(link.groupId);
+      final inviteError = await _verifyInvite(link);
+      if (inviteError != null) return Err(inviteError);
+
+      final loaded = await _loadVerifiedMetadata(link.groupId);
       if (loaded.isErr) {
         return Err(GroupMetadataUnavailable(loaded.unwrapErr()));
       }
@@ -199,13 +283,14 @@ class GroupLifecycle {
             genesisEventId: link.genesisEventId,
             origin: GroupOrigin.invited,
             createdAt: _nowMs(),
+            inviterId: link.inviterId,
           );
       if (!metadata.isReady) {
         return Err(
           GroupRootConflict(link.groupId, 'group metadata has no genesis'),
         );
       }
-      final saved = await _metadataStore.save(metadata);
+      final saved = await _saveMetadata(metadata);
       if (saved.isErr) {
         return Err(GroupMetadataUnavailable(saved.unwrapErr()));
       }
@@ -240,6 +325,7 @@ class GroupLifecycle {
         groupId: groupId,
         codec: _codec,
         allowMissingGenesis: metadata.origin == GroupOrigin.invited,
+        requireLocalAuthor: metadata.origin == GroupOrigin.created,
       );
       final started = await bridge.start();
       if (started.isErr) {
@@ -260,12 +346,22 @@ class GroupLifecycle {
     if (listed.isErr) {
       return Err(GroupMetadataUnavailable(listed.unwrapErr()));
     }
+    GroupLifecycleError? firstError;
     for (final metadata in listed.unwrap()) {
-      if (metadata.isReady) continue;
-      final recovered = await _recoverPending(metadata);
-      if (recovered.isErr) return Err(recovered.unwrapErr());
+      final verified = await _verifyMetadata(metadata);
+      if (verified.isErr) {
+        await _metadataStore.delete(metadata.groupId);
+        continue;
+      }
+      final valid = verified.unwrap();
+      if (valid.isReady) continue;
+      final recovered = await _recoverPending(valid);
+      if (recovered.isErr) {
+        firstError ??= recovered.unwrapErr();
+      }
     }
-    return const Ok(null);
+    final error = firstError;
+    return error == null ? const Ok(null) : Err(error);
   }
 
   /// Загружает активную группу, очищая ссылку на удалённые метаданные.
@@ -274,8 +370,7 @@ class GroupLifecycle {
   }
 
   Future<Result<GroupId?, GroupLifecycleError>> _loadActiveGroup() async {
-    final recovered = await _recoverPendingGroups();
-    if (recovered.isErr) return Err(recovered.unwrapErr());
+    await _recoverPendingGroups();
 
     final active = await _metadataStore.loadActiveGroup();
     if (active.isErr) {
@@ -284,9 +379,18 @@ class GroupLifecycle {
     final groupId = active.unwrap();
     if (groupId == null) return const Ok(null);
 
-    final metadata = await _metadataStore.load(groupId);
+    final metadata = await _loadVerifiedMetadata(groupId);
     if (metadata.isErr) {
-      return Err(GroupMetadataUnavailable(metadata.unwrapErr()));
+      final error = metadata.unwrapErr();
+      if (error is CorruptedGroupMetadata) {
+        await _metadataStore.delete(groupId);
+        final cleared = await _metadataStore.saveActiveGroup(null);
+        if (cleared.isErr) {
+          return Err(GroupMetadataUnavailable(cleared.unwrapErr()));
+        }
+        return const Ok(null);
+      }
+      return Err(GroupMetadataUnavailable(error));
     }
     if (metadata.unwrap() == null) {
       final cleared = await _metadataStore.saveActiveGroup(null);
@@ -302,7 +406,7 @@ class GroupLifecycle {
   Future<Result<void, GroupLifecycleError>> setActiveGroup(GroupId? groupId) {
     return _serialized(() async {
       if (groupId != null) {
-        final metadata = await _metadataStore.load(groupId);
+        final metadata = await _loadVerifiedMetadata(groupId);
         if (metadata.isErr) {
           return Err(GroupMetadataUnavailable(metadata.unwrapErr()));
         }
@@ -316,10 +420,33 @@ class GroupLifecycle {
     });
   }
 
+  /// Удаляет метаданные группы и очищает активный выбор.
+  ///
+  /// Нужен для ремонта после отклонённого инвайта или конфликта корня.
+  Future<Result<void, GroupLifecycleError>> deleteGroup(GroupId groupId) {
+    return _serialized(() async {
+      final active = await _metadataStore.loadActiveGroup();
+      if (active.isErr) {
+        return Err(GroupMetadataUnavailable(active.unwrapErr()));
+      }
+      final deleted = await _metadataStore.delete(groupId);
+      if (deleted.isErr) {
+        return Err(GroupMetadataUnavailable(deleted.unwrapErr()));
+      }
+      if (active.unwrap() == groupId) {
+        final cleared = await _metadataStore.saveActiveGroup(null);
+        if (cleared.isErr) {
+          return Err(GroupMetadataUnavailable(cleared.unwrapErr()));
+        }
+      }
+      return const Ok(null);
+    });
+  }
+
   Future<Result<GroupMetadata, GroupLifecycleError>> _loadReadyMetadata(
     GroupId groupId,
   ) async {
-    final loaded = await _metadataStore.load(groupId);
+    final loaded = await _loadVerifiedMetadata(groupId);
     if (loaded.isErr) {
       return Err(GroupMetadataUnavailable(loaded.unwrapErr()));
     }
@@ -328,7 +455,7 @@ class GroupLifecycle {
     if (!metadata.isReady) {
       final recovered = await _recoverPending(metadata);
       if (recovered.isErr) return Err(recovered.unwrapErr());
-      final reloaded = await _metadataStore.load(groupId);
+      final reloaded = await _loadVerifiedMetadata(groupId);
       if (reloaded.isErr) {
         return Err(GroupMetadataUnavailable(reloaded.unwrapErr()));
       }
@@ -380,7 +507,7 @@ class GroupLifecycle {
         GroupRootConflict(metadata.groupId, 'local genesis is invalid'),
       );
     }
-    final saved = await _metadataStore.save(metadata.withGenesis(candidate.id));
+    final saved = await _saveMetadata(metadata.withGenesis(candidate.id));
     if (saved.isErr) {
       return Err(GroupMetadataUnavailable(saved.unwrapErr()));
     }

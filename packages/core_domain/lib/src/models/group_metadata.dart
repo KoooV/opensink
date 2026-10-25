@@ -1,7 +1,13 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:meta/meta.dart';
 
 import '../result.dart';
 import 'identifiers.dart';
+
+/// Домен подписи доверенных метаданных группы.
+const String groupMetadataAuthDomain = 'opensink/group/metadata/v2|';
 
 /// Источник доверия для группы.
 enum GroupOrigin {
@@ -63,6 +69,9 @@ class GroupMetadata {
     required this.origin,
     required this.createdAt,
     this.genesisEventId,
+    this.inviterId,
+    this.signerId,
+    this.signature,
   });
 
   final GroupId groupId;
@@ -70,7 +79,18 @@ class GroupMetadata {
   final GroupOrigin origin;
   final int createdAt;
 
+  /// Кто выдал инвайт; заполняется для `invited`-групп.
+  final UserId? inviterId;
+
+  /// Локальный ключ, которым подписаны метаданные.
+  final UserId? signerId;
+
+  /// Ed25519-подпись канонического представления метаданных.
+  final String? signature;
+
   bool get isReady => genesisEventId != null;
+
+  bool get isAuthenticated => signerId != null && signature != null;
 
   GroupMetadata withGenesis(EventId genesis) {
     return GroupMetadata(
@@ -78,15 +98,53 @@ class GroupMetadata {
       genesisEventId: genesis,
       origin: origin,
       createdAt: createdAt,
+      inviterId: inviterId,
+      signerId: signerId,
+      signature: signature,
     );
   }
 
+  GroupMetadata withAuth({
+    required UserId signerId,
+    required String signature,
+  }) {
+    return GroupMetadata(
+      groupId: groupId,
+      genesisEventId: genesisEventId,
+      origin: origin,
+      createdAt: createdAt,
+      inviterId: inviterId,
+      signerId: signerId,
+      signature: signature,
+    );
+  }
+
+  /// Канонические байты для Ed25519-подписи.
+  Uint8List signingBytes(UserId signerId) {
+    final buffer = StringBuffer(groupMetadataAuthDomain)
+      ..write(groupId.value)
+      ..write('|')
+      ..write(genesisEventId?.value ?? '')
+      ..write('|')
+      ..write(origin.value)
+      ..write('|')
+      ..write(createdAt)
+      ..write('|')
+      ..write(inviterId?.value ?? '')
+      ..write('|')
+      ..write(signerId.value);
+    return Uint8List.fromList(utf8.encode(buffer.toString()));
+  }
+
   Map<String, Object?> toJson() => {
-    'version': 1,
+    'version': 2,
     'group_id': groupId.value,
     if (genesisEventId != null) 'genesis_event_id': genesisEventId!.value,
     'origin': origin.value,
     'created_at': createdAt,
+    if (inviterId != null) 'inviter_id': inviterId!.value,
+    if (signerId != null) 'signer_id': signerId!.value,
+    if (signature != null) 'signature': signature,
   };
 
   static Result<GroupMetadata, GroupMetadataError> fromJson(Object? json) {
@@ -94,7 +152,7 @@ class GroupMetadata {
       return const Err(CorruptedGroupMetadata('metadata is not an object'));
     }
     final version = json['version'];
-    if (version != 1) {
+    if (version != 1 && version != 2) {
       return const Err(CorruptedGroupMetadata('unsupported version'));
     }
     final groupId = json['group_id'];
@@ -120,12 +178,30 @@ class GroupMetadata {
     if (origin == GroupOrigin.invited && genesis == null) {
       return const Err(CorruptedGroupMetadata('invited group without genesis'));
     }
+    final inviter = json['inviter_id'];
+    if (inviter != null && (inviter is! String || inviter.isEmpty)) {
+      return const Err(CorruptedGroupMetadata('invalid inviter_id'));
+    }
+    final signer = json['signer_id'];
+    if (signer != null && (signer is! String || signer.isEmpty)) {
+      return const Err(CorruptedGroupMetadata('invalid signer_id'));
+    }
+    final signature = json['signature'];
+    if (signature != null && (signature is! String || signature.isEmpty)) {
+      return const Err(CorruptedGroupMetadata('invalid signature'));
+    }
+    if ((signer == null) != (signature == null)) {
+      return const Err(CorruptedGroupMetadata('incomplete metadata auth'));
+    }
     return Ok(
       GroupMetadata(
         groupId: GroupId(groupId),
         genesisEventId: genesis == null ? null : EventId(genesis as String),
         origin: origin,
         createdAt: createdAt,
+        inviterId: inviter == null ? null : UserId(inviter as String),
+        signerId: signer == null ? null : UserId(signer as String),
+        signature: signature as String?,
       ),
     );
   }
@@ -138,10 +214,21 @@ class GroupMetadata {
           groupId == other.groupId &&
           genesisEventId == other.genesisEventId &&
           origin == other.origin &&
-          createdAt == other.createdAt;
+          createdAt == other.createdAt &&
+          inviterId == other.inviterId &&
+          signerId == other.signerId &&
+          signature == other.signature;
 
   @override
-  int get hashCode => Object.hash(groupId, genesisEventId, origin, createdAt);
+  int get hashCode => Object.hash(
+    groupId,
+    genesisEventId,
+    origin,
+    createdAt,
+    inviterId,
+    signerId,
+    signature,
+  );
 
   @override
   String toString() =>

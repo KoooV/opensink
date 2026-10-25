@@ -50,8 +50,10 @@ class DriftGroupMetadataStore implements GroupMetadataStore {
       final result = <GroupMetadata>[];
       for (final row in rows) {
         final decoded = _decode(row['value']);
-        if (decoded.isErr) return Err(decoded.unwrapErr());
-        result.add(decoded.unwrap());
+        if (decoded.isErr) continue;
+        final metadata = decoded.unwrap();
+        if (metadata.groupId.value != row['group_id']) continue;
+        result.add(metadata);
       }
       result.sort((a, b) => a.groupId.value.compareTo(b.groupId.value));
       return Ok(result);

@@ -108,6 +108,16 @@ class ForeignGroupRoot extends SyncError {
   String toString() => 'ForeignGroupRoot(expected=$expected, claimed=$claimed)';
 }
 
+/// Незакреплённая группа превысила лимит событий и ждёт `pinGroupRoot`.
+class UnpinnedGroupQuarantine extends SyncError {
+  const UnpinnedGroupQuarantine(this.groupId, this.limit);
+  final String groupId;
+  final int limit;
+
+  @override
+  String toString() => 'UnpinnedGroupQuarantine(group=$groupId, limit=$limit)';
+}
+
 class StorageWriteFailure extends SyncError {
   const StorageWriteFailure(this.reason);
   final String reason;

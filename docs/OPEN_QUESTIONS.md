@@ -198,6 +198,8 @@ Vault) и политику ротации при удалении участни
   `GroupInviteProofVerifier` в `apps/app` (SIG-OPEN-01 не переиспользует
   payload-ключ группы).
 - `GroupSecret` = членство; отдельный invite-путь отложен (SIG-OPEN-01).
+- Метаданные групп v1 без Ed25519-подписи считаются недоверенными: recovery
+  удаляет их, группа открывается заново через create/join (G-15).
 - Публичные реле/трекеры остаются дефолтом с `TODO(verify)` (SIG-OPEN-02).
 - `neighbors` в hello — caller-supplied; signaling не ведёт топологию.
 - WebTorrent payload остаётся `opensink:1:base64url` в `sdp` (SIG-OPEN-04).
