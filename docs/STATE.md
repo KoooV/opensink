@@ -19,8 +19,9 @@
 - apps/app/core_group: OS-уведомления Android/Linux/Web с in-app fallback; sender-key пакет подписан Ed25519 (groupId/epoch/sender/recipient/keyPackage), `E2eSenderKeyDelivery`+`SenderKeyChannel`, подпись в SecureKeyStore, `signer` опционален (fail-closed); production E2E-канал fail-closed.
 - apps/app: foreground-политика OS/in-app (foreground → in-app, background → OS с fallback), lifecycle-трекер в DI, replay активных в `NotificationHost`; 57 тестов app зелёные.
 - apps/app: production `ChatService`+`ChatNotificationBridge` (каналы группы и `general`, DND, read-cancel), binding активной группы и экран канала; 66 тестов app.
+- core_crypto/core_signaling/core_sync/core_storage: `E2eSessionManager` (X3DH+DR, binding по Ed25519), X3DH-бандл в hello v3, ingress-лимит по автору, per-group квоты `blob_transfers` (schema v9); тесты 4+2+3+2.
 ## Дальше
-- `core_group`: design+feature E2E-канала (X3DH/DoubleRatchet, bundle в signaling presence).
-- `core_sync`: ingress rate limit по автору + квота блобов на группу; компакция read markers/reactions; `core_storage`: квота `blob_transfers` по группе.
+- `core_group/app`: production E2E wiring (identity-bound bundle, сессии и `SenderKeyChannel`), `groupId` в download/seed.
+- `core_sync`: компакция read markers/reactions; замер и настройка порогов ingress-лимита и квот.
 ## Открытые вопросы
 - Legacy GroupState; trusted time (Q36); аутентификация снапшота и fingerprints; ротация GroupSecret при удалении; Q39 (ротация); sender-key G-25…G-35.

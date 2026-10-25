@@ -1,6 +1,6 @@
 library;
 
-/// SQL schema for OpenSink event store (current schema version 8).
+/// SQL schema for OpenSink event store (current schema version 9).
 ///
 /// All tables are created during database initialization. Migrations are
 /// handled alongside schema creation.
@@ -37,7 +37,7 @@ const String colValue = 'value';
 // -------------------------------------------------------------------------
 // Schema version
 // -------------------------------------------------------------------------
-const int schemaVersion = 8;
+const int schemaVersion = 9;
 
 // -------------------------------------------------------------------------
 // Migration DDL (applied in order, from current user_version to schemaVersion)
@@ -179,6 +179,8 @@ final Map<int, List<String>> migrations = {
   7: [migrateV6ToV7PendingEvents, migrateV6ToV7PendingEventsIndex],
   // v8: персистентные чанки файловых передач.
   8: [migrateV7ToV8BlobTransfers],
+  // v9: атрибуция блобов группе для групповых квот.
+  9: [migrateV8ToV9BlobGroup, migrateV8ToV9BlobGroupIndex],
 };
 
 // -------------------------------------------------------------------------
@@ -282,11 +284,31 @@ CREATE TABLE IF NOT EXISTS blob_transfers (
   chunk_index INTEGER NOT NULL,
   bytes BLOB NOT NULL,
   received_at INTEGER NOT NULL,
+  group_id TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (file_id, chunk_index)
 )
 ''';
 
-const String migrateV7ToV8BlobTransfers = createBlobTransfers;
+const String migrateV7ToV8BlobTransfers = '''
+CREATE TABLE IF NOT EXISTS blob_transfers (
+  file_id TEXT NOT NULL,
+  chunk_index INTEGER NOT NULL,
+  bytes BLOB NOT NULL,
+  received_at INTEGER NOT NULL,
+  PRIMARY KEY (file_id, chunk_index)
+)
+''';
+
+const String createBlobTransfersGroupIndex = '''
+CREATE INDEX IF NOT EXISTS idx_blob_transfers_group
+ON blob_transfers(group_id)
+''';
+
+const String migrateV8ToV9BlobGroup = '''
+ALTER TABLE blob_transfers ADD COLUMN group_id TEXT NOT NULL DEFAULT ''
+''';
+
+const String migrateV8ToV9BlobGroupIndex = createBlobTransfersGroupIndex;
 
 const String createSchemaInfo = '''
 CREATE TABLE IF NOT EXISTS schema_info (
@@ -331,6 +353,7 @@ List<String> get allDdl => [
   createSyncState,
   createPendingEvents,
   createBlobTransfers,
+  createBlobTransfersGroupIndex,
   createSchemaInfo,
   createGroupSettings,
   ...indexes,

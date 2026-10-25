@@ -33,6 +33,8 @@ class SyncEngineImpl implements SyncEngine {
     this.maxPendingEvents = 2048,
     this.maxUnpinnedGroupEvents = 512,
     this.maxOutboundQueue = 2048,
+    this.maxEventsPerAuthorPerWindow = 240,
+    this.authorRateWindow = const Duration(seconds: 10),
     Duration? antiEntropyInterval,
   }) : _nowMs = nowMs ?? (() => DateTime.now().millisecondsSinceEpoch),
        _clock = clock ?? HlcClock(nowMs: nowMs) {
@@ -42,6 +44,8 @@ class SyncEngineImpl implements SyncEngine {
       membershipCheck: _membershipStatus,
       rootCheck: _checkRoot,
       nowMs: _nowMs,
+      maxEventsPerAuthorPerWindow: maxEventsPerAuthorPerWindow,
+      authorRateWindow: authorRateWindow,
     );
     if (antiEntropyInterval != null) {
       _antiEntropyTimer = Timer.periodic(
@@ -61,6 +65,8 @@ class SyncEngineImpl implements SyncEngine {
   final int maxPendingEvents;
   final int maxUnpinnedGroupEvents;
   final int maxOutboundQueue;
+  final int maxEventsPerAuthorPerWindow;
+  final Duration authorRateWindow;
 
   final int Function() _nowMs;
   final HlcClock _clock;
@@ -530,7 +536,7 @@ class SyncEngineImpl implements SyncEngine {
             continue;
           }
           if (status != MembershipStatus.member) continue;
-          final result = await _pipeline.ingest(event);
+          final result = await _pipeline.ingest(event, enforceRate: false);
           if (result.isErr) continue;
           switch (result.unwrap().outcome) {
             case IngestOutcome.inserted:

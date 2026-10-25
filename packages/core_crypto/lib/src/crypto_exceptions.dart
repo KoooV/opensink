@@ -29,3 +29,11 @@ class EncryptionFailed extends CryptoError {
 }
 
 typedef CryptoResult<T> = Result<T, CryptoError>;
+
+/// Личная E2E-сессия с указанным пиром не установлена.
+///
+/// Используется менеджером E2E-сессий для fail-closed поведения: без сессии
+/// сообщение не шифруется и не отправляется.
+class SessionUnavailable extends CryptoError {
+  const SessionUnavailable();
+}

@@ -40,6 +40,9 @@ class SyncIngestPipeline {
     this.maxEventBytes = maxSyncEventBytes,
     int Function()? nowMs,
     this.maxFutureSkewMs = HlcValidator.maxClockSkewMs,
+    this.maxEventsPerAuthorPerWindow = 240,
+    this.authorRateWindow = const Duration(seconds: 10),
+    this.maxAuthorWindows = 4096,
   }) : _nowMs = nowMs ?? (() => DateTime.now().millisecondsSinceEpoch);
 
   final SyncEventStore store;
@@ -48,9 +51,16 @@ class SyncIngestPipeline {
   final SyncRootCheck? rootCheck;
   final int maxEventBytes;
   final int maxFutureSkewMs;
+  final int maxEventsPerAuthorPerWindow;
+  final Duration authorRateWindow;
+  final int maxAuthorWindows;
   final int Function() _nowMs;
+  final Map<String, _AuthorWindow> _authorWindows = {};
 
-  Future<Result<IngestResult, SyncError>> ingest(SyncEvent event) async {
+  Future<Result<IngestResult, SyncError>> ingest(
+    SyncEvent event, {
+    bool enforceRate = true,
+  }) async {
     if (event.payload.length > maxEventBytes) {
       return Err(EventTooLarge(event.payload.length, maxEventBytes));
     }
@@ -86,6 +96,18 @@ class SyncIngestPipeline {
 
     final rootError = rootCheck?.call(event);
     if (rootError != null) return Err(rootError);
+
+    if (enforceRate &&
+        maxEventsPerAuthorPerWindow > 0 &&
+        !_allowAuthor(event.authorId.value, now)) {
+      return Err(
+        AuthorRateLimited(
+          event.authorId.value,
+          maxEventsPerAuthorPerWindow,
+          authorRateWindow.inMilliseconds,
+        ),
+      );
+    }
 
     switch (membershipCheck(event)) {
       case MembershipStatus.unknown:
@@ -125,6 +147,26 @@ class SyncIngestPipeline {
     }
     return const Ok(IngestResult(IngestOutcome.inserted));
   }
+
+  bool _allowAuthor(String authorId, int nowMs) {
+    final windowMs = authorRateWindow.inMilliseconds;
+    final current = _authorWindows[authorId];
+    if (current == null || nowMs - current.startMs >= windowMs) {
+      if (current == null && _authorWindows.length >= maxAuthorWindows) {
+        _authorWindows.remove(_authorWindows.keys.first);
+      }
+      _authorWindows[authorId] = _AuthorWindow(nowMs, 1);
+      return true;
+    }
+    if (current.count >= maxEventsPerAuthorPerWindow) {
+      return false;
+    }
+    _authorWindows[authorId] = _AuthorWindow(
+      current.startMs,
+      current.count + 1,
+    );
+    return true;
+  }
 }
 
 /// Проверка, что событие принадлежит заявленному автору и группе.
@@ -132,4 +174,10 @@ class SyncIngestPipeline {
 bool hasValidAuthorKey(SyncEvent event) {
   final bytes = hexDecode(event.authorId.value);
   return bytes != null && bytes.length == 32;
+}
+
+class _AuthorWindow {
+  _AuthorWindow(this.startMs, this.count);
+  final int startMs;
+  final int count;
 }

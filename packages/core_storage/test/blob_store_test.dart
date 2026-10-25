@@ -4,7 +4,7 @@ import 'package:drift/native.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('DriftBlobStore / schema v8', () {
+  group('DriftBlobStore / schema v9', () {
     late AppDatabase db;
     late DriftBlobStore store;
 
@@ -18,8 +18,8 @@ void main() {
       await db.close();
     });
 
-    test('schema v8 объявляет таблицу blob_transfers', () async {
-      expect(schemaVersion, 8);
+    test('schema v9 объявляет таблицу blob_transfers', () async {
+      expect(schemaVersion, 9);
       expect(migrations.containsKey(8), isTrue);
       expect(allDdl.any((ddl) => ddl.contains('blob_transfers')), isTrue);
     });
@@ -45,7 +45,7 @@ void main() {
           'SELECT version FROM schema_info WHERE id = 1',
           const [],
         );
-        expect(version.single['version'], 8);
+        expect(version.single['version'], 9);
       } finally {
         await migrated.close();
       }

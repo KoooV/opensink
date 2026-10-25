@@ -894,12 +894,14 @@ class AppDatabase implements QueryExecutorUser {
     required int chunkIndex,
     required List<int> bytes,
     required int receivedAt,
+    String groupId = '',
   }) async {
     await _open(() async {
       await _executor.runInsert(
         'INSERT OR REPLACE INTO blob_transfers '
-        '(file_id, chunk_index, bytes, received_at) VALUES (?, ?, ?, ?)',
-        [fileId, chunkIndex, Uint8List.fromList(bytes), receivedAt],
+        '(file_id, chunk_index, bytes, received_at, group_id) '
+        'VALUES (?, ?, ?, ?, ?)',
+        [fileId, chunkIndex, Uint8List.fromList(bytes), receivedAt, groupId],
       );
     });
   }
@@ -935,6 +937,18 @@ class AppDatabase implements QueryExecutorUser {
       final rows = await _executor.runSelect(
         'SELECT COALESCE(SUM(LENGTH(bytes)), 0) AS total FROM blob_transfers',
         const [],
+      );
+      if (rows.isEmpty) return 0;
+      return int.parse(rows.first['total']!.toString());
+    });
+  }
+
+  Future<int> blobTotalBytesForGroup(String groupId) async {
+    return await _open(() async {
+      final rows = await _executor.runSelect(
+        'SELECT COALESCE(SUM(LENGTH(bytes)), 0) AS total '
+        'FROM blob_transfers WHERE group_id = ?',
+        [groupId],
       );
       if (rows.isEmpty) return 0;
       return int.parse(rows.first['total']!.toString());

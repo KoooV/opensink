@@ -38,6 +38,7 @@ abstract class SignalingSession
       canSfu: value.canSfu,
       capacityBytesPerSecond: value.capacityBytesPerSecond,
       neighbors: List<PeerId>.unmodifiable(value.neighbors),
+      e2eBundle: value.e2eBundle,
     );
   }
 
@@ -214,6 +215,7 @@ abstract class SignalingSession
       canSfu: current.canSfu,
       capacityBytesPerSecond: current.capacityBytesPerSecond,
       neighbors: List<PeerId>.unmodifiable(unique),
+      e2eBundle: current.e2eBundle,
     );
     await _publishHello(force: true);
   }

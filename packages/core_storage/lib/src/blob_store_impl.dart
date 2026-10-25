@@ -14,7 +14,12 @@ class DriftBlobStore implements BlobStore {
   final int Function() _nowMs;
 
   @override
-  Future<void> writeChunk(String fileId, int index, List<int> bytes) {
+  Future<void> writeChunk(
+    String fileId,
+    int index,
+    List<int> bytes, {
+    String? groupId,
+  }) {
     if (fileId.isEmpty || index < 0) {
       throw ArgumentError('invalid blob chunk identity');
     }
@@ -23,6 +28,7 @@ class DriftBlobStore implements BlobStore {
       chunkIndex: index,
       bytes: bytes,
       receivedAt: _nowMs(),
+      groupId: groupId ?? '',
     );
   }
 
@@ -41,6 +47,10 @@ class DriftBlobStore implements BlobStore {
 
   @override
   Future<int> totalBytes() => _db.blobTotalBytes();
+
+  @override
+  Future<int> totalBytesForGroup(String groupId) =>
+      _db.blobTotalBytesForGroup(groupId);
 
   @override
   Future<void> clear(String fileId) {

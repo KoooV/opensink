@@ -69,7 +69,7 @@ void main() {
     });
 
     test('schemaVersion getter returns current version', () async {
-      expect(db.schemaVersion, 8);
+      expect(db.schemaVersion, 9);
     });
 
     test('indexes exist and are used (query plan check)', () async {

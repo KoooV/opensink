@@ -133,3 +133,14 @@ class LocalEventRejected extends SyncError {
   @override
   String toString() => 'LocalEventRejected($cause)';
 }
+
+/// Автор превысил ingress-лимит событий за окно.
+class AuthorRateLimited extends SyncError {
+  const AuthorRateLimited(this.authorId, this.limit, this.windowMs);
+  final String authorId;
+  final int limit;
+  final int windowMs;
+
+  @override
+  String toString() => 'AuthorRateLimited(limit=$limit, windowMs=$windowMs)';
+}

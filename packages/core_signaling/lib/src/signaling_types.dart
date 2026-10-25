@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:meta/meta.dart';
 
@@ -58,6 +59,7 @@ class NodeCapabilities {
     this.canSfu = false,
     this.capacityBytesPerSecond = 0,
     this.neighbors = const <PeerId>[],
+    this.e2eBundle,
   });
 
   final SignalingPlatform platform;
@@ -70,11 +72,15 @@ class NodeCapabilities {
   final int capacityBytesPerSecond;
   final List<PeerId> neighbors;
 
+  /// Публичный X3DH-бандл для установления личной E2E-сессии.
+  final X3DHPublicBundle? e2eBundle;
+
   @override
   String toString() =>
       'NodeCapabilities(platform=$platform, uptime=$uptime, '
       'canRelay=$canRelay, canSfu=$canSfu, '
-      'capacity=$capacityBytesPerSecond, neighbors=${neighbors.length})';
+      'capacity=$capacityBytesPerSecond, neighbors=${neighbors.length}, '
+      'hasE2eBundle=${e2eBundle != null})';
 }
 
 /// Канал, умеющий обновлять список direct-соседей в presence.

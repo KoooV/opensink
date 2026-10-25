@@ -6,10 +6,15 @@ import 'package:crypto/crypto.dart';
 import 'bytes.dart';
 
 class FileTransferServiceImpl implements FileTransferService {
-  FileTransferServiceImpl({required this.store, this.maxStoreBytes});
+  FileTransferServiceImpl({
+    required this.store,
+    this.maxStoreBytes,
+    this.maxGroupStoreBytes,
+  });
 
   final BlobStore store;
   final int? maxStoreBytes;
+  final int? maxGroupStoreBytes;
 
   @override
   Future<Result<FileManifest, FileTransferError>> prepare(
@@ -17,6 +22,7 @@ class FileTransferServiceImpl implements FileTransferService {
     String fileName = 'file',
     String mimeType = 'application/octet-stream',
     int chunkSize = FileLimits.chunkSize,
+    String groupId = '',
   }) async {
     if (bytes.length > FileLimits.maxFileBytes) {
       return Err(FileTooLarge(bytes.length, FileLimits.maxFileBytes));
@@ -44,6 +50,7 @@ class FileTransferServiceImpl implements FileTransferService {
         chunkSize: chunkSize,
         chunkCount: leafHashes.length,
         leafHashes: List<String>.unmodifiable(leafHashes),
+        groupId: groupId,
       ),
     );
   }
@@ -60,7 +67,7 @@ class FileTransferServiceImpl implements FileTransferService {
     }
     final received = await store.receivedChunks(manifest.fileId);
     final missingBytes = _missingBytes(manifest, received);
-    final quota = await _checkQuota(missingBytes);
+    final quota = await _checkQuota(manifest.groupId, missingBytes);
     if (quota != null) return Err(quota);
     for (var index = 0; index < manifest.chunkCount; index++) {
       if (received.contains(index)) continue;
@@ -72,6 +79,7 @@ class FileTransferServiceImpl implements FileTransferService {
         manifest.fileId,
         index,
         bytes.sublist(offset, end),
+        groupId: manifest.groupId,
       );
     }
     return const Ok(null);
@@ -95,7 +103,10 @@ class FileTransferServiceImpl implements FileTransferService {
         if (!received.contains(index)) index,
     ];
     if (missing.isNotEmpty) {
-      final quota = await _checkQuota(_missingBytes(manifest, received));
+      final quota = await _checkQuota(
+        manifest.groupId,
+        _missingBytes(manifest, received),
+      );
       if (quota != null) return Err(quota);
       if (selected.isEmpty) return Err(SourcesExhausted(missing));
     }
@@ -157,7 +168,12 @@ class FileTransferServiceImpl implements FileTransferService {
       if (data.length != expected) continue;
       final hash = sha256.convert(data).toString();
       if (hash != manifest.leafHashes[index]) continue;
-      await store.writeChunk(manifest.fileId, index, data);
+      await store.writeChunk(
+        manifest.fileId,
+        index,
+        data,
+        groupId: manifest.groupId,
+      );
       chunksBySource[source.peerId] = (chunksBySource[source.peerId] ?? 0) + 1;
       return true;
     }
@@ -216,12 +232,20 @@ class FileTransferServiceImpl implements FileTransferService {
     return null;
   }
 
-  Future<QuotaExceeded?> _checkQuota(int requested) async {
+  Future<FileTransferError?> _checkQuota(String groupId, int requested) async {
     final limit = maxStoreBytes;
-    if (limit == null) return null;
-    final used = await store.totalBytes();
-    if (used + requested > limit) {
-      return QuotaExceeded(used, limit, requested);
+    if (limit != null) {
+      final used = await store.totalBytes();
+      if (used + requested > limit) {
+        return QuotaExceeded(used, limit, requested);
+      }
+    }
+    final groupLimit = maxGroupStoreBytes;
+    if (groupId.isNotEmpty && groupLimit != null) {
+      final used = await store.totalBytesForGroup(groupId);
+      if (used + requested > groupLimit) {
+        return GroupQuotaExceeded(groupId, used, groupLimit, requested);
+      }
     }
     return null;
   }

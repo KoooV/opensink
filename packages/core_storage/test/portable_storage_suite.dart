@@ -45,7 +45,7 @@ void runPortableStorageSuite(
     });
 
     test('schema creates all storage tables', () async {
-      expect(db.schemaVersion, 8);
+      expect(db.schemaVersion, 9);
       expect(await db.selectAllGroups(), isEmpty);
       expect(await db.selectMembersForGroup('group'), isEmpty);
       expect(await db.selectChannelsForGroup('group'), isEmpty);
@@ -406,7 +406,7 @@ void runPortableStorageSuite(
       });
     });
 
-    test('v3 to v8 preserves events and installs append-only triggers', () async {
+    test('v3 to v9 preserves events and installs append-only triggers', () async {
       for (final statement in schemaV3Snapshot) {
         await executor.runCustom(statement);
       }
@@ -444,7 +444,7 @@ void runPortableStorageSuite(
           'SELECT version FROM schema_info WHERE id = 1',
           const [],
         );
-        expect(version.single['version'], 8);
+        expect(version.single['version'], 9);
         final columns = await executor.runSelect(
           'PRAGMA table_info(events)',
           const [],

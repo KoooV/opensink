@@ -1,23 +1,28 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
 
 import 'signaling_types.dart';
 
 /// Бинарный формат hello-body.
 ///
-/// v2: version(1) | platform(1) | flags(1) | uptimeSeconds(u32 BE) |
+/// v3: version(1) | platform(1) | flags(1) | uptimeSeconds(u32 BE) |
 ///     capacityBytesPerSecond(u32 BE) | ipv6Len(u8) | ipv6(utf8) |
-///     neighborsCount(u16 BE) | neighbor[32]...
+///     neighborsCount(u16 BE) | neighbor[32]... |
+///     e2eBundleLen(u16 BE) | e2eBundle...
 ///
-/// v1 (legacy) не содержит capacity; при декодировании capacity = 0.
-/// Presence всегда передаётся в подписанном `SecureSignalingCodec` конверте.
+/// v2 не содержит E2E-бандла; v1 не содержит capacity. При декодировании
+/// отсутствующие поля равны 0/null. Presence всегда передаётся в подписанном
+/// `SecureSignalingCodec` конверте.
 class PresenceCodec {
   const PresenceCodec._();
 
-  static const int _version = 2;
+  static const int _version = 3;
+  static const int _capacityVersion = 2;
   static const int _legacyVersion = 1;
+  static const int _maxBundleBytes = 512;
 
   static Uint8List encode(NodeCapabilities capabilities) {
     if (capabilities.capacityBytesPerSecond < 0 ||
@@ -45,6 +50,16 @@ class PresenceCodec {
         'must fit into uint16',
       );
     }
+    final bundle = capabilities.e2eBundle == null
+        ? Uint8List(0)
+        : const X3dhBundleCodec().encode(capabilities.e2eBundle!);
+    if (bundle.length > _maxBundleBytes) {
+      throw ArgumentError.value(
+        bundle.length,
+        'e2eBundle',
+        'must be at most $_maxBundleBytes bytes',
+      );
+    }
 
     final size =
         1 +
@@ -55,7 +70,9 @@ class PresenceCodec {
         1 +
         ipv6.length +
         2 +
-        capabilities.neighbors.length * 32;
+        capabilities.neighbors.length * 32 +
+        2 +
+        bundle.length;
     final out = Uint8List(size);
     final data = ByteData.sublistView(out);
     var offset = 0;
@@ -71,11 +88,7 @@ class PresenceCodec {
     out[offset++] = flags;
     data.setUint32(offset, capabilities.uptime.inSeconds, Endian.big);
     offset += 4;
-    data.setUint32(
-      offset,
-      capabilities.capacityBytesPerSecond,
-      Endian.big,
-    );
+    data.setUint32(offset, capabilities.capacityBytesPerSecond, Endian.big);
     offset += 4;
     out[offset++] = ipv6.length;
     out.setRange(offset, offset + ipv6.length, ipv6);
@@ -93,6 +106,9 @@ class PresenceCodec {
       out.setRange(offset, offset + 32, neighbor.publicKey);
       offset += 32;
     }
+    data.setUint16(offset, bundle.length, Endian.big);
+    offset += 2;
+    out.setRange(offset, offset + bundle.length, bundle);
     return out;
   }
 
@@ -103,10 +119,13 @@ class PresenceCodec {
         return null;
       }
       final version = bytes[0];
-      if (version != _version && version != _legacyVersion) {
+      if (version != _version &&
+          version != _capacityVersion &&
+          version != _legacyVersion) {
         return null;
       }
-      final hasCapacity = version >= _version;
+      final hasCapacity = version >= _capacityVersion;
+      final hasBundle = version >= _version;
       final fixedLength = hasCapacity ? 14 : 10;
       if (bytes.length < fixedLength) {
         return null;
@@ -118,9 +137,7 @@ class PresenceCodec {
       final flags = bytes[offset++];
       final uptimeSeconds = data.getUint32(offset, Endian.big);
       offset += 4;
-      final capacity = hasCapacity
-          ? data.getUint32(offset, Endian.big)
-          : 0;
+      final capacity = hasCapacity ? data.getUint32(offset, Endian.big) : 0;
       if (hasCapacity) {
         offset += 4;
       }
@@ -136,7 +153,11 @@ class PresenceCodec {
       offset += ipv6Length;
       final neighborsCount = data.getUint16(offset, Endian.big);
       offset += 2;
-      if (offset + neighborsCount * 32 != bytes.length) {
+      if (hasBundle) {
+        if (offset + neighborsCount * 32 + 2 > bytes.length) {
+          return null;
+        }
+      } else if (offset + neighborsCount * 32 != bytes.length) {
         return null;
       }
       final neighbors = <PeerId>[];
@@ -146,6 +167,23 @@ class PresenceCodec {
         );
         offset += 32;
       }
+
+      X3DHPublicBundle? e2eBundle;
+      if (hasBundle) {
+        final bundleLength = data.getUint16(offset, Endian.big);
+        offset += 2;
+        if (bundleLength > _maxBundleBytes ||
+            offset + bundleLength != bytes.length) {
+          return null;
+        }
+        if (bundleLength > 0) {
+          e2eBundle = const X3dhBundleCodec().decode(
+            Uint8List.fromList(bytes.sublist(offset, offset + bundleLength)),
+          );
+          if (e2eBundle == null) return null;
+        }
+      }
+
       return NodeCapabilities(
         platform: platform,
         publicIpv6: ipv6,
@@ -154,6 +192,7 @@ class PresenceCodec {
         canSfu: flags & 0x02 != 0,
         capacityBytesPerSecond: capacity,
         neighbors: List<PeerId>.unmodifiable(neighbors),
+        e2eBundle: e2eBundle,
       );
     } catch (_) {
       return null;
