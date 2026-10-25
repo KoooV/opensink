@@ -18,10 +18,12 @@
 
 ## Q2 — Production DI для неподключённых портов
 
-Хранилище, identity и `SyncEngineImpl` подключены к реальным реализациям. Для
-`SignalingChannel`, `PeerLink`, `Transport`, `Relay`, `MediaTopology`, `IGroupState`
-и `ScreenCaptureSource` в `apps/app` пока используются fakes или заглушки. Нужно
-определить composition root и конфигурацию (STUN, реле, трекеры) для каждого слоя.
+Хранилище, identity, `SyncEngineImpl` и `Relay` (через `RelayTransport` +
+`MemberRelay`, с подписью кадров и каналом `relay`) подключены к реальным
+реализациям. Для `SignalingChannel`, `PeerLink`, `Transport`, `MediaTopology`,
+`IGroupState` и `ScreenCaptureSource` в `apps/app` пока используются fakes или
+заглушки. Нужно определить composition root и конфигурацию (STUN, реле,
+трекеры) для каждого слоя.
 
 ## Q7 — Обоснование MAX_SKIP и TTL пропущенных ключей
 
@@ -160,14 +162,6 @@ ingest отсекал бы поздние легитимные события; �
 причинный DAG/квитанции. Решение poll (2026-10-24): оставить принятый риск;
 проверка опирается на `inviteProof` и срок по HLC события.
 
-## Q37 — Подпись presence-анонсов
-
-Решение poll: presence-анонсы (`neighbors`, `can_relay`, capacity) должны быть
-подписаны Ed25519; до реализации топология `core_relay` считается недоверенной.
-Следующий шаг — расширить `PresenceCodec`/`RichSignalingChannel` подписью и
-проверкой в `core_signaling`, затем передавать проверенные анонсы в
-`RelayTopology`.
-
 ## Q39 — Персистентность GroupSecret
 
 Ревью 2026-10-25 (G-06): без сохранённого `GroupSecret` production-DI не может
@@ -212,4 +206,12 @@ Vault) и политику ротации при удалении участни
   `core_relay` видит только заголовок и непрозрачные байты.
 - Дубль при позднем завершении direct-send допустим и поглощается sync-дедупом.
 - ACK от релея не вводится; failover и потеря кадра компенсируются sync.
-- Production-сборка `RelayTransport`, relay-канала и opt-in — в `apps/app` DI.
+- Presence-анонсы (`neighbors`, `canRelay`, `capacityBytesPerSecond`) передаются
+  только в Ed25519-подписанном `SecureSignalingCodec`; `RelayTopology` в DI
+  наполняется из `RichSignalingChannel.presence` после проверки подписи (Q37).
+- Relay-кадры подписаны Ed25519 origin-ключом над `(src,dst,nonce,originTtl,
+  payload)`, идут по отдельному `PeerChannels.relay` и проверяются на каждом
+  хопе; `RelayTransport` подписывается на `relayIncoming`. `MemberRelay`
+  origin-only. Nonce отсекает replay в пределах seen-окна.
+- Production-сборка `RelayTransport` и opt-in — в `apps/app` DI; остальные
+  порты (`SignalingChannel`, `PeerLink`, `Transport`) всё ещё fakes (Q2).

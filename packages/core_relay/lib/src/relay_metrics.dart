@@ -1,7 +1,14 @@
+import 'dart:collection';
+
 import 'package:core_domain/core_domain.dart';
 
 /// Счётчики релейного слоя. Сбрасываются только вместе с транспортом.
 class RelayMetrics {
+  RelayMetrics({this.maxTrackedSources = 256});
+
+  /// Предел числа источников в [forwardedBytesBySource].
+  final int maxTrackedSources;
+
   int directSent = 0;
   int directFailed = 0;
   int relayedSent = 0;
@@ -17,15 +24,26 @@ class RelayMetrics {
   int droppedOversize = 0;
   int droppedMalformed = 0;
   int droppedLoop = 0;
+  int droppedUnauthenticated = 0;
+  int droppedBadSignature = 0;
   int noRoute = 0;
 
-  final Map<PeerId, int> forwardedBytesBySource = <PeerId, int>{};
+  final LinkedHashMap<PeerId, int> forwardedBytesBySource =
+      LinkedHashMap<PeerId, int>();
 
   void recordForward(PeerId source, int bytes) {
     forwarded += 1;
     forwardedBytes += bytes;
+    forwardedBytesBySource.remove(source);
     forwardedBytesBySource[source] =
         (forwardedBytesBySource[source] ?? 0) + bytes;
+    while (maxTrackedSources > 0 &&
+        forwardedBytesBySource.length > maxTrackedSources) {
+      forwardedBytesBySource.remove(forwardedBytesBySource.keys.first);
+    }
+    if (maxTrackedSources <= 0) {
+      forwardedBytesBySource.clear();
+    }
   }
 
   @override
@@ -34,6 +52,8 @@ class RelayMetrics {
       'delivered=$delivered, '
       'duplicate=$droppedDuplicate, ttl=$droppedTtl, disabled=$droppedDisabled, '
       'rate=$droppedRateLimited, oversize=$droppedOversize, '
-      'malformed=$droppedMalformed, loop=$droppedLoop, noRoute=$noRoute, '
+      'malformed=$droppedMalformed, loop=$droppedLoop, '
+      'unauthenticated=$droppedUnauthenticated, '
+      'badSignature=$droppedBadSignature, noRoute=$noRoute, '
       'forwardFailed=$forwardFailed)';
 }

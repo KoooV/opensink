@@ -56,6 +56,7 @@ class NodeCapabilities {
     this.uptime = Duration.zero,
     this.canRelay = false,
     this.canSfu = false,
+    this.capacityBytesPerSecond = 0,
     this.neighbors = const <PeerId>[],
   });
 
@@ -64,12 +65,16 @@ class NodeCapabilities {
   final Duration uptime;
   final bool canRelay;
   final bool canSfu;
+
+  /// Заявленная ёмкость ретрансляции в байтах в секунду.
+  final int capacityBytesPerSecond;
   final List<PeerId> neighbors;
 
   @override
   String toString() =>
       'NodeCapabilities(platform=$platform, uptime=$uptime, '
-      'canRelay=$canRelay, canSfu=$canSfu, neighbors=${neighbors.length})';
+      'canRelay=$canRelay, canSfu=$canSfu, '
+      'capacity=$capacityBytesPerSecond, neighbors=${neighbors.length})';
 }
 
 /// Presence-анонс удалённого узла.

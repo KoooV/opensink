@@ -16,6 +16,8 @@ dependencies:
     path: ../../packages/core_crypto
   core_group:
     path: ../../packages/core_group
+  core_relay:
+    path: ../../packages/core_relay
   core_signaling:
     path: ../../packages/core_signaling
   core_peer:

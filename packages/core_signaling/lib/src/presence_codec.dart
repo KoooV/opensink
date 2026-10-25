@@ -7,14 +7,27 @@ import 'signaling_types.dart';
 
 /// Бинарный формат hello-body.
 ///
-/// version(1) | platform(1) | flags(1) | uptimeSeconds(u32 BE) |
-/// ipv6Len(u8) | ipv6(utf8) | neighborsCount(u16 BE) | neighbor[32]...
+/// v2: version(1) | platform(1) | flags(1) | uptimeSeconds(u32 BE) |
+///     capacityBytesPerSecond(u32 BE) | ipv6Len(u8) | ipv6(utf8) |
+///     neighborsCount(u16 BE) | neighbor[32]...
+///
+/// v1 (legacy) не содержит capacity; при декодировании capacity = 0.
+/// Presence всегда передаётся в подписанном `SecureSignalingCodec` конверте.
 class PresenceCodec {
   const PresenceCodec._();
 
-  static const int _version = 1;
+  static const int _version = 2;
+  static const int _legacyVersion = 1;
 
   static Uint8List encode(NodeCapabilities capabilities) {
+    if (capabilities.capacityBytesPerSecond < 0 ||
+        capabilities.capacityBytesPerSecond > 0xFFFFFFFF) {
+      throw ArgumentError.value(
+        capabilities.capacityBytesPerSecond,
+        'capacityBytesPerSecond',
+        'must fit into uint32',
+      );
+    }
     final ipv6 = capabilities.publicIpv6 == null
         ? const <int>[]
         : utf8.encode(capabilities.publicIpv6!);
@@ -38,6 +51,7 @@ class PresenceCodec {
         1 +
         1 +
         4 +
+        4 +
         1 +
         ipv6.length +
         2 +
@@ -56,6 +70,12 @@ class PresenceCodec {
     }
     out[offset++] = flags;
     data.setUint32(offset, capabilities.uptime.inSeconds, Endian.big);
+    offset += 4;
+    data.setUint32(
+      offset,
+      capabilities.capacityBytesPerSecond,
+      Endian.big,
+    );
     offset += 4;
     out[offset++] = ipv6.length;
     out.setRange(offset, offset + ipv6.length, ipv6);
@@ -79,18 +99,31 @@ class PresenceCodec {
   /// Возвращает `null` на любой некорректный вход, не бросает.
   static NodeCapabilities? decode(Uint8List bytes) {
     try {
-      if (bytes.length < 10) {
+      if (bytes.isEmpty) {
+        return null;
+      }
+      final version = bytes[0];
+      if (version != _version && version != _legacyVersion) {
+        return null;
+      }
+      final hasCapacity = version >= _version;
+      final fixedLength = hasCapacity ? 14 : 10;
+      if (bytes.length < fixedLength) {
         return null;
       }
       final data = ByteData.sublistView(bytes);
       var offset = 0;
-      if (bytes[offset++] != _version) {
-        return null;
-      }
+      offset++; // version
       final platform = SignalingPlatform.fromWire(bytes[offset++]);
       final flags = bytes[offset++];
       final uptimeSeconds = data.getUint32(offset, Endian.big);
       offset += 4;
+      final capacity = hasCapacity
+          ? data.getUint32(offset, Endian.big)
+          : 0;
+      if (hasCapacity) {
+        offset += 4;
+      }
       final ipv6Length = bytes[offset++];
       if (offset + ipv6Length + 2 > bytes.length) {
         return null;
@@ -119,6 +152,7 @@ class PresenceCodec {
         uptime: Duration(seconds: uptimeSeconds),
         canRelay: flags & 0x01 != 0,
         canSfu: flags & 0x02 != 0,
+        capacityBytesPerSecond: capacity,
         neighbors: List<PeerId>.unmodifiable(neighbors),
       );
     } catch (_) {

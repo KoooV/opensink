@@ -1413,14 +1413,23 @@ class RelayFrame {
     required this.ttl,
     required this.hopCount,
     required this.payload,
+    Uint8List? nonce,
+    Uint8List? signature,
     this._unknownFields = const <int, Uint8List>{},
-  });
+  }) : nonce = nonce ?? Uint8List(0),
+       signature = signature ?? Uint8List(0);
 
   final Uint8List dst; // открытый ключ Ed25519 получателя
-  final Uint8List src; // открытый ключ Ed25519 отправителя
+  final Uint8List src; // открытый ключ Ed25519 отправителя (origin)
   final int ttl; // время жизни в хопах
   final int hopCount; // пройдено хопов
   final Uint8List payload; // e2e зашифрованный payload
+
+  /// Уникальный nonce origin для защиты от replay и коллизий одинаковых payload.
+  final Uint8List nonce;
+
+  /// Ed25519-подпись origin над неизменяемыми полями кадра.
+  final Uint8List signature;
   final Map<int, Uint8List> _unknownFields;
 
   void writeTo(ProtoWriter writer) {
@@ -1430,6 +1439,12 @@ class RelayFrame {
     writer.writeVarintField(4, hopCount);
     if (payload.isNotEmpty) {
       writer.writeBytesField(5, payload);
+    }
+    if (signature.isNotEmpty) {
+      writer.writeBytesField(6, signature);
+    }
+    if (nonce.isNotEmpty) {
+      writer.writeBytesField(7, nonce);
     }
     writer.writeUnknownFields(_unknownFields);
   }
@@ -1450,6 +1465,8 @@ class RelayFrame {
     int ttl = 0;
     int hopCount = 0;
     final payload = <int>[];
+    final signature = <int>[];
+    final nonce = <int>[];
     final unknown = <int, Uint8List>{};
 
     while (true) {
@@ -1473,6 +1490,12 @@ class RelayFrame {
         case 5:
           reader.readBytes().forEach(payload.add);
           break;
+        case 6:
+          reader.readBytes().forEach(signature.add);
+          break;
+        case 7:
+          reader.readBytes().forEach(nonce.add);
+          break;
         default:
           reader.consumeField(wireType);
           unknown[fieldNumber] = reader.slice(start, reader.position);
@@ -1486,6 +1509,8 @@ class RelayFrame {
       ttl: ttl,
       hopCount: hopCount,
       payload: Uint8List.fromList(payload),
+      nonce: Uint8List.fromList(nonce),
+      signature: Uint8List.fromList(signature),
       unknownFields: unknown,
     );
   }
@@ -1496,6 +1521,8 @@ class RelayFrame {
     int? ttl,
     int? hopCount,
     Uint8List? payload,
+    Uint8List? nonce,
+    Uint8List? signature,
     Map<int, Uint8List>? unknownFields,
   }) {
     return RelayFrame(
@@ -1504,6 +1531,8 @@ class RelayFrame {
       ttl: ttl ?? this.ttl,
       hopCount: hopCount ?? this.hopCount,
       payload: payload ?? this.payload,
+      nonce: nonce ?? this.nonce,
+      signature: signature ?? this.signature,
       unknownFields: unknownFields ?? _unknownFields,
     );
   }
@@ -1526,6 +1555,8 @@ class RelayFrame {
           ttl == other.ttl &&
           hopCount == other.hopCount &&
           _bytesEquals(payload, other.payload) &&
+          _bytesEquals(nonce, other.nonce) &&
+          _bytesEquals(signature, other.signature) &&
           _mapEquals(_unknownFields, other._unknownFields);
 
   @override
@@ -1535,13 +1566,17 @@ class RelayFrame {
     result ^= ttl.hashCode;
     result ^= hopCount.hashCode;
     result ^= _bytesHash(payload);
+    result ^= _bytesHash(nonce);
+    result ^= _bytesHash(signature);
     result ^= _unknownFields.hashCode;
     return result;
   }
 
   @override
   String toString() =>
-      'RelayFrame(dstLen=${dst.length}, srcLen=${src.length}, ttl=$ttl, hopCount=$hopCount)';
+      'RelayFrame(dstLen=${dst.length}, srcLen=${src.length}, ttl=$ttl, '
+      'hopCount=$hopCount, nonceLen=${nonce.length}, '
+      'signatureLen=${signature.length})';
 }
 
 /// Вспомогательные функции сравнения и хэширования без пакета collection.

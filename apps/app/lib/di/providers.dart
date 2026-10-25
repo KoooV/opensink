@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:core_crypto/core_crypto.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:core_group/core_group.dart';
+import 'package:core_relay/core_relay.dart';
+import 'package:core_signaling/core_signaling.dart' show RichSignalingChannel;
 import 'package:core_storage/core_storage.dart';
 import 'package:core_sync/core_sync.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,8 +32,51 @@ final transportProvider = Provider<Transport>((ref) {
   return FakeTransport();
 });
 
-final relayProvider = Provider<Relay>((ref) {
-  return FakeRelay();
+/// Согласие пользователя на ретрансляцию (opt-in). По умолчанию выключено.
+final relayOptInProvider = Provider<bool>((ref) => false);
+
+final relayConfigProvider = Provider<RelayConfig>((ref) {
+  return RelayConfig(relayEnabled: ref.watch(relayOptInProvider));
+});
+
+/// Топология доверяет только presence из подписанного signaling-конверта.
+final relayTopologyProvider = Provider<RelayTopology>((ref) {
+  final topology = RelayTopology();
+  final channel = ref.watch(signalingChannelProvider);
+  if (channel is RichSignalingChannel) {
+    final subscription = channel.presence.listen((presence) {
+      final capabilities = presence.capabilities;
+      topology.applyPresence(
+        presence.peerId,
+        neighbors: capabilities.neighbors,
+        canRelay: capabilities.canRelay,
+        capacityBytesPerSecond: capabilities.capacityBytesPerSecond,
+      );
+    });
+    ref.onDispose(() => unawaited(subscription.cancel()));
+  }
+  return topology;
+});
+
+final relayTransportProvider = FutureProvider<RelayTransport>((ref) async {
+  final identity = await ref.watch(localIdentityProvider.future);
+  final relay = RelayTransport(
+    localPeerId: PeerId(Uint8List.fromList(hexToBytes(identity.userId.value))),
+    direct: ref.watch(transportProvider),
+    topology: ref.watch(relayTopologyProvider),
+    signer: identity.signer,
+    config: ref.watch(relayConfigProvider),
+  );
+  ref.onDispose(() => unawaited(relay.close()));
+  return relay;
+});
+
+final relayProvider = FutureProvider<Relay>((ref) async {
+  final transport = await ref.watch(relayTransportProvider.future);
+  return MemberRelay(
+    transport: transport,
+    topology: ref.watch(relayTopologyProvider),
+  );
 });
 
 final mediaTopologyProvider = Provider<MediaTopology>((ref) {

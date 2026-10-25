@@ -209,6 +209,7 @@ void main() {
       expect(relay.routes(PeerId(Uint8List.fromList([6]))), isFalse);
 
       await relay.forward(RelayFrame(
+        src: PeerId(Uint8List.fromList([7])),
         dst: PeerId(Uint8List.fromList([5])),
         payload: [1, 2, 3],
       ));

@@ -47,7 +47,7 @@ OpenSink — кроссплатформенный P2P-мессенджер (Linu
 | `core_peer` | WebRTC `PeerLink`/`Transport`, perfect negotiation, каналы, статистика | Реализовано |
 | `core_sync` | HLC-лог, anti-entropy, gossip, приоритетная загрузка, tombstones, pending | Реализовано |
 | `core_group` | Роли, права, инвайты, конфликты, чистая проекция группы | Реализовано |
-| `core_relay` | Маршрутизация через участников группы | Реализовано: direct-first fallback, TTL, антипетли и лимиты; ревью: открыты R-01…R-15 |
+| `core_relay` | Маршрутизация через участников группы | Реализовано: direct-first fallback, TTL, антипетли, лимиты, Ed25519-подпись origin с nonce, `PeerChannels.relay`, opt-in default; R-01…R-09 закрыты, открыты R-10…R-15 |
 | `core_media` | Звонки, демонстрация экрана, топологии | Заглушка (`TODO(verify)`) |
 | `platform_android` | SecureKeyStore (Keystore), SQLite-фабрика | Реализовано |
 | `platform_linux` | SecureKeyStore (libsecret), SQLite-фабрика | Реализовано |
@@ -138,13 +138,13 @@ Drift-схема v7. Основные таблицы: `events`, `groups`, `membe
 
 `apps/app` пока содержит минимальный Flutter-шелл. Через Riverpod подключены
 платформенное хранилище, `DriftEventStore`, Ed25519-identity, `CryptoSigner` и
-`SyncEngineImpl`. Остальные порты (`SignalingChannel`, `Transport`, `Relay`,
-`MediaTopology`, `IGroupState`, `ScreenCaptureSource`) остаются fakes или заглушками
-до реализации соответствующих слоёв.
+`SyncEngineImpl` и `Relay`. Остальные порты (`SignalingChannel`, `Transport`,
+`MediaTopology`, `IGroupState`, `ScreenCaptureSource`) остаются fakes или
+заглушками до реализации соответствующих слоёв.
 
 ## 10. Ограничения и открытые риски
 
-- `core_media` не реализован; `core_relay` не подключён в production DI (`Q2`); `core_group` ещё не подключён к `core_sync`.
+- `core_media` не реализован; `core_relay` подключён в DI вместе с подписью и каналом `relay`, остальные сетевые порты — fakes (`Q2`); `core_group` ещё не подключён к `core_sync`.
 - UI не покрывает продуктовые сценарии из `docs/UI_UX.md`.
 - Runtime-версия SQLite в собранных Android/Linux приложениях не подтверждена.
 - Открытые дефекты и остаточные риски: `D-14`, `D-21`, `D-22`, `D-23` в

@@ -9,13 +9,15 @@ class RelayConfig {
   const RelayConfig({
     this.directTimeout = const Duration(seconds: 5),
     this.forwardTimeout = const Duration(seconds: 5),
-    this.maxFrameBytes = 512 * 1024,
+    this.maxFrameBytes = 192 * 1024,
     this.maxHops = 2,
-    this.relayEnabled = true,
+    this.relayEnabled = false,
     this.perSourceBytesPerSecond = 64 * 1024,
-    this.perSourceBurstBytes = 256 * 1024,
+    this.perSourceBurstBytes = 1024 * 1024,
     this.seenTtl = const Duration(minutes: 5),
     this.seenMaxEntries = 4096,
+    this.maxSourceEntries = 256,
+    this.maxTrackedSources = 256,
   });
 
   /// Сколько ждём прямое ICE-соединение до перехода на релей.
@@ -44,6 +46,15 @@ class RelayConfig {
 
   /// Предел числа записей кэша.
   final int seenMaxEntries;
+
+  /// Предел числа token bucket'ов (LRU) по источникам.
+  final int maxSourceEntries;
+
+  /// Предел cardinality метрик по источникам.
+  final int maxTrackedSources;
+
+  /// Максимальный payload, который помещается в RelayFrame целиком.
+  int get maxPayloadBytes => maxFrameBytes > 160 ? maxFrameBytes - 160 : 0;
 }
 
 /// Чистая политика opt-in для UI/настроек.

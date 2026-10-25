@@ -150,13 +150,20 @@ class FakePeerLink implements PeerLink {
 
 class FakeTransport implements Transport {
   final _eventsController = StreamController<PeerLinkEvent>.broadcast();
+  final _relayController = StreamController<RelayDatagram>.broadcast();
   final _sent = <PeerLinkEvent>[];
+  final _relaySent = <PeerLinkEvent>[];
   final _links = <PeerId, FakePeerLink>{};
 
   @override
   Stream<PeerLinkEvent> get events => _eventsController.stream;
 
+  @override
+  Stream<RelayDatagram> get relayIncoming => _relayController.stream;
+
   List<PeerLinkEvent> get sent => List.unmodifiable(_sent);
+
+  List<PeerLinkEvent> get relaySent => List.unmodifiable(_relaySent);
 
   @override
   Future<PeerLink> connect(PeerId peerId) async {
@@ -172,15 +179,29 @@ class FakeTransport implements Transport {
   }
 
   @override
+  Future<void> sendRelay(PeerId dst, List<int> bytes) async {
+    _relaySent.add(PeerLinkEvent('sendRelay', dst));
+  }
+
+  @override
   Future<void> close() async {
     for (final link in _links.values) {
       await link.close();
     }
     _links.clear();
+    await _relayController.close();
     await _eventsController.close();
   }
 
   void emitEvent(PeerLinkEvent event) => _eventsController.add(event);
+
+  void emitRelay(PeerId from, List<int> bytes) => _relayController.add(
+    RelayDatagram(
+      from: from,
+      bytes: bytes,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------

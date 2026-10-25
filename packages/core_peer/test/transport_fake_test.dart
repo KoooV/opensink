@@ -145,6 +145,30 @@ void main() {
       );
     });
 
+    test('relay channel is separate from control', () async {
+      final fixture = _Fixture();
+      addTearDown(fixture.close);
+      await fixture.start();
+
+      await fixture.transportA.connect(fixture.peerB);
+      await waitUntil(
+        () =>
+            fixture.transportB.linkFor(fixture.peerA)?.state ==
+            PeerLinkState.connected,
+        reason: 'passive link connected',
+      );
+
+      final incoming = fixture.transportB.relayIncoming
+          .firstWhere((datagram) => datagram.from == fixture.peerA)
+          .timeout(const Duration(seconds: 2));
+      await fixture.transportA.sendRelay(
+        fixture.peerB,
+        const <int>[7, 7, 7],
+      );
+      final received = await incoming;
+      expect(received.bytes, const <int>[7, 7, 7]);
+    });
+
     test('does not busy-loop when signaling state is not stable', () async {
       final fixture = _Fixture(
         config: _shortTimeoutConfig,

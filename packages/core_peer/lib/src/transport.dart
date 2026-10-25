@@ -44,9 +44,13 @@ class WebRtcTransport implements Transport {
 
   final StreamController<PeerLinkEvent> _events =
       StreamController<PeerLinkEvent>.broadcast();
+  final StreamController<RelayDatagram> _relayIncoming =
+      StreamController<RelayDatagram>.broadcast();
   final Map<PeerId, WebRtcPeerLink> _links = <PeerId, WebRtcPeerLink>{};
   final Map<PeerId, StreamSubscription<PeerLinkState>> _linkStates =
       <PeerId, StreamSubscription<PeerLinkState>>{};
+  final Map<PeerId, StreamSubscription<Incoming>> _linkIncoming =
+      <PeerId, StreamSubscription<Incoming>>{};
   final Set<String> _joinedTopics = <String>{};
   final Set<PeerId> _accepting = <PeerId>{};
 
@@ -76,6 +80,9 @@ class WebRtcTransport implements Transport {
 
   @override
   Stream<PeerLinkEvent> get events => _events.stream;
+
+  @override
+  Stream<RelayDatagram> get relayIncoming => _relayIncoming.stream;
 
   Map<PeerId, PeerLink> get links => Map<PeerId, PeerLink>.unmodifiable(_links);
 
@@ -158,7 +165,14 @@ class WebRtcTransport implements Transport {
   }
 
   @override
-  Future<void> send(PeerId dst, List<int> bytes) async {
+  Future<void> send(PeerId dst, List<int> bytes) =>
+      _sendOn(dst, bytes, PeerChannels.control);
+
+  @override
+  Future<void> sendRelay(PeerId dst, List<int> bytes) =>
+      _sendOn(dst, bytes, PeerChannels.relay);
+
+  Future<void> _sendOn(PeerId dst, List<int> bytes, String channel) async {
     final existing = _links[dst];
     if (existing == null ||
         existing.state == PeerLinkState.closed ||
@@ -174,7 +188,7 @@ class WebRtcTransport implements Transport {
         link.state == PeerLinkState.failed) {
       throw StateError('No link to peer $dst');
     }
-    await link.send(PeerChannels.control, bytes);
+    await link.send(channel, bytes);
   }
 
   /// Уведомляет все активные ссылки о смене сети (ICE restart).
@@ -206,6 +220,10 @@ class WebRtcTransport implements Transport {
     _closed = true;
     _links.clear();
     _linkStates.clear();
+    _linkIncoming.clear();
+    if (!_relayIncoming.isClosed) {
+      await _relayIncoming.close();
+    }
     if (!_events.isClosed) {
       await _events.close();
     }
@@ -231,6 +249,20 @@ class WebRtcTransport implements Transport {
   void _watchLink(WebRtcPeerLink link) {
     final peerId = link.remotePeerId;
     _linkStates[peerId]?.cancel();
+    _linkIncoming[peerId]?.cancel();
+    _linkIncoming[peerId] = link.incoming.listen((incoming) {
+      if (incoming.channel != PeerChannels.relay ||
+          _relayIncoming.isClosed) {
+        return;
+      }
+      _relayIncoming.add(
+        RelayDatagram(
+          from: peerId,
+          bytes: incoming.bytes,
+          timestamp: incoming.timestamp,
+        ),
+      );
+    });
     _linkStates[peerId] = link.stateStream.listen((state) {
       switch (state) {
         case PeerLinkState.connected:
@@ -258,14 +290,18 @@ class WebRtcTransport implements Transport {
 
   Future<void> _forgetLink(PeerId peerId) async {
     final subscription = _linkStates.remove(peerId);
+    final incoming = _linkIncoming.remove(peerId);
     await subscription?.cancel();
+    await incoming?.cancel();
     _links.remove(peerId);
   }
 
   Future<void> _removeLink(PeerId peerId, {bool notifyRemote = true}) async {
     final link = _links.remove(peerId);
     final subscription = _linkStates.remove(peerId);
+    final incoming = _linkIncoming.remove(peerId);
     await subscription?.cancel();
+    await incoming?.cancel();
     if (link == null) {
       return;
     }

@@ -16,4 +16,6 @@ dependencies:
   meta: ^1.15.0
 
 dev_dependencies:
+  core_crypto:
+    path: ../core_crypto
   test: ^1.26.0

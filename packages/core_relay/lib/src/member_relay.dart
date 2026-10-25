@@ -4,6 +4,10 @@ import 'relay_topology.dart';
 import 'relay_transport.dart';
 
 /// Адаптер [RelayTransport] к доменному порту [domain.Relay].
+///
+/// Контракт origin-only: [domain.RelayFrame.src] обязан совпадать с
+/// `localPeerId`. Чужой origin не переподписывается локальным ключом, ошибки
+/// отправки пробрасываются вызывающему.
 class MemberRelay implements domain.Relay {
   MemberRelay({required this.transport, required this.topology});
 
@@ -16,7 +20,10 @@ class MemberRelay implements domain.Relay {
 
   @override
   Future<void> forward(domain.RelayFrame frame) async {
-    await transport.deliver(frame.dst, frame.payload);
+    if (frame.src != transport.localPeerId) {
+      throw StateError('relay frame origin is not local');
+    }
+    await transport.send(frame.dst, frame.payload);
   }
 
   @override
