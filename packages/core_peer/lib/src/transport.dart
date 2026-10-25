@@ -220,6 +220,7 @@ class WebRtcTransport implements Transport {
     for (final peerId in List<PeerId>.of(_links.keys)) {
       await _removeLink(peerId, notifyRemote: true);
     }
+    _publishNeighbors();
     _closed = true;
     _links.clear();
     _linkStates.clear();
@@ -270,16 +271,19 @@ class WebRtcTransport implements Transport {
       switch (state) {
         case PeerLinkState.connected:
           _emit('connected', peerId);
+          _publishNeighbors();
         case PeerLinkState.connecting:
           _emit('connecting', peerId);
         case PeerLinkState.failed:
           _emit('error', peerId, const PeerConnectTimeout());
+          _publishNeighbors();
           // После исчерпания попыток ссылка терминальна: освобождает слот.
           unawaited(_removeLink(peerId).catchError((Object _) {
             // Ссылка уже могла быть удалена.
           }));
         case PeerLinkState.closed:
           _emit('disconnected', peerId);
+          _publishNeighbors();
           if (identical(_links[peerId], link)) {
             unawaited(
               _forgetLink(peerId).catchError((Object _) {
@@ -336,7 +340,29 @@ class WebRtcTransport implements Transport {
     }
     await _removeLink(victim.peerId, notifyRemote: true);
     _emit('evicted', victim.peerId);
+    _publishNeighbors();
     return true;
+  }
+
+  /// Публикует подтверждённые direct-линки в presence-анонс.
+  ///
+  /// Обновляется только у каналов, реализующих [NeighborAnnouncer];
+  /// остальные реализации signaling продолжают работать без топологии.
+  void _publishNeighbors() {
+    final channel = signaling;
+    if (channel is! NeighborAnnouncer) {
+      return;
+    }
+    final announcer = channel as NeighborAnnouncer;
+    final neighbors = <PeerId>{
+      for (final link in _links.values)
+        if (link.state == PeerLinkState.connected) link.remotePeerId,
+    };
+    unawaited(
+      announcer.updateNeighbors(neighbors).catchError((Object _) {
+        // Сбой presence не должен ломать прямой транспорт.
+      }),
+    );
   }
 
   void _onPacket(SignalingPacket packet) {

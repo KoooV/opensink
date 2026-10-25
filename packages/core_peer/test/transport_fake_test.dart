@@ -157,6 +157,39 @@ void main() {
       expect(fixture.transportA.statsFor(peerId(3)), isNull);
     });
 
+    test('presence neighbors следуют за direct-линками', () async {
+      final fixture = _Fixture();
+      addTearDown(fixture.close);
+      await fixture.start();
+
+      await fixture.transportA.connect(fixture.peerB);
+      await waitUntil(
+        () =>
+            fixture.channelA.neighborUpdates.isNotEmpty &&
+            fixture.channelA.neighborUpdates.last.contains(fixture.peerB),
+        reason: 'A must announce its direct link to B',
+      );
+      await waitUntil(
+        () =>
+            fixture.channelB.neighborUpdates.isNotEmpty &&
+            fixture.channelB.neighborUpdates.last.contains(fixture.peerA),
+        reason: 'B must announce its direct link to A',
+      );
+
+      await fixture.transportA.close();
+
+      await waitUntil(
+        () => fixture.channelA.neighborUpdates.last.isEmpty,
+        reason: 'A must clear neighbors on close',
+      );
+      await waitUntil(
+        () =>
+            fixture.channelB.neighborUpdates.isNotEmpty &&
+            fixture.channelB.neighborUpdates.last.isEmpty,
+        reason: 'B must clear neighbors after disconnect',
+      );
+    });
+
     test('relay channel is separate from control', () async {
       final fixture = _Fixture();
       addTearDown(fixture.close);

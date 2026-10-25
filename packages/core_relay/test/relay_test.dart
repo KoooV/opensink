@@ -1227,7 +1227,7 @@ void main() {
       expect((await received).payload, [7, 8, 9]);
       expect(c.direct.sent.single.relay, isTrue);
     });
-    test('R-09: ретрансляция по умолчанию выключена', () async {
+    test('R-09: исходящий relay не требует opt-in', () async {
       const config = RelayConfig(directTimeout: Duration(milliseconds: 5));
       expect(config.relayEnabled, isFalse);
       expect(
@@ -1240,10 +1240,19 @@ void main() {
       final b = SimNode(id: peer(2), topology: topology);
       final c = SimNode(id: peer(3), topology: topology);
       announce(topology, c.id, neighbors: [a.id, b.id]);
+      a.direct.blackhole.add(b.id);
+      a.direct.reachable.add(c.id);
+      c.direct.reachable.add(b.id);
 
+      final received = b.relay.incoming.first.timeout(
+        const Duration(seconds: 1),
+      );
       final result = await a.relay.deliver(b.id, [1]);
-      expect(result, isA<RelaySendFailed>());
-      expect((result as RelaySendFailed).reason, RelayFailureReason.disabled);
+
+      expect(result, isA<RelayedSent>());
+      expect(a.relay.metrics.droppedDisabled, 0);
+      await pump([a, b, c]);
+      expect((await received).payload, [1]);
     });
   });
 
@@ -2105,6 +2114,41 @@ void main() {
         c.direct.emitEvent('disconnected', b.id);
         await Future<void>.delayed(Duration.zero);
         expect(topoC.linked(c.id, b.id), isFalse);
+      },
+    );
+
+    test(
+      'локальный линк источника к релею входит в граф достижимости',
+      () async {
+        final topoA = RelayTopology();
+        final topoB = RelayTopology();
+        final topoC = RelayTopology();
+        final b = SimNode(id: peer(2), topology: topoB);
+        final c = SimNode(
+          id: peer(3),
+          topology: topoC,
+          initialLocalNeighbors: [b.id],
+        );
+        final a = SimNode(
+          id: peer(1),
+          topology: topoA,
+          initialLocalNeighbors: [c.id],
+        );
+
+        // Presence C знает только свой линк до B: линк A–C подтверждён
+        // локально на стороне A и не должен теряться при выборе релея.
+        announce(topoA, c.id, neighbors: [b.id]);
+        a.direct.reachable.add(c.id);
+        c.direct.reachable.add(b.id);
+
+        final received = b.relay.incoming.first.timeout(
+          const Duration(seconds: 1),
+        );
+        final result = await a.relay.deliver(b.id, [4, 5, 6]);
+
+        expect(result, isA<RelayedSent>());
+        await pump([a, b, c]);
+        expect((await received).payload, [4, 5, 6]);
       },
     );
 

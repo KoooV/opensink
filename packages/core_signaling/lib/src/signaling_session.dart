@@ -9,15 +9,17 @@ import 'signaling_types.dart';
 import 'signaling_utils.dart';
 
 /// Общая часть Nostr/Tracker каналов: шифрование, presence, replay, таймеры.
-abstract class SignalingSession implements RichSignalingChannel {
+abstract class SignalingSession
+    implements RichSignalingChannel, NeighborAnnouncer {
   SignalingSession({
     required this.security,
-    required this.capabilities,
+    required NodeCapabilities capabilities,
     this.limits = const SignalingLimits(),
     this.helloInterval = const Duration(seconds: 20),
     this.presenceTtl = const Duration(seconds: 60),
     DateTime Function()? clock,
-  }) : _clock = clock ?? DateTime.now,
+  }) : _capabilities = _normalizeCapabilities(capabilities),
+       _clock = clock ?? DateTime.now,
        codec = SecureSignalingCodec(
          security: security,
          limits: limits,
@@ -25,7 +27,21 @@ abstract class SignalingSession implements RichSignalingChannel {
        );
 
   final SignalingSecurityConfig security;
-  final NodeCapabilities capabilities;
+  NodeCapabilities _capabilities;
+
+  static NodeCapabilities _normalizeCapabilities(NodeCapabilities value) {
+    return NodeCapabilities(
+      platform: value.platform,
+      publicIpv6: value.publicIpv6,
+      uptime: value.uptime,
+      canRelay: value.canRelay,
+      canSfu: value.canSfu,
+      capacityBytesPerSecond: value.capacityBytesPerSecond,
+      neighbors: List<PeerId>.unmodifiable(value.neighbors),
+    );
+  }
+
+  NodeCapabilities get capabilities => _capabilities;
   final SignalingLimits limits;
   final Duration helloInterval;
   final Duration presenceTtl;
@@ -175,6 +191,31 @@ abstract class SignalingSession implements RichSignalingChannel {
       }
     }
     return null;
+  }
+
+  @override
+  Future<void> updateNeighbors(Iterable<PeerId> neighbors) async {
+    if (_closed) {
+      return;
+    }
+    final unique = <PeerId>[];
+    for (final neighbor in neighbors) {
+      if (neighbor == security.peerId || unique.contains(neighbor)) {
+        continue;
+      }
+      unique.add(neighbor);
+    }
+    final current = _capabilities;
+    _capabilities = NodeCapabilities(
+      platform: current.platform,
+      publicIpv6: current.publicIpv6,
+      uptime: current.uptime,
+      canRelay: current.canRelay,
+      canSfu: current.canSfu,
+      capacityBytesPerSecond: current.capacityBytesPerSecond,
+      neighbors: List<PeerId>.unmodifiable(unique),
+    );
+    await _publishHello(force: true);
   }
 
   Future<void> _publishHello({bool force = false}) async {

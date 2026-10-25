@@ -27,7 +27,7 @@
 
 R-01…R-11 закрыты 2026-10-25 (аутентификация первого хопа, LRU-лимиты,
 единый размер, token bucket до парсинга, unknown-поля, seen/in-flight,
-MemberRelay, relay-тег и opt-in default). Дополнительно 2026-10-25:
+MemberRelay, relay-тег и opt-in только для forwarding). Дополнительно 2026-10-25:
 Ed25519-подпись origin, `originTtl = ttl + hopCount`, подписанный nonce(16),
 отдельный `PeerChannels.relay` и `Transport.relayIncoming/sendRelay`;
 `RelayEnvelope` v3. R-10: `accept`/`deliver` перебирают альтернативы, сбой

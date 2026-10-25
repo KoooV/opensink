@@ -10,7 +10,9 @@
 - `RelayTopology` — граф из presence-анонсов (`neighbors`, `canRelay`, ёмкость,
   RTT, нагрузка) плюс локальные линки, подтверждённые `direct.events`
   (`connected`/`disconnected`). Устаревшие анонсы и `canRelay=false` не
-  участвуют в выборе; локальный линк не зависит от presence получателя.
+  участвуют в выборе; при выборе релея достаточно линка с любой стороны
+  (presence или локальный), локальный линк источника не теряется без
+  presence-записи о нём.
 - `RelayTransport` — реализация `Transport` с `deliver()` и `accept()`.
 - `MemberRelay` — адаптер к доменному порту `Relay` (`routes`/`forward`/`capacity`).
 - `RelayOptIn` — чистая политика согласия; на Android мобильный трафик и заряд
@@ -79,8 +81,10 @@
   но не увеличить сумму или `maxHops`.
 - `RelayEnvelope` v3 отделяет relay-кадры и отвергает v1/v2/нетэгированные байты
   (`droppedMalformed`); основной разделитель — отдельный `PeerChannels.relay`.
-- `relayEnabled = false` по умолчанию; включение — только через opt-in
-  (`RelayOptIn` и `relayOptInProvider` в DI).
+- `relayEnabled = false` по умолчанию и управляет только пересылкой чужих
+  кадров (`accept` → `forward`). Исходящая доставка через выбранного релея от
+  opt-in не зависит: отправитель всегда может использовать общий маршрут.
+  Включение пересылки — через `RelayOptIn` и `relayOptInProvider` в DI.
 
 ## Медиа
 
@@ -154,6 +158,13 @@ real-Ed25519 auth.
 | `FakeTransport.statsFor` | Отдаёт `stats` fake-линков, как `WebRtcTransport`. |
 | `transportProvider` | Production: `WebRtcTransport` по группе (тема из `GroupSecret`); `RelayTransport` получает non-closing обёртку, владелец — провайдер транспорта. |
 | Смена `transportProvider` | `relayLinkStatsProvider` использует `watch`: callback и relay пересоздаются вместе с транспортом. |
+
+## Решения poll 2026-10-26 (opt-in и presence)
+
+| Вопрос | Решение |
+|---|---|
+| Opt-in и исходящий relay | Отправка через релей доступна всегда; `relayEnabled` управляет только пересылкой чужих кадров. |
+| `neighbors` в production | `WebRtcTransport` публикует connected/disconnected direct-линки через `NeighborAnnouncer`; DI-инициализация может быть пустой. |
 
 ## Остаточное
 

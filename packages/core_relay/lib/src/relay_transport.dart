@@ -209,10 +209,6 @@ class RelayTransport implements Transport {
       // Прямое соединение не установилось: пробуем релей.
     }
 
-    if (!config.relayEnabled) {
-      metrics.droppedDisabled += 1;
-      return const RelaySendFailed(RelayFailureReason.disabled);
-    }
     if (payload.length > config.maxPayloadBytes) {
       metrics.droppedOversize += 1;
       return const RelaySendFailed(RelayFailureReason.frameTooLarge);

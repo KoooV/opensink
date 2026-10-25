@@ -241,8 +241,8 @@ class RelayTopology {
               peer.canRelay &&
               peer.capacityBytesPerSecond > 0 &&
               peer.isFresh(at, maxAge) &&
-              peer.neighbors.contains(source) &&
-              peer.neighbors.contains(destination),
+              linked(source, peer.peerId) &&
+              linked(peer.peerId, destination),
         )
         .toList(growable: false);
   }

@@ -188,6 +188,27 @@ void main() {
     expect(healthy.closed, isTrue);
   });
 
+  test('передаёт обновление neighbors во все backend-каналы', () async {
+    final first = _ScriptedChannel();
+    final failing = _ScriptedChannel()..failOperations = true;
+    final second = _ScriptedChannel();
+    final pool = SignalingChannelPool(
+      channels: <RichSignalingChannel>[first, failing, second],
+    );
+    final alice = PeerId(Uint8List.fromList(List<int>.filled(32, 1)));
+    final bob = PeerId(Uint8List.fromList(List<int>.filled(32, 2)));
+
+    try {
+      await pool.updateNeighbors(<PeerId>[alice, bob]);
+    } finally {
+      await pool.close();
+    }
+
+    expect(first.neighborUpdates.single, <PeerId>[alice, bob]);
+    expect(second.neighborUpdates.single, <PeerId>[alice, bob]);
+    expect(failing.neighborUpdates, isEmpty);
+  });
+
   test('deduplicates by recipient as well as payload', () async {
     final alice = PeerId(Uint8List.fromList(List<int>.filled(32, 1)));
     final bob = PeerId(Uint8List.fromList(List<int>.filled(32, 2)));
@@ -231,13 +252,14 @@ void main() {
   });
 }
 
-class _ScriptedChannel implements RichSignalingChannel {
+class _ScriptedChannel implements RichSignalingChannel, NeighborAnnouncer {
   final StreamController<SignalingPacket> _packets =
       StreamController<SignalingPacket>.broadcast();
   final StreamController<PeerPresence> _presence =
       StreamController<PeerPresence>.broadcast();
 
   final List<List<int>> published = <List<int>>[];
+  final List<List<PeerId>> neighborUpdates = <List<PeerId>>[];
   bool failOperations = false;
   bool closed = false;
 
@@ -282,6 +304,14 @@ class _ScriptedChannel implements RichSignalingChannel {
       throw StateError('publishTo failed');
     }
     published.add(bytes);
+  }
+
+  @override
+  Future<void> updateNeighbors(Iterable<PeerId> neighbors) async {
+    if (failOperations) {
+      throw StateError('updateNeighbors failed');
+    }
+    neighborUpdates.add(List<PeerId>.unmodifiable(neighbors));
   }
 
   @override

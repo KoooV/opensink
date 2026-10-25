@@ -5,7 +5,9 @@
 Слой реализует `PeerLink` и `Transport` только для прямых соединений. Relay/SFU и
 медиатопологии остаются в `core_relay`/`core_media`. Signaling не дублируется:
 `WebRtcTransport` использует `RichSignalingChannel` слоя 5 (`packets`/`publishTo`)
-и кодирует SDP/ICE в JSON-конверт `PeerSignal` версии 1.
+и кодирует SDP/ICE в JSON-конверт `PeerSignal` версии 1. Если канал реализует
+`NeighborAnnouncer`, транспорт публикует в hello актуальные direct-линки
+(`connected`/`disconnected`), не ведя собственную топологию.
 
 `core_peer` не импортирует `dart:io`, `dart:html`, `package:web`, `dart:js_interop`.
 Платформенные различия WebRTC спрятаны за `RtcPeerFactory`/`RtcPeerConnection`;

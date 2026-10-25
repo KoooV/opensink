@@ -77,6 +77,15 @@ class NodeCapabilities {
       'capacity=$capacityBytesPerSecond, neighbors=${neighbors.length})';
 }
 
+/// Канал, умеющий обновлять список direct-соседей в presence.
+///
+/// Отдельный интерфейс, чтобы не расширять [RichSignalingChannel] и не ломать
+/// существующие реализации, которым топология не нужна.
+abstract interface class NeighborAnnouncer {
+  /// Заменяет `neighbors` в следующем hello-анонсе.
+  Future<void> updateNeighbors(Iterable<PeerId> neighbors);
+}
+
 /// Presence-анонс удалённого узла.
 @immutable
 class PeerPresence {

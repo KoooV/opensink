@@ -96,6 +96,21 @@ void main() {
       expect(await collected, hasLength(1));
     });
 
+    test('обновляет neighbors в presence без пересоздания канала', () async {
+      final updated = bobChannel.presence.firstWhere(
+        (value) =>
+            value.peerId == alice.peerId &&
+            value.capabilities.neighbors.contains(bob.peerId),
+      );
+
+      await aliceChannel.updateNeighbors([bob.peerId, bob.peerId]);
+
+      final seen = await updated.timeout(const Duration(seconds: 5));
+      expect(seen.capabilities.neighbors, [bob.peerId]);
+      expect(seen.capabilities.canRelay, isTrue);
+      expect(aliceChannel.capabilities.neighbors, [bob.peerId]);
+    });
+
     test('uses NIP-01 ephemeral kind and hashed topic filter', () async {
       final expectedTag = crypto.sha256.convert(utf8.encode(topic)).toString();
 

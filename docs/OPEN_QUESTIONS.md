@@ -199,7 +199,8 @@ hex-токен в инвайте), реестр `GroupInviteProofVerifier` за�
 - Метаданные групп v1 без Ed25519-подписи считаются недоверенными: recovery
   удаляет их, группа открывается заново через create/join (G-15).
 - Публичные реле/трекеры остаются дефолтом с `TODO(verify)` (SIG-OPEN-02).
-- `neighbors` в hello — caller-supplied; signaling не ведёт топологию.
+- Начальный `neighbors` в hello задаёт caller; `WebRtcTransport` обновляет его
+  через `NeighborAnnouncer` по direct-линкам. Граф достижимости строит `core_relay`.
 - WebTorrent payload остаётся `opensink:1:base64url` в `sdp` (SIG-OPEN-04).
 - Replay-кэш in-memory, TTL 5 минут (SIG-OPEN-07).
 - Health-score неподключённого реле — `0.0`.
@@ -215,5 +216,5 @@ hex-токен в инвайте), реестр `GroupInviteProofVerifier` за�
   payload)`, идут по отдельному `PeerChannels.relay` и проверяются на каждом
   хопе; `RelayTransport` подписывается на `relayIncoming`. `MemberRelay`
   origin-only. Nonce отсекает replay в пределах seen-окна.
-- Production-сборка `RelayTransport` и opt-in — в `apps/app` DI; `PeerLink`
-  всё ещё не отдельный production-порт (Q2).
+- Production-сборка `RelayTransport` — в `apps/app` DI; opt-in управляет только
+  пересылкой чужих кадров. `PeerLink` всё ещё не отдельный production-порт (Q2).

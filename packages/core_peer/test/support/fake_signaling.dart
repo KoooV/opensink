@@ -34,12 +34,14 @@ class FakeSignalingBus {
   }
 }
 
-class FakeRichSignalingChannel implements RichSignalingChannel {
+class FakeRichSignalingChannel
+    implements RichSignalingChannel, NeighborAnnouncer {
   FakeRichSignalingChannel(this.peerId, this._bus);
 
   final PeerId peerId;
   final FakeSignalingBus _bus;
   final Set<String> joinedTopics = <String>{};
+  final List<List<PeerId>> neighborUpdates = <List<PeerId>>[];
 
   final StreamController<SignalingPacket> _packets =
       StreamController<SignalingPacket>.broadcast();
@@ -93,6 +95,11 @@ class FakeRichSignalingChannel implements RichSignalingChannel {
       timestamp: DateTime.now().millisecondsSinceEpoch,
     );
     await Future<void>.microtask(() => _bus.route(packet));
+  }
+
+  @override
+  Future<void> updateNeighbors(Iterable<PeerId> neighbors) async {
+    neighborUpdates.add(List<PeerId>.unmodifiable(neighbors));
   }
 
   void deliver(SignalingPacket packet) {
