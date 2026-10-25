@@ -259,3 +259,13 @@ approval-заявок и QR инвайта реализован. Режим appr
 - DND хранится в `chatDndProvider`; UI-переключатель отложен.
 - Read marker при открытии канала ставится на последнее известное сообщение.
 - `ChannelScreen` остаётся read-only до подключения E2E-канала.
+
+## Решения poll 2026-10-25 (готовность Layer-10: превью и файлы)
+
+| Вопрос | Решение |
+|---|---|
+| Production `ThumbnailGenerator` | `FlutterThumbnailGenerator` в `apps/app` на `dart:ui.instantiateImageCodec`; `core_domain`/`core_sync` остаются без Flutter; DI подключает генератор в `fileTransferServiceProvider`. |
+| Проверка `preview` | Перед генерацией сверять переданные байты с `leafHashes` и `fileId` (fail-closed); текущей проверки size/MIME недостаточно. |
+| Шифрование файлов и миниатюр | Production-передача блокируется до реализации `file key` в `ChatPayload` и XChaCha20-Poly1305/AAD по DESIGN §10; in-memory тесты остаются plaintext. |
+| Медленные/зависшие источники | В `download` добавить опциональный timeout на запрос к источнику (default 30 с), затем пробовать следующий источник. |
+| Приёмка Layer-10 | In-memory сценарий 3 пиров достаточен для core-слоя; реальный WebRTC-транспорт и квоты проверяются отдельными E2E/CI. |

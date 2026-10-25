@@ -10,11 +10,13 @@ class FileTransferServiceImpl implements FileTransferService {
     required this.store,
     this.maxStoreBytes,
     this.maxGroupStoreBytes,
+    this.thumbnails,
   });
 
   final BlobStore store;
   final int? maxStoreBytes;
   final int? maxGroupStoreBytes;
+  final ThumbnailGenerator? thumbnails;
 
   @override
   Future<Result<FileManifest, FileTransferError>> prepare(
@@ -190,6 +192,32 @@ class FileTransferServiceImpl implements FileTransferService {
       return true;
     }
     return false;
+  }
+
+  @override
+  Future<Result<ImageThumbnail?, FileTransferError>> preview(
+    FileManifest manifest,
+    Uint8List bytes, {
+    int maxEdge = 512,
+    int maxBytes = 256 * 1024,
+  }) async {
+    final invalid = _validate(manifest);
+    if (invalid != null) return Err(invalid);
+    if (bytes.length != manifest.size) {
+      return const Err(InvalidManifest('size mismatch'));
+    }
+    if (!manifest.mimeType.toLowerCase().startsWith('image/')) {
+      return const Ok(null);
+    }
+    final generator = thumbnails;
+    if (generator == null) return const Ok(null);
+    final generated = await generator.generate(
+      bytes,
+      maxEdge: maxEdge,
+      maxBytes: maxBytes,
+    );
+    if (generated.isErr) return Err(ThumbnailFailed(generated.unwrapErr()));
+    return Ok(generated.unwrap());
   }
 
   @override

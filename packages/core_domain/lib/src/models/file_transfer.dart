@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../interfaces/thumbnail_generator.dart';
 import '../result.dart';
 
 class FileManifest {
@@ -108,6 +109,14 @@ class BlobStorageFailure extends FileTransferError {
   String toString() => 'BlobStorageFailure($error)';
 }
 
+class ThumbnailFailed extends FileTransferError {
+  const ThumbnailFailed(this.error);
+  final ThumbnailError error;
+
+  @override
+  String toString() => 'ThumbnailFailed($error)';
+}
+
 abstract class BlobStore {
   Future<void> writeChunk(
     String fileId,
@@ -157,6 +166,14 @@ abstract class FileTransferService {
   });
 
   Future<Result<Uint8List, FileTransferError>> readAll(FileManifest manifest);
+
+  /// Миниатюра для изображения. Для не-изображений и без генератора — `Ok(null)`.
+  Future<Result<ImageThumbnail?, FileTransferError>> preview(
+    FileManifest manifest,
+    Uint8List bytes, {
+    int maxEdge = 512,
+    int maxBytes = 256 * 1024,
+  });
 
   Future<void> close();
 }

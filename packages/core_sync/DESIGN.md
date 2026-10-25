@@ -176,3 +176,7 @@ tombstone-ы после создания сообщений, поэтому по
 | Платформенные реализации и персистентность | Следующий шаг: `BlobStore` (файлы/OPFS/IndexedDB), `NotificationService` для Android/Linux/Web и схема v8 с `blob_transfers`. |
 | Rate limit и квоты | Ingress rate limit по автору с детерминированной маркировкой over-rate плюс квота блобов на группу. |
 | Read markers и реакции | Остаются в append-only логе; компакция и подписанные снапшоты — отдельной задачей. |
+| Production-превью | `FlutterThumbnailGenerator` в `apps/app`; `preview` проверяет хэши чанков до генерации. |
+| Готовность production-файлов | Блокировать передачу до `file key`/AAD по §10; in-memory тесты plaintext. |
+| Таймауты источников | Опциональный timeout в `download` (default 30 с) с переходом к следующему источнику. |
+| Приёмка 3 пиров | In-memory достаточно для core; реальный транспорт и квоты — E2E/CI. |

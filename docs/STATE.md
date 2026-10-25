@@ -22,7 +22,10 @@
 - core_crypto/core_signaling/core_sync/core_storage: `E2eSessionManager` (X3DH+DR, binding по Ed25519), X3DH-бандл в hello v3, ingress-лимит по автору, per-group квоты `blob_transfers` (schema v9); тесты 4+2+3+2.
 - core_group/app: identity-bound X3DH из seed identity, `E2eSenderKeyChannel`+direct/relay адаптер (per-group, per-peer очередь), bundle в presence, app-scope binding, handshake-retry, DI и приём sender keys, явный `groupId` в seed/download; poll: ACK/старые чанки открыты; 73 app тестов.
 - core_crypto/app: персист E2E-сессий (`E2eSessionStore`, StateVault+SecureKeyStore, scope identity, ленивый restore, fail-closed запись, удаление повреждённых, `established` при восстановлении); core_crypto 211, app 73.
+- Layer-10: `FileTransferService.preview` через `ThumbnailGenerator` (не-изображение/нет генератора → null), `ThumbnailFailed`; 3-peer сценарий чат+50 МиБ с превью, обрывом и докачкой, analyze чисто.
+- Layer-10 poll (готовность): Flutter codec в apps/app, проверка хэшей в preview, production-файлы блокированы до file-key/AAD, timeout источников, in-memory приёмка (OPEN_QUESTIONS, DESIGN §10).
 ## Дальше
+- Layer-10: `FlutterThumbnailGenerator`+DI, проверка хэшей в `preview`, timeout источников; затем file-key/AAD для production-файлов.
 - `core_group/app`: ACK доставки sender key и groupId для уже полученных чанков.
 - `core_sync`: компакция read markers/reactions; замер и настройка порогов ingress-лимита и квот.
 ## Открытые вопросы
