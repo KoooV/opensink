@@ -8,6 +8,7 @@ import 'package:collection/collection.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:crypto/crypto.dart';
 
+import 'bytes.dart';
 import 'errors.dart';
 import 'frame.dart';
 import 'hlc.dart';
@@ -390,6 +391,7 @@ class SyncEngineImpl implements SyncEngine {
     ChannelId? channelId,
     String? targetId,
     Uint8List? payload,
+    bool Function(SyncEvent event)? preflight,
   }) async {
     await registerGroup(groupId);
     final hlc = _clock.tick();
@@ -410,6 +412,12 @@ class SyncEngineImpl implements SyncEngine {
     final unsigned = draft.copyWith(id: EventId(id));
     final signature = await signer.sign(unsigned.signedBytes());
     final event = unsigned.copyWith(signature: signature);
+
+    if (preflight != null && !preflight(event)) {
+      return const Err(
+        LocalEventRejected(MalformedEvent('preflight rejected')),
+      );
+    }
 
     final ingested = await _ingest(event);
     if (ingested.isErr) {
@@ -539,6 +547,22 @@ class SyncEngineImpl implements SyncEngine {
     return _membershipEvaluator.evaluate(event, timeline);
   }
 
+  /// Повторно проверяет подпись при восстановлении из локального store:
+  /// подмена БД не должна обходить Ed25519-проверку конвейера приёма.
+  Future<bool> _hasValidSignature(SyncEvent event) async {
+    if (event.signature.isEmpty) return false;
+    if (event.id.value.isEmpty || event.id.value != event.computeId()) {
+      return false;
+    }
+    final authorBytes = hexDecode(event.authorId.value);
+    if (authorBytes == null || authorBytes.length != 32) return false;
+    return signer.verify(
+      event.signedBytes(),
+      event.signature,
+      PeerId(authorBytes),
+    );
+  }
+
   SyncError? _checkRoot(SyncEvent event) {
     if (event.kind != SyncEventKind.groupCreated) return null;
     final trusted = _trustedRoots[event.groupId];
@@ -590,13 +614,17 @@ class SyncEngineImpl implements SyncEngine {
     final loaded = <SyncEvent>[];
     for (final record in records) {
       final decoded = _eventCodec.fromRecord(record);
-      if (decoded.isOk) loaded.add(decoded.unwrap());
+      if (decoded.isErr) continue;
+      final event = decoded.unwrap();
+      if (!await _hasValidSignature(event)) continue;
+      loaded.add(event);
     }
     final pending = await store.pendingEvents(groupId, limit: maxPendingEvents);
     for (final record in pending) {
       final decoded = _eventCodec.fromRecord(record);
       if (decoded.isErr) continue;
       final event = decoded.unwrap();
+      if (!await _hasValidSignature(event)) continue;
       if (_checkRoot(event) != null) continue;
       _pending[record.id] = event;
     }

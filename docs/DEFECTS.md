@@ -45,18 +45,12 @@ Ed25519-подпись origin, `originTtl = ttl + hopCount`, подписанн�
 ## Группы и DI (ревью 2026-10-25)
 
 Повторное ревью 2026-10-25 (reviewer + crypto-review): G-12…G-20.
-G-01/G-02/G-12/G-13/G-14 закрыты, их история — в `git log`. Повторное ревью
+G-01…G-08, G-12…G-14 закрыты, их история — в `git log`. Повторное ревью
 исправлений (reviewer + crypto-review, 2026-10-25): блокеров нет, остаточные
 G-21…G-24.
 
 | id | Место | Риск | Проверка / статус |
 |----|-------|------|-------------------|
-| G-03 | `packages/core_group/lib/src/group_lifecycle.dart:101-183,300-334`; `packages/core_storage/lib/src/group_metadata_store_impl.dart:64-73` | Нет CAS/сериализации: recovery может удалить метаданные, пока параллельный create сохраняет ready-корень; конкурентные join с разными `gen` дают last-write-wins; create не идемпотентен и не досоздаёт `MemberAdded`. | major; insert-if-absent/CAS по `(groupId, genesisEventId)` или lock по groupId, идемпотентное восстановление участников. |
-| G-04 | `packages/core_group/lib/src/group_sync_bridge.dart:104-129`; `packages/core_group/test/group_sync_bridge_test.dart:79` | `publish` пишет, подписывает и gossip-ит событие до `apply`; при `Forbidden`/`InvalidKeyEpoch` оно остаётся в логе и уходит пирам. Тест не покрывает отказ после записи. | major; валидировать через replay/копию контроллера до `createEvent`, добавить негативный кейс. |
-| G-05 | `packages/core_sync/lib/src/sync_engine_impl.dart:526`; `packages/core_group/lib/src/group_sync_bridge.dart:170` | Restore-путь загружает записи из store без повторной проверки Ed25519-подписи; bridge перепроверяет только genesis, остальная история применяется без верификации. | major; проверять подпись при загрузке либо хранить verified-флаг; тест с подменённой записью. |
-| G-06 | `apps/app/lib/di/providers.dart:159` | `GroupLifecycle` в DI создаётся без `InviteProofVerifier`: production-вход по инвайту всегда получает `InvalidInviteProof`. | major; подключить `GroupInviteProofVerifier` от `GroupSecret` либо явно запретить invite-сценарии до появления хранилища. |
-| G-07 | `apps/app/lib/di/providers.dart:211-219,223-228` | `ref.onDispose` регистрируется после `await lifecycle.open`; при dispose во время открытия bridge остаётся подписанным на `engine.changes`. `groupStateProvider` без `autoDispose` держит мост живым навсегда, поэтому `autoDispose` family не срабатывает. | major; cleanup сразу после появления bridge, `autoDispose`/закрытие при смене активной группы. |
-| G-08 | `packages/core_group/lib/src/group_event_codec.dart:295-301` | `userId`/`channelId` берутся из payload или envelope без сверки. `MembershipEvaluator` использует `targetId`, а группа — payload, поэтому расхождение даёт разный состав участников. | major; требовать согласованности payload/envelope и добавить negative-тесты. |
 | G-09 | `packages/core_group/test/support/fake_sync.dart:30`; `packages/core_group/test/group_event_codec_test.dart:134`; `packages/core_group/test/group_sync_bridge_test.dart:200` | Fake-подпись forgeable, `prevId` проверяется только на непустоту, «идемпотентный start» уходит в early return; не покрыты конфликт после start, publish после `_fatalError`, исключение в start, невалидный/двойной pending, очистка активной группы, негативный invite после старта. | minor; Ed25519 signer, точные утверждения и provider-тесты. |
 | G-10 | `packages/core_group/lib/src/group_event_codec.dart:484-486` | Пустой `inviteMode` декодируется как `InviteMode.open`, превращая malformed payload в open-инвайт. | minor; пустое значение — `MalformedGroupEvent`, добавить тест. |
 | G-11 | `packages/core_group/lib/src/group_state.dart:782` | Исключение из `InviteProofVerifier.verify` выходит из `apply` вместо `Err(InvalidInviteProof)`. | minor; try/catch и тест с throw-verifier. |

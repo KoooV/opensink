@@ -270,6 +270,68 @@ class GroupEventCodec {
     return Ok(encoded);
   }
 
+  /// Требует, чтобы семантические поля payload совпадали с индексами
+  /// envelope. Иначе `MembershipEvaluator` и проекция группы видели бы разных
+  /// участников у одного события.
+  GroupSyncError? _checkEnvelopeConsistency(
+    SyncEvent event,
+    proto.GroupEvent payload,
+  ) {
+    GroupSyncError? requiredMatch(
+      String value,
+      String? envelope,
+      String field,
+    ) {
+      if (value.isEmpty) {
+        return MalformedGroupEvent('missing $field in payload');
+      }
+      if (envelope != value) {
+        return MalformedGroupEvent(
+          '$field differs between payload and envelope',
+        );
+      }
+      return null;
+    }
+
+    switch (event.kind) {
+      case SyncEventKind.memberAdded:
+      case SyncEventKind.memberRemoved:
+      case SyncEventKind.roleSet:
+        return requiredMatch(payload.userId, event.targetId, 'user id');
+      case SyncEventKind.memberApproved:
+        final userError = requiredMatch(
+          payload.userId,
+          event.targetId,
+          'user id',
+        );
+        if (userError != null) return userError;
+        if (payload.inviteId.isEmpty) {
+          return const MalformedGroupEvent('missing invite id in payload');
+        }
+        return null;
+      case SyncEventKind.ownerTransferred:
+        return requiredMatch(
+          payload.newOwnerId,
+          event.targetId,
+          'new owner id',
+        );
+      case SyncEventKind.inviteIssued:
+      case SyncEventKind.memberJoined:
+        return requiredMatch(payload.inviteId, event.targetId, 'invite id');
+      case SyncEventKind.channelCreated:
+      case SyncEventKind.channelDeleted:
+        final channelError = requiredMatch(
+          payload.channelId,
+          event.channelId?.value,
+          'channel id',
+        );
+        if (channelError != null) return channelError;
+        return requiredMatch(payload.channelId, event.targetId, 'channel id');
+      default:
+        return null;
+    }
+  }
+
   Result<GroupEvent, GroupSyncError> _toDomain(
     SyncEvent event,
     proto.GroupEvent payload,
@@ -282,6 +344,9 @@ class GroupEventCodec {
     final prevId = payload.domainPrevId.isEmpty
         ? null
         : EventId(payload.domainPrevId);
+
+    final consistency = _checkEnvelopeConsistency(event, payload);
+    if (consistency != null) return Err(consistency);
 
     final role = _parseRole(payload.role);
     if (role.isErr) return Err(role.unwrapErr());

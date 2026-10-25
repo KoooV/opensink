@@ -199,6 +199,9 @@ final groupMetadataStoreProvider = FutureProvider<GroupMetadataStore>((
 });
 
 /// Создание, join и открытие групп по сохранённому корню.
+///
+/// `inviteProofVerifier` не подключён до появления хранилища `GroupSecret`
+/// (Q39): `joinFromInvite` явно возвращает `GroupInviteUnsupported`.
 final groupLifecycleProvider = FutureProvider<GroupLifecycle>((ref) async {
   final engine = await ref.watch(syncEngineProvider.future);
   final metadataStore = await ref.watch(groupMetadataStoreProvider.future);
@@ -231,7 +234,11 @@ class ActiveGroupController extends AsyncNotifier<GroupId?> {
         'Не удалось сохранить активную группу: ${saved.unwrapErr()}',
       );
     }
+    final previous = state.value;
     state = AsyncData(groupId);
+    if (previous != null && previous != groupId) {
+      ref.invalidate(groupSyncBridgeProvider(previous));
+    }
   }
 }
 
@@ -257,21 +264,31 @@ class GroupOpenException implements Exception {
 final groupSyncBridgeProvider = FutureProvider.autoDispose
     .family<GroupSyncBridge, GroupId>((ref, groupId) async {
       final lifecycle = await ref.watch(groupLifecycleProvider.future);
+      GroupSyncBridge? bridge;
+      var disposed = false;
+      ref.onDispose(() {
+        disposed = true;
+        final opened = bridge;
+        if (opened != null) unawaited(opened.close());
+      });
+
       final opened = await lifecycle.open(groupId);
       if (opened.isErr) {
         throw GroupOpenException(opened.unwrapErr());
       }
-      final bridge = opened.unwrap();
-      ref.onDispose(() => unawaited(bridge.close()));
-      return bridge;
+      final value = opened.unwrap();
+      bridge = value;
+      if (disposed) {
+        await value.close();
+        throw StateError('group bridge was disposed during open');
+      }
+      return value;
     });
 
-final groupStateProvider = FutureProvider.family<IGroupState, GroupId>((
-  ref,
-  groupId,
-) async {
-  return ref.watch(groupSyncBridgeProvider(groupId).future);
-});
+final groupStateProvider = FutureProvider.autoDispose
+    .family<IGroupState, GroupId>((ref, groupId) async {
+      return ref.watch(groupSyncBridgeProvider(groupId).future);
+    });
 
 final screenCaptureSourceProvider = Provider<ScreenCaptureSource>((ref) {
   return FakeScreenCaptureSource();

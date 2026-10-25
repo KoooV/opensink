@@ -426,7 +426,7 @@ void main() {
       addTearDown(bridge.close);
 
       final started = await bridge.start();
-      expect(started.unwrapErr(), isA<InvalidGenesis>());
+      expect(started.unwrapErr(), isA<GenesisMissing>());
 
       final result = await bridge.publish(
         GroupRenamed(
@@ -439,8 +439,8 @@ void main() {
       );
 
       expect(result.isErr, isTrue);
-      expect(result.unwrapErr(), isA<InvalidGenesis>());
-      expect(await engine.allEvents(testGroupId), hasLength(1));
+      expect(result.unwrapErr(), isA<GenesisMissing>());
+      expect(await engine.allEvents(testGroupId), isEmpty);
     });
 
     test('genesis с чужим автором отклоняется', () async {
@@ -506,7 +506,7 @@ void main() {
       final started = await bridge.start();
 
       expect(started.isErr, isTrue);
-      expect(started.unwrapErr(), isA<InvalidGenesis>());
+      expect(started.unwrapErr(), isA<GenesisMissing>());
       expect(bridge.state.memberIds, isEmpty);
     });
 

@@ -4,15 +4,18 @@ import 'package:core_sync/core_sync.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_sync.dart';
+import 'support/fixtures.dart';
 
 GroupLifecycle lifecycleFor({
   required SyncEngineImpl engine,
   required GroupMetadataStore metadataStore,
+  InviteProofVerifier? inviteProofVerifier,
 }) {
   return GroupLifecycle(
     syncEngine: engine,
     metadataStore: metadataStore,
     distributor: InMemoryGroupKeyDistributor(),
+    inviteProofVerifier: inviteProofVerifier ?? allowAllProofs,
   );
 }
 

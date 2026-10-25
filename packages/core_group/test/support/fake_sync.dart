@@ -48,6 +48,11 @@ class MemorySyncEventStore implements SyncEventStore {
 
   int get length => _records.length;
 
+  /// Тестовая подмена записи (например, для проверки подписи при restore).
+  void replace(EventRecord record) {
+    _records[record.id] = record;
+  }
+
   @override
   Future<Result<InsertOutcome, EventStoreWriteError>> write(
     EventRecord record,
@@ -124,17 +129,18 @@ class MemorySyncEventStore implements SyncEventStore {
     ChannelId channelId, {
     int limit = 50,
   }) async {
-    final result = _records.values
-        .where(
-          (record) =>
-              record.groupId == groupId && record.channelId == channelId,
-        )
-        .toList()
-      ..sort((a, b) {
-        final byHlc = b.timestamp.compareTo(a.timestamp);
-        if (byHlc != 0) return byHlc;
-        return b.id.compareTo(a.id);
-      });
+    final result =
+        _records.values
+            .where(
+              (record) =>
+                  record.groupId == groupId && record.channelId == channelId,
+            )
+            .toList()
+          ..sort((a, b) {
+            final byHlc = b.timestamp.compareTo(a.timestamp);
+            if (byHlc != 0) return byHlc;
+            return b.id.compareTo(a.id);
+          });
     return result.take(limit).toList();
   }
 
@@ -163,12 +169,11 @@ class MemorySyncEventStore implements SyncEventStore {
   }
 
   List<EventRecord> _sortedAll() {
-    return _records.values.toList()
-      ..sort((a, b) {
-        final byHlc = a.timestamp.compareTo(b.timestamp);
-        if (byHlc != 0) return byHlc;
-        return a.id.compareTo(b.id);
-      });
+    return _records.values.toList()..sort((a, b) {
+      final byHlc = a.timestamp.compareTo(b.timestamp);
+      if (byHlc != 0) return byHlc;
+      return a.id.compareTo(b.id);
+    });
   }
 }
 

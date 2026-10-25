@@ -198,14 +198,30 @@ class GroupSyncBridge implements domain.IGroupState {
     final payload = _codec.encode(draft);
     if (payload.isErr) return domain.Err(payload.unwrapErr());
 
+    GroupSyncError? preflightError;
     final created = await _syncEngine.createEvent(
       groupId: _groupId,
       kind: kind,
       channelId: _codec.channelIdOf(draft),
       targetId: _codec.targetIdOf(draft),
       payload: payload.unwrap(),
+      preflight: (syncEvent) {
+        final decoded = _codec.decode(syncEvent);
+        if (decoded.isErr) {
+          preflightError = decoded.unwrapErr();
+          return false;
+        }
+        final error = _controller.preflight(decoded.unwrap());
+        if (error != null) {
+          preflightError = ControllerFailure(error);
+          return false;
+        }
+        return true;
+      },
     );
     if (created.isErr) {
+      final rejected = preflightError;
+      if (rejected != null) return domain.Err(rejected);
       return domain.Err(SyncEngineFailure(created.unwrapErr()));
     }
     final syncEvent = created.unwrap();
