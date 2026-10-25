@@ -12,9 +12,9 @@
 - apps/app: `SecureGroupSecretStore` + реестр invite-verifier; `transportProvider`/`relay*` по группе строят `WebRtcTransport` (Nostr+Tracker, тема из `GroupSecret`); `WebRtcTransport` публикует direct-соседей через `NeighborAnnouncer`, тесты зелёные.
 - toolchain: melos 8 `run` исполнялся только в корне, а regex терял двойной пробел; `test` переведён на `exec` с `[[:space:]]`, platform_web исключён (web-jobs CI), корневой шаблонный widget_test удалён, apps/app тесты зелёные.
 - apps/app: `GroupInviteService` (InviteIssued→подписанная ссылка, join+MemberJoined, pending без genesis) и UI Home/Group (список, create, join, выдача/копирование инвайта); 27 тестов apps/app зелёные.
+- core_sync/app: `SyncPacketTransport`+`PacketSyncLink`, `RelayPacketTransport`, `SyncLinkConnector` (direct↔relay, seed из топологии), `activeTransportProvider`=RelayTransport; close линка/коннектора не закрывает транспорт; 33 app и 48 core_sync тестов.
 ## Дальше
 - `apps/app`: approval-инвайты и автоматический повтор `MemberJoined` после синхронизации истории; QR/share (SIG-OPEN-06).
 - `core_group`: production GroupKeyDistributor. Follow-up poll 2026-10-25: verified-кэш restore, карантин невалидных записей store.
-- `apps/app`/`core_sync`: подключить `RelayTransport` к sync/active transport — `SyncLink`-адаптер, переключение active transport, владение `close` (решение poll 2026-10-26).
 ## Открытые вопросы
 - Legacy GroupState; trusted time (Q36); аутентификация снапшота и fingerprints как хэш; ротация GroupSecret при удалении; Q39 (invite UX и ротация).

@@ -21,6 +21,7 @@ import '../group/group_invite_proof_verifier.dart';
 import '../group/group_invite_service.dart';
 import '../group/group_secret_store.dart';
 import 'secure_key_store_platform.dart';
+import 'sync_links.dart';
 import 'storage_backend_platform.dart';
 
 /// DI-контейнер приложения.
@@ -183,13 +184,34 @@ final relayProvider = FutureProvider.autoDispose.family<Relay, GroupId>((
 });
 
 /// Транспорт активной группы; `null`, если группа не выбрана.
-final activeTransportProvider = FutureProvider.autoDispose<Transport?>((
+///
+/// Активным считается relay-capable транспорт: sync и прикладные сообщения
+/// получают direct-first fallback без отдельной ветки.
+final activeTransportProvider = FutureProvider.autoDispose<RelayTransport?>((
   ref,
 ) async {
   final groupId = await ref.watch(activeGroupIdProvider.future);
   if (groupId == null) return null;
-  return ref.watch(transportProvider(groupId).future);
+  return ref.watch(relayTransportProvider(groupId).future);
 });
+
+/// Sync-линки активной группы.
+///
+/// Коннектор владеет только адаптерами; `RelayTransport` закрывает
+/// `relayTransportProvider` при собственном dispose.
+final syncLinkConnectorProvider = FutureProvider.autoDispose
+    .family<SyncLinkConnector, GroupId>((ref, groupId) async {
+      final engine = await ref.watch(syncEngineProvider.future);
+      final transport = await ref.watch(relayTransportProvider(groupId).future);
+      final connector = SyncLinkConnector(
+        transport: transport,
+        attach: engine.attach,
+        detach: engine.detach,
+      );
+      await connector.start();
+      ref.onDispose(() => unawaited(connector.close()));
+      return connector;
+    });
 
 SignalingPlatform _signalingPlatform() {
   if (kIsWeb) return SignalingPlatform.web;
