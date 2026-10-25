@@ -129,6 +129,8 @@ class HomeScreen extends ConsumerWidget {
             ? 'Группа добавлена. Вход завершится после загрузки истории.'
             : inviteErrorMessage(outcome.membershipIssue!),
       );
+    } else if (outcome.awaitingApproval) {
+      _showMessage(context, 'Заявка отправлена. Ждёт одобрения админа.');
     }
   }
 

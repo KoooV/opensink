@@ -64,16 +64,38 @@ class InviteMembershipFailed extends GroupInviteFailure {
   String toString() => 'InviteMembershipFailed($error)';
 }
 
+/// Заявка на вход не найдена среди ожидающих одобрения.
+class InviteNotPending extends GroupInviteFailure {
+  const InviteNotPending();
+
+  @override
+  String toString() => 'InviteNotPending';
+}
+
+/// Не удалось опубликовать `MemberApproved`.
+class InviteApproveFailed extends GroupInviteFailure {
+  const InviteApproveFailed(this.error);
+
+  final GroupSyncError error;
+
+  @override
+  String toString() => 'InviteApproveFailed($error)';
+}
+
 /// Результат входа: членство либо запрошено, либо ждёт историю группы.
 class GroupJoinOutcome {
   const GroupJoinOutcome({
     required this.groupId,
     required this.membershipRequested,
+    this.awaitingApproval = false,
     this.membershipIssue,
   });
 
   final GroupId groupId;
   final bool membershipRequested;
+
+  /// `MemberJoined` опубликован, но инвайт требует одобрения админа.
+  final bool awaitingApproval;
   final GroupInviteFailure? membershipIssue;
 
   bool get membershipPending => !membershipRequested;
@@ -112,6 +134,7 @@ class GroupInviteService {
     Duration ttl = const Duration(days: 7),
     int maxUses = 10,
     String relayHint = '',
+    InviteMode mode = InviteMode.open,
   }) async {
     if (ttl <= Duration.zero || maxUses <= 0) {
       return const Err(InviteGroupNotReady());
@@ -139,7 +162,7 @@ class GroupInviteService {
         timestamp: 0,
         prevId: bridge.nextPrevId,
         inviteId: inviteId,
-        mode: InviteMode.open,
+        mode: mode,
         maxUses: maxUses,
         expiresAt: expiresAt,
         relayHint: relayHint,
@@ -171,33 +194,77 @@ class GroupInviteService {
     if (joined.isErr) {
       return Err(InviteJoinFailed(joined.unwrapErr()));
     }
-    final membershipIssue = await _announceMembership(link);
+    final membership = await _announceMembership(link);
     return Ok(
       GroupJoinOutcome(
         groupId: link.groupId,
-        membershipRequested: membershipIssue == null,
-        membershipIssue: membershipIssue,
+        membershipRequested: membership.issue == null,
+        awaitingApproval: membership.awaitingApproval,
+        membershipIssue: membership.issue,
       ),
     );
   }
 
-  Future<GroupInviteFailure?> _announceMembership(InviteLink link) async {
+  /// Подтверждает ожидающую заявку. Доступно только админу/владельцу; роль
+  /// окончательно проверяется в `core_group` при применении события.
+  Future<Result<void, GroupInviteFailure>> approve({
+    required GroupId groupId,
+    required GroupSyncBridge bridge,
+    required UserId userId,
+  }) async {
+    if (bridge.state.id != groupId) return const Err(InviteGroupNotReady());
+    final inviteId = bridge.state.pendingJoins[userId];
+    if (inviteId == null || inviteId.isEmpty) {
+      return const Err(InviteNotPending());
+    }
+    final published = await bridge.publish(
+      MemberApproved(
+        id: const EventId(''),
+        groupId: groupId,
+        authorId: _localUser,
+        timestamp: 0,
+        prevId: bridge.nextPrevId,
+        userId: userId,
+        inviteId: inviteId,
+      ),
+    );
+    if (published.isErr) {
+      return Err(InviteApproveFailed(published.unwrapErr()));
+    }
+    return const Ok(null);
+  }
+
+  Future<({GroupInviteFailure? issue, bool awaitingApproval})>
+  _announceMembership(InviteLink link) async {
     final opened = await _lifecycle.open(link.groupId);
     if (opened.isErr) {
-      return const InviteMembershipPending();
+      return (issue: const InviteMembershipPending(), awaitingApproval: false);
     }
     final bridge = opened.unwrap();
     try {
-      if (bridge.state.memberIds.contains(_localUser)) return null;
+      if (bridge.state.memberIds.contains(_localUser)) {
+        return (issue: null, awaitingApproval: false);
+      }
       if (bridge.state.ownerId.value.isEmpty) {
-        return const InviteMembershipPending();
+        return (
+          issue: const InviteMembershipPending(),
+          awaitingApproval: false,
+        );
       }
 
       final loaded = await _secretStore.load(link.groupId);
-      if (loaded.isErr) return const InviteSecretUnavailable();
+      if (loaded.isErr) {
+        return (
+          issue: const InviteSecretUnavailable(),
+          awaitingApproval: false,
+        );
+      }
       final secret = loaded.unwrap();
       if (secret == null || secret.length != 32) {
-        return const InviteSecretUnavailable();
+        return (
+          issue: const InviteSecretUnavailable(),
+          awaitingApproval: false,
+        );
       }
 
       final verifier = await GroupInviteProofVerifier.fromBytes(secret);
@@ -218,9 +285,15 @@ class GroupInviteService {
         ),
       );
       if (published.isErr) {
-        return InviteMembershipFailed(published.unwrapErr());
+        return (
+          issue: InviteMembershipFailed(published.unwrapErr()),
+          awaitingApproval: false,
+        );
       }
-      return null;
+      return (
+        issue: null,
+        awaitingApproval: bridge.state.pendingJoins.containsKey(_localUser),
+      );
     } finally {
       await bridge.close();
     }

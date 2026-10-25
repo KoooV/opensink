@@ -1,4 +1,6 @@
+import '../models/group_role.dart';
 import '../models/identifiers.dart';
+
 import 'package:meta/meta.dart';
 
 /// Состояние группы — чистая функция от множества подписанных событий.
@@ -10,6 +12,8 @@ class GroupState {
     required this.ownerId,
     required this.memberIds,
     required this.channelIds,
+    this.pendingJoins = const <UserId, String>{},
+    this.memberRoles = const <UserId, GroupRole>{},
     required this.createdAt,
     required this.updatedAt,
   });
@@ -19,6 +23,12 @@ class GroupState {
   final UserId ownerId;
   final Set<UserId> memberIds;
   final Set<ChannelId> channelIds;
+
+  /// Заявки на вход в режиме approval: пользователь → inviteId.
+  final Map<UserId, String> pendingJoins;
+
+  /// Роли участников; пустая карта, если источник их не отдаёт.
+  final Map<UserId, GroupRole> memberRoles;
   final int createdAt; // Unix ms
   final int updatedAt; // Unix ms
 
@@ -28,6 +38,8 @@ class GroupState {
     UserId? ownerId,
     Set<UserId>? memberIds,
     Set<ChannelId>? channelIds,
+    Map<UserId, String>? pendingJoins,
+    Map<UserId, GroupRole>? memberRoles,
     int? createdAt,
     int? updatedAt,
   }) {
@@ -37,6 +49,8 @@ class GroupState {
       ownerId: ownerId ?? this.ownerId,
       memberIds: memberIds ?? this.memberIds,
       channelIds: channelIds ?? this.channelIds,
+      pendingJoins: pendingJoins ?? this.pendingJoins,
+      memberRoles: memberRoles ?? this.memberRoles,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

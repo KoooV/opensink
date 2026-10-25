@@ -146,6 +146,8 @@ class MembershipEvaluator {
         case SyncEventKind.messageCreated:
         case SyncEventKind.messageEdited:
         case SyncEventKind.messageDeleted:
+        case SyncEventKind.messageReactionSet:
+        case SyncEventKind.readMarked:
           sawGroup = true;
       }
     }
@@ -242,6 +244,8 @@ class GroupProjection {
         case SyncEventKind.groupRenamed:
         case SyncEventKind.messageEdited:
         case SyncEventKind.messageDeleted:
+        case SyncEventKind.messageReactionSet:
+        case SyncEventKind.readMarked:
           break;
       }
     }
@@ -275,6 +279,8 @@ class GroupProjection {
         case SyncEventKind.memberApproved:
         case SyncEventKind.roleSet:
         case SyncEventKind.keyRotated:
+        case SyncEventKind.messageReactionSet:
+        case SyncEventKind.readMarked:
           break;
       }
     }

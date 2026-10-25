@@ -13,6 +13,7 @@ export 'src/database/app_database.dart';
 export 'src/database/schema.dart';
 export 'src/models/event_data.dart';
 export 'src/models/storage_info.dart';
+export 'src/blob_store_impl.dart';
 export 'src/event_store_impl.dart';
 export 'src/group_metadata_store_impl.dart';
 export 'src/retention.dart';

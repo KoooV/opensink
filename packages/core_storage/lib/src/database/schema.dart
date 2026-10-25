@@ -1,6 +1,6 @@
 library;
 
-/// SQL schema for OpenSink event store (current schema version 7).
+/// SQL schema for OpenSink event store (current schema version 8).
 ///
 /// All tables are created during database initialization. Migrations are
 /// handled alongside schema creation.
@@ -37,7 +37,7 @@ const String colValue = 'value';
 // -------------------------------------------------------------------------
 // Schema version
 // -------------------------------------------------------------------------
-const int schemaVersion = 7;
+const int schemaVersion = 8;
 
 // -------------------------------------------------------------------------
 // Migration DDL (applied in order, from current user_version to schemaVersion)
@@ -177,6 +177,8 @@ final Map<int, List<String>> migrations = {
   ],
   // v7: отдельная очередь pending-событий, переживающая рестарт движка.
   7: [migrateV6ToV7PendingEvents, migrateV6ToV7PendingEventsIndex],
+  // v8: персистентные чанки файловых передач.
+  8: [migrateV7ToV8BlobTransfers],
 };
 
 // -------------------------------------------------------------------------
@@ -274,6 +276,18 @@ const String migrateV6ToV7PendingEvents = createPendingEvents;
 
 const String migrateV6ToV7PendingEventsIndex = createPendingEventsIndex;
 
+const String createBlobTransfers = '''
+CREATE TABLE IF NOT EXISTS blob_transfers (
+  file_id TEXT NOT NULL,
+  chunk_index INTEGER NOT NULL,
+  bytes BLOB NOT NULL,
+  received_at INTEGER NOT NULL,
+  PRIMARY KEY (file_id, chunk_index)
+)
+''';
+
+const String migrateV7ToV8BlobTransfers = createBlobTransfers;
+
 const String createSchemaInfo = '''
 CREATE TABLE IF NOT EXISTS schema_info (
   id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
@@ -316,6 +330,7 @@ List<String> get allDdl => [
   createBlobsMeta,
   createSyncState,
   createPendingEvents,
+  createBlobTransfers,
   createSchemaInfo,
   createGroupSettings,
   ...indexes,

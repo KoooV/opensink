@@ -70,7 +70,7 @@ class _SchemaV3ExecutorUser implements QueryExecutorUser {
 }
 
 void main() {
-  group('SQLite open validation and schema v7 migration', () {
+  group('SQLite open validation and schema v8 migration', () {
     test('open returns SQLite version in StorageInfo', () async {
       final db = AppDatabase(NativeDatabase.memory());
       try {
@@ -102,9 +102,10 @@ void main() {
     });
 
     test('current schema version and migrations are declared', () {
-      expect(schemaVersion, 7);
+      expect(schemaVersion, 8);
       expect(migrations.containsKey(6), isTrue);
       expect(migrations.containsKey(7), isTrue);
+      expect(migrations.containsKey(8), isTrue);
     });
 
     test('v3 migration preserves known and quarantined authors', () async {
@@ -155,7 +156,7 @@ void main() {
           'SELECT version FROM schema_info WHERE id = 1',
           const [],
         );
-        expect(versionRows.single['version'], 7);
+        expect(versionRows.single['version'], 8);
         final columns = await executor.runSelect(
           'PRAGMA table_info(events)',
           const [],

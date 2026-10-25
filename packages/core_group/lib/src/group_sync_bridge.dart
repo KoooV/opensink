@@ -432,6 +432,9 @@ class GroupSyncBridge implements domain.IGroupState {
       ownerId: source.ownerId,
       memberIds: source.members.keys.toSet(),
       channelIds: source.channels.keys.toSet(),
+      pendingJoins: Map<domain.UserId, String>.unmodifiable(
+        source.pendingJoins,
+      ),
       createdAt: source.createdAt,
       updatedAt: source.updatedAt,
     );

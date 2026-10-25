@@ -20,6 +20,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../group/group_invite_proof_verifier.dart';
 import '../group/group_invite_service.dart';
 import '../group/group_secret_store.dart';
+import '../notifications/in_app_notification_service.dart';
 import 'secure_key_store_platform.dart';
 import 'sync_links.dart';
 import 'storage_backend_platform.dart';
@@ -251,6 +252,45 @@ final eventStoreProvider = FutureProvider<SyncEventStore>((ref) async {
   final store = DriftEventStore(db);
   ref.onDispose(() => unawaited(store.close()));
   return store;
+});
+
+/// Персистентные чанки файловых передач в общей SQLite-базе.
+final blobStoreProvider = FutureProvider<BlobStore>((ref) async {
+  final db = await ref.watch(appDatabaseProvider.future);
+  return DriftBlobStore(db);
+});
+
+/// Ограничение локального хранилища блобов (общее для устройства).
+const int blobStoreQuotaBytes = 512 * 1024 * 1024;
+
+final fileTransferServiceProvider = FutureProvider<FileTransferService>((
+  ref,
+) async {
+  final store = await ref.watch(blobStoreProvider.future);
+  final service = FileTransferServiceImpl(
+    store: store,
+    maxStoreBytes: blobStoreQuotaBytes,
+  );
+  ref.onDispose(() => unawaited(service.close()));
+  return service;
+});
+
+final notificationServiceProvider = Provider<InAppNotificationService>((ref) {
+  final service = InAppNotificationService();
+  ref.onDispose(() => unawaited(service.close()));
+  return service;
+});
+
+final notificationRouterProvider = Provider<ChatNotificationRouter>((ref) {
+  return ChatNotificationRouter(
+    notifications: ref.watch(notificationServiceProvider),
+  );
+});
+
+final ephemeralChatBusProvider = Provider<EphemeralChatBus>((ref) {
+  final bus = FakeEphemeralChatBus();
+  ref.onDispose(() => unawaited(bus.close()));
+  return bus;
 });
 
 final secureKeyStoreProvider = Provider<SecureKeyStore>((ref) {

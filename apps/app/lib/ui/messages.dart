@@ -29,5 +29,7 @@ String inviteErrorMessage(GroupInviteFailure failure) {
     InviteMembershipPending() =>
       'Группа добавлена. Вход в участники завершится после загрузки истории.',
     InviteMembershipFailed() => 'Не удалось отправить запрос на вход.',
+    InviteNotPending() => 'Заявка на вход не найдена.',
+    InviteApproveFailed() => 'Не удалось подтвердить заявку.',
   };
 }

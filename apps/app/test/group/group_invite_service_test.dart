@@ -261,4 +261,78 @@ void main() {
     expect((await joiner.metadataStore.load(groupId)).unwrap(), isNull);
     expect((await joiner.secretStore.load(groupId)).unwrap(), isNull);
   });
+
+  _approvalTests();
+}
+
+void _approvalTests() {
+  test(
+    'approval-инвайт: join ждёт подтверждения, approve добавляет участника',
+    () async {
+      final owner = await _Harness.create();
+      addTearDown(owner.close);
+      final created = await owner.lifecycle.createGroup(name: 'Закрытая');
+      final groupId = created.unwrap();
+      final ownerBridge = await _openBridge(owner, groupId);
+      addTearDown(ownerBridge.close);
+      final link = (await owner.service.issue(
+        groupId: groupId,
+        bridge: ownerBridge,
+        mode: InviteMode.approval,
+      )).unwrap();
+
+      final joiner = await _Harness.create();
+      addTearDown(joiner.close);
+      await _transfer(owner, joiner, groupId);
+
+      final joined = await joiner.service.join(link);
+      expect(joined.isOk, isTrue);
+      expect(joined.unwrap().awaitingApproval, isTrue);
+      expect(joined.unwrap().membershipRequested, isTrue);
+
+      final joinEvent = (await joiner.engine.allEvents(groupId))
+          .firstWhere((event) => event.kind == SyncEventKind.memberJoined);
+      expect((await owner.engine.ingest(joinEvent)).isOk, isTrue);
+      final pending = await ownerBridge
+          .watch()
+          .firstWhere(
+            (state) => state.pendingJoins.containsKey(joiner.identity.userId),
+          )
+          .timeout(const Duration(seconds: 2));
+      expect(pending.memberIds, isNot(contains(joiner.identity.userId)));
+
+      final approved = await owner.service.approve(
+        groupId: groupId,
+        bridge: ownerBridge,
+        userId: joiner.identity.userId,
+      );
+      expect(approved.isOk, isTrue);
+
+      final approveEvent = (await owner.engine.allEvents(groupId))
+          .firstWhere((event) => event.kind == SyncEventKind.memberApproved);
+      expect((await joiner.engine.ingest(approveEvent)).isOk, isTrue);
+      final joinerBridge = await _openBridge(joiner, groupId);
+      addTearDown(joinerBridge.close);
+      expect(joinerBridge.state.memberIds, contains(joiner.identity.userId));
+    },
+  );
+
+  test('approve без pending-заявки отклоняется', () async {
+    final owner = await _Harness.create();
+    addTearDown(owner.close);
+    final groupId = (await owner.lifecycle.createGroup(name: 'Закрытая'))
+        .unwrap();
+    final bridge = await _openBridge(owner, groupId);
+    addTearDown(bridge.close);
+
+    final unknown = (await _Harness.create()).identity.userId;
+    final approved = await owner.service.approve(
+      groupId: groupId,
+      bridge: bridge,
+      userId: unknown,
+    );
+
+    expect(approved.isErr, isTrue);
+    expect(approved.unwrapErr(), isA<InviteNotPending>());
+  });
 }

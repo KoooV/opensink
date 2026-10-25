@@ -166,3 +166,13 @@ tombstone-ы после создания сообщений, поэтому по
 4. `memberJoined` от неизвестного автора принимается как заявка.
 5. Поведение для кодов 1–10 не меняется.
 6. `dart analyze packages/core_sync` — чисто.
+
+## 10. Решения poll по Layer-10 (2026-10-25)
+
+| Вопрос | Решение |
+|---|---|
+| E2EE сообщений без production `GroupKeyDistributor` | Блокировать production-выпуск Layer-10 до появления production-раздачи Sender Keys. Plaintext-фолбэк запрещён; тесты используют in-memory доставку ключей. |
+| Шифрование файлов и миниатюр | Случайный `file key` передаётся внутри зашифрованного `ChatPayload`; чанки и миниатюры шифруются XChaCha20-Poly1305 с AAD, привязанным к `fileId/index/root/size`. |
+| Платформенные реализации и персистентность | Следующий шаг: `BlobStore` (файлы/OPFS/IndexedDB), `NotificationService` для Android/Linux/Web и схема v8 с `blob_transfers`. |
+| Rate limit и квоты | Ingress rate limit по автору с детерминированной маркировкой over-rate плюс квота блобов на группу. |
+| Read markers и реакции | Остаются в append-only логе; компакция и подписанные снапшоты — отдельной задачей. |

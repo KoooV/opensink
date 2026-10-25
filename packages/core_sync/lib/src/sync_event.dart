@@ -29,7 +29,9 @@ enum SyncEventKind {
   memberJoined(12),
   memberApproved(13),
   roleSet(14),
-  keyRotated(15);
+  keyRotated(15),
+  messageReactionSet(16),
+  readMarked(17);
 
   const SyncEventKind(this.code);
   final int code;

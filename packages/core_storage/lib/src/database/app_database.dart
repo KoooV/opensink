@@ -886,6 +886,71 @@ class AppDatabase implements QueryExecutorUser {
   }
 
   // -------------------------------------------------------------------------
+  // Blob transfers (persistent chunk store)
+  // -------------------------------------------------------------------------
+
+  Future<void> writeBlobChunk({
+    required String fileId,
+    required int chunkIndex,
+    required List<int> bytes,
+    required int receivedAt,
+  }) async {
+    await _open(() async {
+      await _executor.runInsert(
+        'INSERT OR REPLACE INTO blob_transfers '
+        '(file_id, chunk_index, bytes, received_at) VALUES (?, ?, ?, ?)',
+        [fileId, chunkIndex, Uint8List.fromList(bytes), receivedAt],
+      );
+    });
+  }
+
+  Future<Uint8List?> readBlobChunk(String fileId, int chunkIndex) async {
+    return await _open(() async {
+      final rows = await _executor.runSelect(
+        'SELECT bytes FROM blob_transfers WHERE file_id = ? AND chunk_index = ?',
+        [fileId, chunkIndex],
+      );
+      if (rows.isEmpty) return null;
+      final raw = rows.first['bytes'];
+      if (raw is Uint8List) return raw;
+      if (raw is List<int>) return Uint8List.fromList(raw);
+      return null;
+    });
+  }
+
+  Future<Set<int>> receivedBlobChunks(String fileId) async {
+    return await _open(() async {
+      final rows = await _executor.runSelect(
+        'SELECT chunk_index FROM blob_transfers WHERE file_id = ?',
+        [fileId],
+      );
+      return {
+        for (final row in rows) int.parse(row['chunk_index']!.toString()),
+      };
+    });
+  }
+
+  Future<int> blobTotalBytes() async {
+    return await _open(() async {
+      final rows = await _executor.runSelect(
+        'SELECT COALESCE(SUM(LENGTH(bytes)), 0) AS total FROM blob_transfers',
+        const [],
+      );
+      if (rows.isEmpty) return 0;
+      return int.parse(rows.first['total']!.toString());
+    });
+  }
+
+  Future<void> clearBlob(String fileId) async {
+    await _open(() async {
+      await _executor.runDelete(
+        'DELETE FROM blob_transfers WHERE file_id = ?',
+        [fileId],
+      );
+    });
+  }
+
+  // -------------------------------------------------------------------------
   // Sync state
   // -------------------------------------------------------------------------
 

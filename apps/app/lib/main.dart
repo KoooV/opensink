@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'notifications/notification_host.dart';
 import 'ui/home_screen.dart';
 
 void main() {
@@ -21,7 +22,7 @@ class App extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const HomeScreen(),
+      home: const NotificationHost(child: HomeScreen()),
     );
   }
 }

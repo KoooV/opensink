@@ -12,9 +12,12 @@
 - apps/app: `SecureGroupSecretStore` + реестр invite-verifier; `transportProvider`/`relay*` по группе строят `WebRtcTransport` (Nostr+Tracker, тема из `GroupSecret`); `WebRtcTransport` публикует direct-соседей через `NeighborAnnouncer`, тесты зелёные.
 - toolchain: melos 8 `run` исполнялся только в корне, а regex терял двойной пробел; `test` переведён на `exec` с `[[:space:]]`, platform_web исключён (web-jobs CI), корневой шаблонный widget_test удалён, apps/app тесты зелёные.
 - apps/app: `GroupInviteService` (InviteIssued→подписанная ссылка, join+MemberJoined, pending без genesis) и UI Home/Group (список, create, join, выдача/копирование инвайта); 27 тестов apps/app зелёные.
+- Layer-10: `ChatService` (6 видов событий), `PresenceService`, `FileTransferService` (16 КиБ, Merkle, докачка, 2 источника), `ChatNotificationRouter`; in-memory тесты 3 пиров и 50 МиБ, 6/6.
+- Layer-10 poll 2026-10-25: E2EE до production distributor; file key в payload; BlobStore+notifications+v8; ingress rate+квота; компакция позже.
 - core_sync/app: `SyncPacketTransport`+`PacketSyncLink`, `RelayPacketTransport`, `SyncLinkConnector` (direct↔relay, seed из топологии), `activeTransportProvider`=RelayTransport; close линка/коннектора не закрывает транспорт; 33 app и 48 core_sync тестов.
+- apps/app+core_storage: production DI Layer-10 (`DriftBlobStore`, `FileTransferService`, in-app `NotificationService`), schema v8 `blob_transfers`, approval-инвайты (issue/join/approve+UI) и QR/share инвайта; 39 app, 93 core_storage тестов.
 ## Дальше
-- `apps/app`: approval-инвайты и автоматический повтор `MemberJoined` после синхронизации истории; QR/share (SIG-OPEN-06).
-- `core_group`: production GroupKeyDistributor. Follow-up poll 2026-10-25: verified-кэш restore, карантин невалидных записей store.
+- `apps/app`: OS-уведомления (in-app принят для MVP); `core_group`: production GroupKeyDistributor (verified-кэш restore, карантин store).
+- `core_sync`: ingress rate limit по автору + квота блобов на группу; компакция read markers/reactions; `core_storage`: квота `blob_transfers` по группе.
 ## Открытые вопросы
-- Legacy GroupState; trusted time (Q36); аутентификация снапшота и fingerprints как хэш; ротация GroupSecret при удалении; Q39 (invite UX и ротация).
+- Legacy GroupState; trusted time (Q36); аутентификация снапшота и fingerprints; ротация GroupSecret при удалении; Q39 (ротация).

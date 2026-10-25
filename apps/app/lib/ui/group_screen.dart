@@ -5,6 +5,7 @@ import 'package:core_group/core_group.dart' show InviteLink;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../di/providers.dart';
 import 'messages.dart';
@@ -60,25 +61,42 @@ class GroupScreen extends ConsumerWidget {
   }
 
   Future<void> _issueInvite(BuildContext context, WidgetRef ref) async {
+    var requireApproval = false;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Выдать инвайт'),
-        content: const Text(
-          'Ссылка содержит секрет группы. Любой, у кого она есть, сможет '
-          'войти в группу. Передавайте её только доверенным людям.\n\n'
-          'Срок действия: 7 дней, лимит: 10 входов.',
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Выдать инвайт'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Ссылка содержит секрет группы. Любой, у кого она есть, сможет '
+                'войти в группу. Передавайте её только доверенным людям.\n\n'
+                'Срок действия: 7 дней, лимит: 10 входов.',
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Требовать одобрение'),
+                subtitle: const Text('Вход появится у админов как заявка.'),
+                value: requireApproval,
+                onChanged: (value) => setState(() => requireApproval = value),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Создать ссылку'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Создать ссылку'),
-          ),
-        ],
       ),
     );
     if (confirmed != true || !context.mounted) return;
@@ -86,7 +104,11 @@ class GroupScreen extends ConsumerWidget {
     try {
       final bridge = await ref.read(groupSyncBridgeProvider(groupId).future);
       final service = await ref.read(groupInviteServiceProvider.future);
-      final issued = await service.issue(groupId: groupId, bridge: bridge);
+      final issued = await service.issue(
+        groupId: groupId,
+        bridge: bridge,
+        mode: requireApproval ? InviteMode.approval : InviteMode.open,
+      );
       if (!context.mounted) return;
       if (issued.isErr) {
         _showMessage(context, inviteErrorMessage(issued.unwrapErr()));
@@ -94,7 +116,7 @@ class GroupScreen extends ConsumerWidget {
       }
       await showDialog<void>(
         context: context,
-        builder: (context) => _InviteLinkDialog(link: issued.unwrap()),
+        builder: (context) => InviteLinkDialog(link: issued.unwrap()),
       );
     } on Object {
       if (!context.mounted) return;
@@ -103,16 +125,19 @@ class GroupScreen extends ConsumerWidget {
   }
 }
 
-class _GroupBody extends StatelessWidget {
+class _GroupBody extends ConsumerWidget {
   const _GroupBody({required this.state, required this.groupId});
 
   final GroupState state;
   final GroupId groupId;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final ready = state.ownerId.value.isNotEmpty;
     final theme = Theme.of(context);
+    final localUser = ref.watch(localIdentityProvider).valueOrNull?.userId;
+    final localRole = localUser == null ? null : state.memberRoles[localUser];
+    final canApprove = localRole != null && localRole.atLeast(GroupRole.admin);
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -144,6 +169,11 @@ class _GroupBody extends StatelessWidget {
             ),
           ),
         ),
+        if (ready && canApprove && state.pendingJoins.isNotEmpty)
+          _PendingJoins(
+            state: state,
+            onApprove: (userId) => _approve(context, ref, groupId, userId),
+          ),
         if (ready) ...[
           const SizedBox(height: 16),
           Text('Участники', style: theme.textTheme.titleMedium),
@@ -166,8 +196,68 @@ class _GroupBody extends StatelessWidget {
   }
 }
 
-class _InviteLinkDialog extends StatelessWidget {
-  const _InviteLinkDialog({required this.link});
+class _PendingJoins extends StatelessWidget {
+  const _PendingJoins({required this.state, required this.onApprove});
+
+  final GroupState state;
+  final void Function(UserId userId) onApprove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text('Заявки на вход'),
+          ),
+          for (final userId in state.pendingJoins.keys)
+            ListTile(
+              dense: true,
+              leading: CircleAvatar(
+                child: Text(userId.value.substring(0, 2).toUpperCase()),
+              ),
+              title: Text(_shortUserId(userId)),
+              trailing: FilledButton(
+                onPressed: () => onApprove(userId),
+                child: const Text('Подтвердить'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> _approve(
+  BuildContext context,
+  WidgetRef ref,
+  GroupId groupId,
+  UserId userId,
+) async {
+  try {
+    final bridge = await ref.read(groupSyncBridgeProvider(groupId).future);
+    final service = await ref.read(groupInviteServiceProvider.future);
+    final approved = await service.approve(
+      groupId: groupId,
+      bridge: bridge,
+      userId: userId,
+    );
+    if (!context.mounted) return;
+    if (approved.isErr) {
+      _showMessage(context, inviteErrorMessage(approved.unwrapErr()));
+      return;
+    }
+    ref.invalidate(groupLiveStateProvider(groupId));
+  } on Object {
+    if (!context.mounted) return;
+    _showMessage(context, 'Не удалось подтвердить заявку.');
+  }
+}
+
+class InviteLinkDialog extends StatelessWidget {
+  const InviteLinkDialog({super.key, required this.link});
 
   final InviteLink link;
 
@@ -176,17 +266,32 @@ class _InviteLinkDialog extends StatelessWidget {
     final uri = link.toUriString();
     return AlertDialog(
       title: const Text('Инвайт-ссылка'),
-      content: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Любой, у кого есть ссылка, сможет войти в группу.'),
-            const SizedBox(height: 12),
-            SelectableText(uri),
-            const SizedBox(height: 12),
-            Text('Действует до ${_formatTime(link.expiresAt)}'),
-          ],
+      content: SizedBox(
+        width: 280,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Любой, у кого есть ссылка, сможет войти в группу.'),
+              const SizedBox(height: 12),
+              Center(
+                child: SizedBox.square(
+                  dimension: 220,
+                  child: QrImageView(
+                    data: uri,
+                    version: QrVersions.auto,
+                    size: 220,
+                    backgroundColor: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SelectableText(uri),
+              const SizedBox(height: 12),
+              Text('Действует до ${_formatTime(link.expiresAt)}'),
+            ],
+          ),
         ),
       ),
       actions: [

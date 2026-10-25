@@ -17,7 +17,7 @@
 | `platform_linux` | `LinuxDatabaseFactory implements StorageBackend` | bundled SQLite из `sqlite3_flutter_libs` 0.5.41 либо системная `libsqlite3.so` вне Flutter-сборки |
 | `platform_web` | `WebDatabaseFactory implements StorageBackend` | `sqlite3.wasm` + `drift_worker.js` |
 
-`core_storage` экспортирует `AppDatabase`, `DriftEventStore`, `RetentionPolicy`, схему, `EventData`, `RangeSummary`, `RangeSummaryError`, `StorageSpec`, `StorageInfo`, `OpenedStorage`, `StorageBackend`, `StorageOpenError`, расширение `StorageBackendResult.openResult`. Типы `Result`, `InsertOutcome` и `EventStoreWriteError` приходят из `core_domain`; `core_storage` их не реэкспортирует. Неиспользуемый `DatabaseFactory` удалён из публичного API; единственный контракт открытия — `StorageBackend`.
+`core_storage` экспортирует `AppDatabase`, `DriftEventStore`, `DriftBlobStore`, `RetentionPolicy`, схему, `EventData`, `RangeSummary`, `RangeSummaryError`, `StorageSpec`, `StorageInfo`, `OpenedStorage`, `StorageBackend`, `StorageOpenError`, расширение `StorageBackendResult.openResult`. Типы `Result`, `InsertOutcome` и `EventStoreWriteError` приходят из `core_domain`; `core_storage` их не реэкспортирует. Неиспользуемый `DatabaseFactory` удалён из публичного API; единственный контракт открытия — `StorageBackend`.
 
 ## 2. Контракт открытия хранилища
 
@@ -86,7 +86,7 @@ abstract interface class StorageBackend {
 | `schema_info` (`_setStoredVersion`) | `INSERT ... ON CONFLICT(id) DO UPDATE SET version = ?` | обновление служебной версии схемы |
 | `events` | `INSERT OR IGNORE` | неизменяемый лог; дубль по `id` игнорируется |
 | `members` | `INSERT OR IGNORE` | повторное добавление участника не меняет `joined_at` |
-| `groups`, `channels`, `peers`, `group_settings`, `blobs_meta`, `sync_state` | `INSERT OR REPLACE` | справочники: побеждает последняя запись |
+| `groups`, `channels`, `peers`, `group_settings`, `blobs_meta`, `blob_transfers`, `sync_state` | `INSERT OR REPLACE` | справочники: побеждает последняя запись |
 
 Для `events` `INSERT OR REPLACE`/`DO UPDATE` запрещены: событие неизменяемо, правки моделируются новым событием с новым `id`.
 
@@ -102,9 +102,9 @@ bundled-библиотека 3.51.1 по данным пакета. Linux: то�
 
 ## 5. Схема и миграции
 
-Текущая версия — **7**. Свежая установка создаёт все таблицы, индексы и append-only триггеры из `schema.dart` и записывает версию в `schema_info`. Миграции и обновление версии выполняются одной транзакцией (`_migrate`), поэтому сбой посередине не оставляет частично мигрированную схему.
+Текущая версия — **8**. Свежая установка создаёт все таблицы, индексы и append-only триггеры из `schema.dart` и записывает версию в `schema_info`. Миграции и обновление версии выполняются одной транзакцией (`_migrate`), поэтому сбой посередине не оставляет частично мигрированную схему.
 
-Таблицы: `events`, `groups`, `members`, `channels`, `peers`, `blobs_meta`, `sync_state`, `pending_events`, `group_settings`, `schema_info`.
+Таблицы: `events`, `groups`, `members`, `channels`, `peers`, `blobs_meta`, `sync_state`, `pending_events`, `group_settings`, `blob_transfers`, `schema_info`.
 
 Индексы: `idx_events_group_hlc(group_id, hlc)`, `idx_events_author_hlc(author, hlc)`, `idx_events_channel_hlc(channel_id, hlc)`, `idx_channels_group_id(group_id)`, `idx_blobs_group_expires(group_id, expires_at)`, `idx_group_settings_group_key(group_id, key)`, `idx_pending_events_group_hlc(group_id, hlc, id)`. Индекс `(author, seq)` из исходного задания заменён на `(author, hlc)`: в доменной модели нет `seq`, HLC — единственный порядковый ключ события, а `seq` удалён в v6.
 
@@ -118,8 +118,9 @@ bundled-библиотека 3.51.1 по данным пакета. Linux: то�
 | 4 → 5 | создать триггеры `events_append_only_no_update` и `events_append_only_no_delete` |
 | 5 → 6 | удалить `seq` пересборкой `events` с сохранением данных и пересозданием индексов/триггеров |
 | 6 → 7 | создать `pending_events` и индекс `(group_id, hlc, id)` для очереди отложенных событий |
+| 7 → 8 | создать `blob_transfers(file_id, chunk_index, bytes, received_at)` для персистентных чанков |
 
-Строки v3 с пустым `author` сохраняются как карантинные: payload не декодируется, автор не восстанавливается автоматически. Строки с заполненным `author` сохраняются без изменений. Триггеры v5 запрещают `UPDATE`/`DELETE` событий на уровне SQLite. Миграция v5→v6 использует пересборку таблицы, а не `DROP COLUMN`, чтобы не поднимать минимум SQLite выше 3.24.0. Таблица `pending_events` не является append-only: строка удаляется после успешного применения события или LRU-eviction; `events` по-прежнему защищена триггерами. Миграции применяются по возрастанию целевой версии; неизвестная будущая версия схемы не мигрируется и не понижается. Ручные снимки схем v3 и v5 находятся в `test/schema_v3_snapshot.dart` и `test/schema_v5_snapshot.dart`; генерация через `drift_dev` не закреплена (Q26).
+Строки v3 с пустым `author` сохраняются как карантинные: payload не декодируется, автор не восстанавливается автоматически. Строки с заполненным `author` сохраняются без изменений. Триггеры v5 запрещают `UPDATE`/`DELETE` событий на уровне SQLite. Миграция v5→v6 использует пересборку таблицы, а не `DROP COLUMN`, чтобы не поднимать минимум SQLite выше 3.24.0. Таблица `pending_events` не является append-only: строка удаляется после успешного применения события или LRU-eviction; `events` по-прежнему защищена триггерами. `blob_transfers` хранит только принятые чанки; повторная запись индекса заменяет данные и не увеличивает `totalBytes`. Миграции применяются по возрастанию целевой версии; неизвестная будущая версия схемы не мигрируется и не понижается. Ручные снимки схем v3 и v5 находятся в `test/schema_v3_snapshot.dart` и `test/schema_v5_snapshot.dart`; генерация через `drift_dev` не закреплена (Q26).
 
 ## 6. Web: ресурсы, реализации и деградация
 
@@ -149,13 +150,13 @@ bundled-библиотека 3.51.1 по данным пакета. Linux: то�
 
 ## 7. Тесты и бюджет
 
-Общий контракт `runEventStoreContract` (`test/event_store_contract.dart`) и общий поведенческий набор `runPortableStorageSuite` (`test/portable_storage_suite.dart`, 12 тестов) импортируются native- и web-раннерами. Набор покрывает схему, идемпотентность, порядок `hlc/id`, курсор, range summary, пагинацию канала, `EventStore`, retention, query plan, append-only и миграции v3→v7/v5→v6. Native-раннер — `test/portable_storage_native_test.dart`, Chrome-раннер — `platform_web/test/portable_storage_web_test.dart`.
+Общий контракт `runEventStoreContract` (`test/event_store_contract.dart`) и общий поведенческий набор `runPortableStorageSuite` (`test/portable_storage_suite.dart`, 12 тестов) импортируются native- и web-раннерами. Набор покрывает схему, идемпотентность, порядок `hlc/id`, курсор, range summary, пагинацию канала, `EventStore`, retention, query plan, append-only и миграции v3→v8/v5→v6. Native-раннер — `test/portable_storage_native_test.dart`, Chrome-раннер — `platform_web/test/portable_storage_web_test.dart`.
 
 Статус приёмки раунда 2 считается только по полному прогону пакета без фильтров:
 
 | Набор | Команда | Результат |
 |-------|---------|-----------|
-| core_storage (VM) | `dart test` в `packages/core_storage` | 81 пройдено, 0 провалов |
+| core_storage (VM) | `dart test` в `packages/core_storage` | 93 пройдено, 0 провалов |
 | core_domain (VM) | `dart test` в `packages/core_domain` | 25 пройдено, 0 провалов |
 | platform_linux (native) | `flutter test` в `packages/platform_linux` | 7 пройдено, 0 провалов |
 | platform_web (Chrome) | `bash tool/test_web_full_chrome.sh` | 30 пройдено, 0 провалов |

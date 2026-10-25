@@ -22,7 +22,10 @@
 `Transport` (`WebRtcTransport` по группе) и `Relay` (через `RelayTransport` +
 `MemberRelay`) подключены к реальным реализациям. Для `PeerLink`,
 `MediaTopology` и `ScreenCaptureSource` в `apps/app` пока используются fakes
-или заглушки. Остаётся конфигурация STUN/реле/трекеров через настройки и UI.
+или заглушки. `BlobStore` (SQLite `blob_transfers`) и in-app `NotificationService`
+подключены; OS-уведомления остаются платформенной задачей (poll 2026-10-25:
+in-app достаточно для MVP). Остаётся конфигурация STUN/реле/трекеров через
+настройки и UI.
 
 ## Q7 — Обоснование MAX_SKIP и TTL пропущенных ключей
 
@@ -166,8 +169,9 @@ ingest отсекал бы поздние легитимные события; �
 Хранилище выбрано: `GroupSecretStore` поверх `SecureKeyStore` (32 байта,
 hex-токен в инвайте), реестр `GroupInviteProofVerifier` заполняется при
 создании/входе/открытии группы. Остаются политика ротации при удалении
-участника, миграция групп без сохранённого секрета (fail-closed) и UI выдачи
-инвайтов.
+участника, миграция групп без сохранённого секрета (fail-closed). UI выдачи,
+approval-заявок и QR инвайта реализован. Режим approval в ссылку не кодируется:
+источник истины — подписанный `InviteIssued` (poll 2026-10-25).
 
 ## Принятые допущения
 
@@ -218,3 +222,12 @@ hex-токен в инвайте), реестр `GroupInviteProofVerifier` за�
   origin-only. Nonce отсекает replay в пределах seen-окна.
 - Production-сборка `RelayTransport` — в `apps/app` DI; opt-in управляет только
   пересылкой чужих кадров. `PeerLink` всё ещё не отдельный production-порт (Q2).
+
+## Решения poll 2026-10-25 (Layer-10 / invitations)
+
+- OS-уведомления отложены; для MVP принят in-app `NotificationService`.
+- Квота `blob_transfers` — общая на устройство (512 МиБ); per-group квота позже.
+- QR используется только для invite-URI; LAN/QR signaling (SIG-OPEN-06) отложен.
+- Режим approval не входит в `InviteLink`; он выводится из подписанного `InviteIssued`,
+  до загрузки истории join остаётся pending.
+- Production `ChatService` не включается до production `GroupKeyDistributor` (E2EE).
