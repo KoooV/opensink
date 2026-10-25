@@ -155,6 +155,10 @@ class E2eSessionManager {
 
   bool hasSession(String peerId) => _sessions.containsKey(peerId);
 
+  /// Проверяет SPK-binding публичного бандла до сохранения/инициации.
+  Future<bool> verifyRemoteBundle(X3DHPublicBundle bundle) =>
+      _x3dh.verifyPublicBundle(bundle);
+
   Future<CryptoResult<E2eHandshake>> initiate({
     required String peerId,
     required X3DHPublicBundle remoteBundle,

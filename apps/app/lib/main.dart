@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'e2e/group_e2e_binding.dart';
 import 'notifications/chat_notification_binding.dart';
 import 'notifications/notification_host.dart';
 import 'ui/home_screen.dart';
@@ -23,8 +24,10 @@ class App extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const NotificationHost(
-        child: ChatNotificationBinding(child: HomeScreen()),
+      home: const GroupE2eBinding(
+        child: NotificationHost(
+          child: ChatNotificationBinding(child: HomeScreen()),
+        ),
       ),
     );
   }

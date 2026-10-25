@@ -147,12 +147,14 @@ abstract class FileTransferService {
     List<BlobSource> sources, {
     int maxSources = FileLimits.maxSources,
     int window = 8,
+    String? groupId,
   });
 
   Future<Result<void, FileTransferError>> seed(
     FileManifest manifest,
-    Uint8List bytes,
-  );
+    Uint8List bytes, {
+    String? groupId,
+  });
 
   Future<Result<Uint8List, FileTransferError>> readAll(FileManifest manifest);
 

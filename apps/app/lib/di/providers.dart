@@ -12,7 +12,7 @@ import 'package:core_relay/core_relay.dart';
 import 'package:core_signaling/core_signaling.dart';
 import 'package:core_storage/core_storage.dart';
 import 'package:core_sync/core_sync.dart';
-import 'package:cryptography/cryptography.dart' show SecretKeyData;
+import 'package:cryptography/cryptography.dart' show SecretKey, SecretKeyData;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,6 +22,8 @@ import '../group/group_invite_service.dart';
 import '../group/group_secret_store.dart';
 import '../group/sender_key_package_store.dart';
 import '../group/sender_key_verifier.dart';
+import '../e2e/e2e_datagram_transport.dart';
+import '../e2e/e2e_sender_key_channel.dart';
 import '../notifications/chat_notification_bridge.dart';
 import '../notifications/foreground_notification_service.dart';
 import '../notifications/foreground_state.dart';
@@ -83,6 +85,7 @@ final signalingChannelProvider = FutureProvider.autoDispose
       final security = await ref.watch(
         signalingSecurityProvider(groupId).future,
       );
+      final sessions = await ref.watch(e2eSessionManagerProvider.future);
       final relayEnabled = ref.watch(relayOptInProvider);
       final capabilities = NodeCapabilities(
         platform: _signalingPlatform(),
@@ -90,6 +93,7 @@ final signalingChannelProvider = FutureProvider.autoDispose
         capacityBytesPerSecond: relayEnabled
             ? ref.watch(relayConfigProvider).perSourceBytesPerSecond * 4
             : 0,
+        e2eBundle: sessions.publicBundle,
       );
       final pool = SignalingChannelPool(
         channels: <RichSignalingChannel>[
@@ -404,10 +408,17 @@ final groupInviteProofVerifierRegistryProvider =
 
 /// Локальная идентичность: Ed25519 seed в SecureKeyStore, подписчик в памяти.
 class LocalIdentity {
-  const LocalIdentity({required this.userId, required this.signer});
+  const LocalIdentity({
+    required this.userId,
+    required this.signer,
+    this.privateSeed,
+  });
 
   final UserId userId;
   final Signer signer;
+
+  /// Ed25519 seed, если identity уже загружена из `SecureKeyStore`.
+  final List<int>? privateSeed;
 }
 
 const String _currentIdentityKey = 'opensink_current_identity_v1';
@@ -423,6 +434,7 @@ final localIdentityProvider = FutureProvider<LocalIdentity>((ref) async {
       return LocalIdentity(
         userId: loaded.userId,
         signer: signerFromSeed(loaded.privateSeed),
+        privateSeed: loaded.privateSeed,
       );
     }
   }
@@ -453,11 +465,52 @@ final localIdentityProvider = FutureProvider<LocalIdentity>((ref) async {
   return LocalIdentity(
     userId: identity.userId,
     signer: CryptoSigner(identity.ed25519PrivateKey),
+    privateSeed: seed,
   );
 });
 
 final signerProvider = FutureProvider<Signer>((ref) async {
   return (await ref.watch(localIdentityProvider.future)).signer;
+});
+
+/// E2E-сессии, привязанные к Ed25519 identity.
+///
+/// Бандл детерминированно выводится из seed identity, поэтому публичный
+/// Ed25519-ключ бандла совпадает с `UserId` и восстанавливается после старта.
+final e2eSessionManagerProvider = FutureProvider<E2eSessionManager>((
+  ref,
+) async {
+  final identity = await ref.watch(localIdentityProvider.future);
+  var seed = identity.privateSeed;
+  if (seed == null) {
+    final stored = await ref
+        .watch(secureKeyStoreProvider)
+        .loadIdentity(identity.userId);
+    if (stored.isErr) {
+      throw StateError(
+        'Не удалось загрузить E2E identity: ${stored.unwrapErr()}',
+      );
+    }
+    seed = stored.unwrap().privateSeed;
+  }
+  final bundle = await X3DH().generateIdentityBoundKeyBundle(
+    identitySeed: SecretKey(Uint8List.fromList(seed)),
+  );
+  return E2eSessionManager(localBundle: bundle);
+});
+
+/// Личный E2E-канал для sender-key пакетов.
+final e2eSenderKeyChannelProvider = FutureProvider<E2eSenderKeyChannel>((
+  ref,
+) async {
+  final identity = await ref.watch(localIdentityProvider.future);
+  final sessions = await ref.watch(e2eSessionManagerProvider.future);
+  final channel = E2eSenderKeyChannel(
+    localPeerId: PeerId(Uint8List.fromList(hexToBytes(identity.userId.value))),
+    sessions: sessions,
+  );
+  ref.onDispose(() => unawaited(channel.close()));
+  return channel;
 });
 
 final syncEngineProvider = FutureProvider<SyncEngineImpl>((ref) async {
@@ -479,20 +532,19 @@ final senderKeyPackageStoreProvider = Provider<SenderKeyPackageStore>((ref) {
 
 /// Production-рассылка sender keys.
 ///
-/// Пакеты подписываются ключом локальной identity. E2E-канал личных сообщений
-/// ещё не подключён, поэтому доставка fail-closed: пакеты остаются pending и
-/// повторяются через `retryPending` после появления сессии. Verified-кэш и
+/// Пакеты подписываются ключом локальной identity и доставляются по личному
+/// E2E-каналу. Если сессия ещё не установлена, доставка fail-closed: пакет
+/// остаётся pending и повторяется через `retryPending`. Verified-кэш и
 /// карантин работают сразу.
 final groupKeyDistributorProvider =
     FutureProvider<ProductionGroupKeyDistributor>((ref) async {
       final identity = await ref.watch(localIdentityProvider.future);
       final metadata = await ref.watch(groupMetadataStoreProvider.future);
+      final channel = await ref.watch(e2eSenderKeyChannelProvider.future);
       return ProductionGroupKeyDistributor(
         localUser: identity.userId,
         signer: identity.signer,
-        delivery: const E2eSenderKeyDelivery(
-          channel: UnavailableSenderKeyChannel(),
-        ),
+        delivery: E2eSenderKeyDelivery(channel: channel),
         store: ref.watch(senderKeyPackageStoreProvider),
         verifier: TrustedGroupSenderKeyVerifier(metadata),
       );
@@ -505,6 +557,51 @@ final groupMetadataStoreProvider = FutureProvider<GroupMetadataStore>((
   final db = await ref.watch(appDatabaseProvider.future);
   return DriftGroupMetadataStore(db);
 });
+
+/// Активный E2E-мост группы: presence-бандлы, сессии и приём sender keys.
+class GroupE2eWiring {
+  const GroupE2eWiring();
+}
+
+final groupE2eWiringProvider = FutureProvider.autoDispose
+    .family<GroupE2eWiring, GroupId>((ref, groupId) async {
+      final channel = await ref.watch(e2eSenderKeyChannelProvider.future);
+      final distributor = await ref.watch(groupKeyDistributorProvider.future);
+      final relay = await ref.watch(relayTransportProvider(groupId).future);
+      final signaling = await ref.watch(
+        signalingChannelProvider(groupId).future,
+      );
+      final adapter = TransportE2eDatagramTransport(relay);
+      await channel.bindTransport(groupId, adapter);
+      final packages = channel.received.listen((package) {
+        if (package.groupId != groupId) return;
+        unawaited(distributor.receive(package));
+      });
+      final established = channel.established.listen((_) {
+        unawaited(distributor.retryPending(groupId));
+      });
+      final presence = signaling.presence.listen((peer) {
+        final bundle = peer.capabilities.e2eBundle;
+        if (bundle == null) return;
+        unawaited(channel.registerBundle(groupId, peer.peerId, bundle));
+      });
+      ref.onDispose(() {
+        unawaited(presence.cancel());
+        unawaited(established.cancel());
+        unawaited(packages.cancel());
+        unawaited(channel.unbindTransport(groupId, adapter));
+        unawaited(adapter.close());
+      });
+      return const GroupE2eWiring();
+    });
+
+/// E2E-мост активной группы; живёт на уровне приложения, а не экрана.
+final activeGroupE2eWiringProvider =
+    FutureProvider.autoDispose<GroupE2eWiring?>((ref) async {
+      final groupId = await ref.watch(activeGroupIdProvider.future);
+      if (groupId == null) return null;
+      return ref.watch(groupE2eWiringProvider(groupId).future);
+    });
 
 /// Создание, join и открытие групп по сохранённому корню.
 ///

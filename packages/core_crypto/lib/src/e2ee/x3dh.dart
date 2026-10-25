@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:core_domain/core_domain.dart';
+
 import '../hkdf.dart';
 import '../crypto_exceptions.dart';
 import '../crypto_provider.dart';
@@ -26,7 +27,50 @@ class X3DH {
     final spkPair = await _x25519.newKeyPair();
     // Ed25519 ключ для подписи привязки SPK (DESIGN.md §13.2).
     final signingPair = await _ed25519.newKeyPair();
+    return _bundleFromPairs(
+      ikPair: ikPair,
+      spkPair: spkPair,
+      signingPair: signingPair,
+    );
+  }
 
+  /// Создаёт X3DH-бандл, привязанный к Ed25519 identity.
+  ///
+  /// IK и SPK детерминированно выводятся из seed identity, а подпись SPK
+  /// выполняется самим identity-ключом. Поэтому
+  /// `publicBundle.ed25519PublicKey` совпадает с `UserId` узла, а бандл
+  /// восстанавливается после рестарта без отдельного секрета.
+  Future<X3DHKeyBundle> generateIdentityBoundKeyBundle({
+    required SecretKey identitySeed,
+  }) async {
+    final seedBytes = Uint8List.fromList(await identitySeed.extractBytes());
+    final ikSeed = await _hkdf.deriveBytes(
+      secret: SecretKey(seedBytes),
+      salt: Uint8List(32),
+      info: Uint8List.fromList(utf8.encode('opensink/x3dh/ik/v1')),
+      length: 32,
+    );
+    final spkSeed = await _hkdf.deriveBytes(
+      secret: SecretKey(seedBytes),
+      salt: Uint8List(32),
+      info: Uint8List.fromList(utf8.encode('opensink/x3dh/spk/v1')),
+      length: 32,
+    );
+    final ikPair = await _x25519.newKeyPairFromSeed(ikSeed);
+    final spkPair = await _x25519.newKeyPairFromSeed(spkSeed);
+    final signingPair = await _ed25519.newKeyPairFromSeed(seedBytes);
+    return _bundleFromPairs(
+      ikPair: ikPair,
+      spkPair: spkPair,
+      signingPair: signingPair,
+    );
+  }
+
+  Future<X3DHKeyBundle> _bundleFromPairs({
+    required SimpleKeyPair ikPair,
+    required SimpleKeyPair spkPair,
+    required SimpleKeyPair signingPair,
+  }) async {
     final ikPublicKey = await ikPair.extractPublicKey();
     final spkPublicKey = await spkPair.extractPublicKey();
 
@@ -144,6 +188,9 @@ class X3DH {
 
   /// Проверяет привязку SPK к IK (DESIGN.md §13.2).
   /// Возвращает false при отсутствии или неверной подписи.
+  Future<bool> verifyPublicBundle(X3DHPublicBundle bundle) =>
+      _verifySpkBinding(bundle);
+
   Future<bool> _verifySpkBinding(X3DHPublicBundle bundle) async {
     final signatureHex = bundle.signedPrekeySignature;
     if (signatureHex == null || signatureHex.isEmpty) {
@@ -156,7 +203,9 @@ class X3DH {
         return false;
       }
 
-      final spkBytes = Uint8List.fromList((bundle.signedPrekey as SimplePublicKey).bytes);
+      final spkBytes = Uint8List.fromList(
+        (bundle.signedPrekey as SimplePublicKey).bytes,
+      );
       final signingContext = Uint8List.fromList(
         utf8.encode('$_spkBindingContext|'),
       );
@@ -184,6 +233,7 @@ class X3DHPublicBundle {
 
   final PublicKey identityKey;
   final PublicKey signedPrekey;
+
   /// Открытый ключ Ed25519 для проверки привязки SPK (DESIGN.md §13.2).
   final PublicKey ed25519PublicKey;
   final String? signedPrekeySignature;
@@ -203,16 +253,17 @@ class X3DHKeyBundle {
   final SecretKey identityPrivateKey;
   final PublicKey signedPrekey;
   final SecretKey signedPrekeyPrivateKey;
+
   /// Открытый ключ Ed25519 для проверки привязки.
   final PublicKey ed25519PublicKey;
   final String signedPrekeySignature;
 
   X3DHPublicBundle toPublicBundle() => X3DHPublicBundle(
-        identityKey: identityKey,
-        signedPrekey: signedPrekey,
-        ed25519PublicKey: ed25519PublicKey,
-        signedPrekeySignature: signedPrekeySignature,
-      );
+    identityKey: identityKey,
+    signedPrekey: signedPrekey,
+    ed25519PublicKey: ed25519PublicKey,
+    signedPrekeySignature: signedPrekeySignature,
+  );
 }
 
 class X3DHSenderResult {

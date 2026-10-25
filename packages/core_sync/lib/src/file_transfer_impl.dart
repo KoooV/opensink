@@ -58,16 +58,21 @@ class FileTransferServiceImpl implements FileTransferService {
   @override
   Future<Result<void, FileTransferError>> seed(
     FileManifest manifest,
-    Uint8List bytes,
-  ) async {
+    Uint8List bytes, {
+    String? groupId,
+  }) async {
     final invalid = _validate(manifest);
     if (invalid != null) return Err(invalid);
+    final effectiveGroup = _effectiveGroupId(manifest, groupId);
+    if (effectiveGroup == null) {
+      return const Err(InvalidManifest('group id mismatch'));
+    }
     if (bytes.length != manifest.size) {
       return const Err(InvalidManifest('size mismatch'));
     }
     final received = await store.receivedChunks(manifest.fileId);
     final missingBytes = _missingBytes(manifest, received);
-    final quota = await _checkQuota(manifest.groupId, missingBytes);
+    final quota = await _checkQuota(effectiveGroup, missingBytes);
     if (quota != null) return Err(quota);
     for (var index = 0; index < manifest.chunkCount; index++) {
       if (received.contains(index)) continue;
@@ -79,7 +84,7 @@ class FileTransferServiceImpl implements FileTransferService {
         manifest.fileId,
         index,
         bytes.sublist(offset, end),
-        groupId: manifest.groupId,
+        groupId: effectiveGroup,
       );
     }
     return const Ok(null);
@@ -91,9 +96,14 @@ class FileTransferServiceImpl implements FileTransferService {
     List<BlobSource> sources, {
     int maxSources = FileLimits.maxSources,
     int window = 8,
+    String? groupId,
   }) async {
     final invalid = _validate(manifest);
     if (invalid != null) return Err(invalid);
+    final effectiveGroup = _effectiveGroupId(manifest, groupId);
+    if (effectiveGroup == null) {
+      return const Err(InvalidManifest('group id mismatch'));
+    }
     final selected = sources
         .take(maxSources.clamp(1, FileLimits.maxSources))
         .toList();
@@ -104,7 +114,7 @@ class FileTransferServiceImpl implements FileTransferService {
     ];
     if (missing.isNotEmpty) {
       final quota = await _checkQuota(
-        manifest.groupId,
+        effectiveGroup,
         _missingBytes(manifest, received),
       );
       if (quota != null) return Err(quota);
@@ -125,6 +135,7 @@ class FileTransferServiceImpl implements FileTransferService {
             selected,
             index,
             chunksBySource,
+            effectiveGroup,
           );
           return source;
         }),
@@ -152,6 +163,7 @@ class FileTransferServiceImpl implements FileTransferService {
     List<BlobSource> sources,
     int index,
     Map<String, int> chunksBySource,
+    String effectiveGroup,
   ) async {
     if (sources.isEmpty) return false;
     final offset = index % sources.length;
@@ -172,7 +184,7 @@ class FileTransferServiceImpl implements FileTransferService {
         manifest.fileId,
         index,
         data,
-        groupId: manifest.groupId,
+        groupId: effectiveGroup,
       );
       chunksBySource[source.peerId] = (chunksBySource[source.peerId] ?? 0) + 1;
       return true;
@@ -208,6 +220,18 @@ class FileTransferServiceImpl implements FileTransferService {
       return const Err(InvalidManifest('root mismatch'));
     }
     return Ok(bytes);
+  }
+
+  String? _effectiveGroupId(FileManifest manifest, String? explicit) {
+    final requested = explicit?.trim();
+    if (requested != null &&
+        requested.isNotEmpty &&
+        manifest.groupId.isNotEmpty &&
+        requested != manifest.groupId) {
+      return null;
+    }
+    if (requested != null && requested.isNotEmpty) return requested;
+    return manifest.groupId;
   }
 
   InvalidManifest? _validate(FileManifest manifest) {
