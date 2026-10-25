@@ -15,7 +15,9 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [notificationServiceProvider.overrideWithValue(service)],
+        overrides: [
+          inAppNotificationServiceProvider.overrideWithValue(service),
+        ],
         child: const MaterialApp(
           home: NotificationHost(child: Scaffold(body: Text('чат'))),
         ),

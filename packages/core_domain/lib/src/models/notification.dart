@@ -31,3 +31,16 @@ abstract class NotificationService {
 
   Future<void> cancelAll();
 }
+
+/// Платформенный канал OS-уведомлений.
+///
+/// Реализации живут в `platform_*`; `show` возвращает `false`, если канал
+/// недоступен (нет `notify-send`, запрет Web Notifications, отозванное
+/// разрешение Android), чтобы вызывающий слой показал in-app fallback.
+abstract class SystemNotificationBackend {
+  Future<bool> show(ChatNotification notification);
+
+  Future<void> cancel(String id);
+
+  Future<void> cancelAll();
+}

@@ -20,7 +20,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../group/group_invite_proof_verifier.dart';
 import '../group/group_invite_service.dart';
 import '../group/group_secret_store.dart';
+import '../group/sender_key_package_store.dart';
+import '../group/sender_key_verifier.dart';
 import '../notifications/in_app_notification_service.dart';
+import '../notifications/os_notification_service.dart';
+import 'notification_backend_platform.dart';
 import 'secure_key_store_platform.dart';
 import 'sync_links.dart';
 import 'storage_backend_platform.dart';
@@ -275,10 +279,27 @@ final fileTransferServiceProvider = FutureProvider<FileTransferService>((
   return service;
 });
 
-final notificationServiceProvider = Provider<InAppNotificationService>((ref) {
+final inAppNotificationServiceProvider = Provider<InAppNotificationService>((
+  ref,
+) {
   final service = InAppNotificationService();
   ref.onDispose(() => unawaited(service.close()));
   return service;
+});
+
+/// Платформенный канал OS-уведомлений.
+final systemNotificationBackendProvider = Provider<SystemNotificationBackend>((
+  ref,
+) {
+  return createPlatformNotificationBackend();
+});
+
+/// OS-уведомления с in-app fallback.
+final notificationServiceProvider = Provider<NotificationService>((ref) {
+  return OsNotificationService(
+    system: ref.watch(systemNotificationBackendProvider),
+    fallback: ref.watch(inAppNotificationServiceProvider),
+  );
 });
 
 final notificationRouterProvider = Provider<ChatNotificationRouter>((ref) {
@@ -378,11 +399,27 @@ final syncEngineProvider = FutureProvider<SyncEngineImpl>((ref) async {
   return engine;
 });
 
-/// Доставка sender keys. Production-реализация появится вместе с E2E-личными
-/// сообщениями; пока используется in-memory fake из `core_group`.
-final groupKeyDistributorProvider = Provider<GroupKeyDistributor>((ref) {
-  return InMemoryGroupKeyDistributor();
+/// Кэш/карантин sender key пакетов в защищённом хранилище.
+final senderKeyPackageStoreProvider = Provider<SenderKeyPackageStore>((ref) {
+  return SecureSenderKeyPackageStore(ref.watch(secureKeyStoreProvider));
 });
+
+/// Production-рассылка sender keys.
+///
+/// E2E-канал личных сообщений ещё не подключён, поэтому доставка fail-closed:
+/// пакеты остаются pending и повторяются через `retryPending` после
+/// появления сессии. Verified-кэш и карантин работают сразу.
+final groupKeyDistributorProvider =
+    FutureProvider<ProductionGroupKeyDistributor>((ref) async {
+      final identity = await ref.watch(localIdentityProvider.future);
+      final metadata = await ref.watch(groupMetadataStoreProvider.future);
+      return ProductionGroupKeyDistributor(
+        localUser: identity.userId,
+        delivery: const UnavailableSenderKeyDelivery(),
+        store: ref.watch(senderKeyPackageStoreProvider),
+        verifier: TrustedGroupSenderKeyVerifier(metadata),
+      );
+    });
 
 /// Доверенные метаданные групп (genesis, активная группа).
 final groupMetadataStoreProvider = FutureProvider<GroupMetadataStore>((
@@ -404,7 +441,7 @@ final groupLifecycleProvider = FutureProvider<GroupLifecycle>((ref) async {
   return GroupLifecycle(
     syncEngine: engine,
     metadataStore: metadataStore,
-    distributor: ref.watch(groupKeyDistributorProvider),
+    distributor: await ref.watch(groupKeyDistributorProvider.future),
     groupSecretStore: secretStore,
     inviteProofVerifier: verifiers,
     onGroupSecret: verifiers.rememberBytes,
@@ -534,8 +571,10 @@ class GroupOpenException implements Exception {
 final groupSyncBridgeProvider = FutureProvider.autoDispose
     .family<GroupSyncBridge, GroupId>((ref, groupId) async {
       final lifecycle = await ref.watch(groupLifecycleProvider.future);
+      final distributor = await ref.watch(groupKeyDistributorProvider.future);
       final verifiers = ref.watch(groupInviteProofVerifierRegistryProvider);
       await verifiers.preload(groupId);
+      await distributor.restore(groupId);
       GroupSyncBridge? bridge;
       var disposed = false;
       ref.onDispose(() {

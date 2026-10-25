@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:app/di/providers.dart';
 import 'package:app/notifications/in_app_notification_service.dart';
+import 'package:app/notifications/os_notification_service.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:core_storage/core_storage.dart';
 import 'package:drift/native.dart';
@@ -40,11 +41,19 @@ void main() {
   );
 
   test('уведомления подключены к production-сервису, а не fake', () async {
-    final container = ProviderContainer();
+    final inApp = InAppNotificationService();
+    addTearDown(inApp.close);
+    final backend = _RecordingBackend();
+    final container = ProviderContainer(
+      overrides: [
+        inAppNotificationServiceProvider.overrideWithValue(inApp),
+        systemNotificationBackendProvider.overrideWithValue(backend),
+      ],
+    );
     addTearDown(container.dispose);
 
     final notifications = container.read(notificationServiceProvider);
-    expect(notifications, isA<InAppNotificationService>());
+    expect(notifications, isA<OsNotificationService>());
 
     const notification = ChatNotification(
       id: 'n1',
@@ -57,9 +66,26 @@ void main() {
       createdAt: 1,
     );
     await notifications.show(notification);
-    expect(notifications.active, hasLength(1));
+    expect(backend.shown, 1);
+    expect(inApp.active, isEmpty);
 
     await notifications.cancel('n1');
-    expect(notifications.active, isEmpty);
+    expect(inApp.active, isEmpty);
   });
+}
+
+class _RecordingBackend implements SystemNotificationBackend {
+  int shown = 0;
+
+  @override
+  Future<bool> show(ChatNotification notification) async {
+    shown++;
+    return true;
+  }
+
+  @override
+  Future<void> cancel(String id) async {}
+
+  @override
+  Future<void> cancelAll() async {}
 }

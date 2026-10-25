@@ -56,6 +56,14 @@ List<Override> _overridesFor(
   return [
     syncEngineProvider.overrideWith((ref) async => deps.engine),
     groupMetadataStoreProvider.overrideWith((ref) async => deps.metadataStore),
+    groupKeyDistributorProvider.overrideWith(
+      (ref) async => ProductionGroupKeyDistributor(
+        localUser: const UserId('test-user'),
+        delivery: const UnavailableSenderKeyDelivery(),
+        store: MemorySenderKeyPackageStore(),
+        verifier: _AllowAllVerifier(),
+      ),
+    ),
     groupLifecycleProvider.overrideWith((ref) async {
       final engine = await ref.watch(syncEngineProvider.future);
       final store = await ref.watch(groupMetadataStoreProvider.future);
@@ -68,6 +76,15 @@ List<Override> _overridesFor(
       return lifecycle;
     }),
   ];
+}
+
+class _AllowAllVerifier implements SenderKeyPackageVerifier {
+  @override
+  Future<Result<void, SenderKeyPackageError>> verify(
+    SenderKeyPackage package,
+  ) async {
+    return const Ok(null);
+  }
 }
 
 class _GateLifecycle extends GroupLifecycle {

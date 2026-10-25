@@ -225,9 +225,9 @@ approval-заявок и QR инвайта реализован. Режим appr
 
 ## Решения poll 2026-10-25 (Layer-10 / invitations)
 
-- OS-уведомления отложены; для MVP принят in-app `NotificationService`.
+- OS-уведомления подключены на Android/Linux/Web с in-app fallback; политика foreground (не дублировать) не определена.
 - Квота `blob_transfers` — общая на устройство (512 МиБ); per-group квота позже.
 - QR используется только для invite-URI; LAN/QR signaling (SIG-OPEN-06) отложен.
 - Режим approval не входит в `InviteLink`; он выводится из подписанного `InviteIssued`,
   до загрузки истории join остаётся pending.
-- Production `ChatService` не включается до production `GroupKeyDistributor` (E2EE).
+- Production `ChatService` не включается до E2E-доставки sender keys; кэш/карантин `GroupKeyDistributor` готовы, доставка pending/fail-closed.

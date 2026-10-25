@@ -22,7 +22,7 @@ class _NotificationHostState extends ConsumerState<NotificationHost> {
   @override
   void initState() {
     super.initState();
-    final service = ref.read(notificationServiceProvider);
+    final service = ref.read(inAppNotificationServiceProvider);
     _subscription = service.incoming.listen(_present);
   }
 

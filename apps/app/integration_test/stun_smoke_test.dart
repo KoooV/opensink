@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:core_peer/core_peer.dart';
 import 'package:core_peer/core_peer_flutter.dart';
 import 'package:flutter_test/flutter_test.dart';
