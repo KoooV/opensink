@@ -1009,6 +1009,176 @@ void main() {
     });
   });
 
+  group('R-10: failover без удаления presence', () {
+    test('accept при сбое прямого адресата пробует релея', () async {
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final b = SimNode(id: peer(2), topology: topology);
+      final c = SimNode(
+        id: peer(3),
+        topology: topology,
+        config: const RelayConfig(
+          relayEnabled: true,
+          forwardTimeout: Duration(milliseconds: 5),
+        ),
+      );
+      final d = SimNode(id: peer(4), topology: topology);
+
+      announce(topology, b.id, neighbors: [c.id], canRelay: false);
+      announce(topology, d.id, neighbors: [c.id, b.id]);
+      c.direct.blackhole.add(b.id);
+      c.direct.reachable.add(d.id);
+
+      final frame = RelayFrame(
+        dst: b.id.publicKey,
+        src: a.id.publicKey,
+        ttl: 2,
+        hopCount: 0,
+        nonce: frameNonce(20),
+        payload: Uint8List.fromList([1, 2, 3]),
+      );
+      await c.relay.accept(a.id, await signedEnvelope(a, frame));
+
+      expect(c.relay.metrics.forwardFailed, 1);
+      expect(c.direct.sent.single.dst, d.id);
+      expect(topology.infoFor(b.id), isNotNull);
+      expect(topology.linked(c.id, b.id), isTrue);
+      expect(topology.infoFor(d.id)?.canRelay, isTrue);
+    });
+
+    test('accept снимает только relay-роль упавшего релея', () async {
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final b = SimNode(id: peer(2), topology: topology);
+      final c = SimNode(
+        id: peer(3),
+        topology: topology,
+        config: const RelayConfig(
+          relayEnabled: true,
+          forwardTimeout: Duration(milliseconds: 5),
+        ),
+      );
+      final d = SimNode(id: peer(4), topology: topology);
+      final e = SimNode(id: peer(5), topology: topology);
+
+      announce(
+        topology,
+        d.id,
+        neighbors: [c.id, b.id],
+        rtt: const Duration(milliseconds: 5),
+      );
+      announce(
+        topology,
+        e.id,
+        neighbors: [c.id, b.id],
+        rtt: const Duration(milliseconds: 50),
+      );
+      c.direct.blackhole.add(d.id);
+      c.direct.reachable.add(e.id);
+
+      final frame = RelayFrame(
+        dst: b.id.publicKey,
+        src: a.id.publicKey,
+        ttl: 2,
+        hopCount: 0,
+        nonce: frameNonce(21),
+        payload: Uint8List.fromList([4, 5, 6]),
+      );
+      await c.relay.accept(a.id, await signedEnvelope(a, frame));
+
+      expect(c.direct.sent.single.dst, e.id);
+      expect(topology.infoFor(d.id), isNotNull);
+      expect(topology.infoFor(d.id)?.canRelay, isFalse);
+      expect(topology.infoFor(d.id)?.neighbors, containsAll([c.id, b.id]));
+      expect(topology.infoFor(e.id)?.canRelay, isTrue);
+
+      await c.relay.accept(
+        a.id,
+        await signedEnvelope(
+          a,
+          frame.copyWith(nonce: frameNonce(22), payload: Uint8List.fromList([7])),
+        ),
+      );
+      expect(c.direct.sent.last.dst, e.id);
+      expect(c.relay.metrics.forwardFailed, 1);
+    });
+
+    test('accept считает forwardExhausted при исчерпании альтернатив', () async {
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final b = SimNode(id: peer(2), topology: topology);
+      final c = SimNode(
+        id: peer(3),
+        topology: topology,
+        config: const RelayConfig(
+          relayEnabled: true,
+          forwardTimeout: Duration(milliseconds: 5),
+        ),
+      );
+      final d = SimNode(id: peer(4), topology: topology);
+
+      announce(topology, d.id, neighbors: [c.id, b.id]);
+      c.direct.blackhole.add(d.id);
+
+      final frame = RelayFrame(
+        dst: b.id.publicKey,
+        src: a.id.publicKey,
+        ttl: 2,
+        hopCount: 0,
+        nonce: frameNonce(23),
+        payload: Uint8List.fromList([1]),
+      );
+      await c.relay.accept(a.id, await signedEnvelope(a, frame));
+
+      expect(c.direct.sent, isEmpty);
+      expect(c.relay.metrics.forwardFailed, 1);
+      expect(c.relay.metrics.forwardExhausted, 1);
+      expect(topology.infoFor(d.id), isNotNull);
+      expect(topology.infoFor(d.id)?.canRelay, isFalse);
+    });
+
+    test('deliver снимает relay-роль и сохраняет presence релея', () async {
+      final topology = RelayTopology();
+      final a = SimNode(
+        id: peer(1),
+        topology: topology,
+        config: const RelayConfig(
+          relayEnabled: true,
+          directTimeout: Duration(milliseconds: 5),
+          forwardTimeout: Duration(milliseconds: 5),
+        ),
+      );
+      final b = SimNode(id: peer(2), topology: topology);
+      final c = SimNode(id: peer(3), topology: topology);
+      final d = SimNode(id: peer(4), topology: topology);
+
+      announce(
+        topology,
+        c.id,
+        neighbors: [a.id, b.id],
+        rtt: const Duration(milliseconds: 5),
+      );
+      announce(
+        topology,
+        d.id,
+        neighbors: [a.id, b.id],
+        rtt: const Duration(milliseconds: 50),
+      );
+      a.direct.blackhole.add(c.id);
+      a.direct.reachable.add(d.id);
+      d.direct.reachable.add(b.id);
+
+      final result = await a.relay.deliver(b.id, [8, 9]);
+
+      expect(result, isA<RelayedSent>());
+      expect((result as RelayedSent).relay, d.id);
+      expect(a.direct.sent.single.dst, d.id);
+      expect(topology.infoFor(c.id), isNotNull);
+      expect(topology.infoFor(c.id)?.canRelay, isFalse);
+      expect(topology.infoFor(d.id)?.canRelay, isTrue);
+    });
+  });
+
   test('MemberRelay реализует доменный Relay', () async {
     final topology = RelayTopology();
     final a = SimNode(id: peer(1), topology: topology);

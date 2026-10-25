@@ -206,7 +206,7 @@ class RelayTransport implements Transport {
         return RelayedSent(relay.peerId);
       } catch (_) {
         metrics.relaySendFailed += 1;
-        topology.remove(relay.peerId);
+        topology.disableRelay(relay.peerId);
       }
     }
 
@@ -307,36 +307,50 @@ class RelayTransport implements Transport {
         return;
       }
 
-      final nextHop = topology.nextHop(
-        from: localPeerId,
-        destination: dst,
-      );
-      if (nextHop == null ||
-          nextHop == localPeerId ||
-          nextHop == src ||
-          nextHop == from) {
-        metrics.droppedLoop += 1;
-        return;
-      }
+      final attempted = <PeerId>{};
+      while (true) {
+        final nextHop = topology.nextHop(
+          from: localPeerId,
+          destination: dst,
+          exclude: attempted,
+        );
+        if (nextHop == null ||
+            nextHop == localPeerId ||
+            nextHop == src ||
+            nextHop == from) {
+          if (attempted.isEmpty) {
+            metrics.droppedLoop += 1;
+          } else {
+            metrics.forwardExhausted += 1;
+          }
+          return;
+        }
+        if (!attempted.add(nextHop)) {
+          return;
+        }
 
-      final forwarded = frame
-          .copyWith(unknownFields: const <int, Uint8List>{})
-          .forward();
-      final encoded = RelayEnvelope.encode(forwarded);
-      if (encoded.length > config.maxFrameBytes) {
-        metrics.droppedOversize += 1;
-        return;
-      }
+        final forwarded = frame
+            .copyWith(unknownFields: const <int, Uint8List>{})
+            .forward();
+        final encoded = RelayEnvelope.encode(forwarded);
+        if (encoded.length > config.maxFrameBytes) {
+          metrics.droppedOversize += 1;
+          return;
+        }
 
-      try {
-        await direct
-            .sendRelay(nextHop, encoded)
-            .timeout(config.forwardTimeout);
-        metrics.recordForward(from, encoded.length);
-        _remember(key);
-      } catch (_) {
-        metrics.forwardFailed += 1;
-        topology.remove(nextHop);
+        try {
+          await direct
+              .sendRelay(nextHop, encoded)
+              .timeout(config.forwardTimeout);
+          metrics.recordForward(from, encoded.length);
+          _remember(key);
+          return;
+        } catch (_) {
+          metrics.forwardFailed += 1;
+          if (nextHop != dst) {
+            topology.disableRelay(nextHop);
+          }
+        }
       }
     } finally {
       _inFlight.remove(key);

@@ -17,6 +17,7 @@ class RelayMetrics {
   int forwarded = 0;
   int forwardedBytes = 0;
   int forwardFailed = 0;
+  int forwardExhausted = 0;
   int droppedDuplicate = 0;
   int droppedTtl = 0;
   int droppedDisabled = 0;
@@ -55,5 +56,5 @@ class RelayMetrics {
       'malformed=$droppedMalformed, loop=$droppedLoop, '
       'unauthenticated=$droppedUnauthenticated, '
       'badSignature=$droppedBadSignature, noRoute=$noRoute, '
-      'forwardFailed=$forwardFailed)';
+      'forwardFailed=$forwardFailed, forwardExhausted=$forwardExhausted)';
 }

@@ -110,6 +110,15 @@ class RelayTopology {
     _peers.remove(peerId);
   }
 
+  /// Снимает с узла только relay-роль, сохраняя его presence и прямые линки.
+  void disableRelay(PeerId peerId) {
+    final peer = _peers[peerId];
+    if (peer == null || !peer.canRelay) {
+      return;
+    }
+    _peers[peerId] = peer.copyWith(canRelay: false);
+  }
+
   RelayPeer? infoFor(PeerId peerId) => _peers[peerId];
 
   Set<PeerId> neighborsOf(PeerId peerId) =>
@@ -174,11 +183,19 @@ class RelayTopology {
   /// Следующий хоп из [from] к [destination].
   ///
   /// Прямой сосед предпочтительнее; иначе выбирается общий релей.
-  PeerId? nextHop({required PeerId from, required PeerId destination}) {
-    if (linked(from, destination)) {
+  PeerId? nextHop({
+    required PeerId from,
+    required PeerId destination,
+    Set<PeerId> exclude = const <PeerId>{},
+  }) {
+    if (!exclude.contains(destination) && linked(from, destination)) {
       return destination;
     }
-    return selectRelay(source: from, destination: destination)?.peerId;
+    return selectRelay(
+      source: from,
+      destination: destination,
+      exclude: exclude,
+    )?.peerId;
   }
 
   /// Доступен ли маршрут (прямой или через релея).

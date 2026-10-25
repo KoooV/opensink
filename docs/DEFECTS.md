@@ -25,17 +25,18 @@
 
 ## Релей (core_relay, ревью 2026-10-24)
 
-R-01…R-09 закрыты 2026-10-25 (аутентификация первого хопа, LRU-лимиты,
+R-01…R-10 закрыты 2026-10-25 (аутентификация первого хопа, LRU-лимиты,
 единый размер, token bucket до парсинга, unknown-поля, seen/in-flight,
 MemberRelay, relay-тег и opt-in default). Дополнительно 2026-10-25:
 Ed25519-подпись origin, `originTtl = ttl + hopCount`, подписанный nonce(16),
 отдельный `PeerChannels.relay` и `Transport.relayIncoming/sendRelay`;
-`RelayEnvelope` v3.
+`RelayEnvelope` v3. R-10: `accept`/`deliver` перебирают альтернативы, сбой
+снимает только relay-роль (`disableRelay`), presence сохраняется; исчерпание
+альтернатив в `accept` считается в `forwardExhausted`.
 Остаточные пункты:
 
 | id | Место | Риск | Проверка / статус |
 |----|-------|------|-------------------|
-| R-10 | `packages/core_relay/lib/src/relay_transport.dart:241-277` | `accept` пробует один `nextHop`; при сбое `topology.remove(nextHop)` может удалить валидный presence получателя. | minor; перебирать альтернативы, удалять только relay-роль. |
 | R-11 | `packages/core_relay/lib/src/relay_topology.dart:46-47,94-102,105-107` | `applyPresence` перезаписывает запись без сравнения `updatedAt`; старый анонс или `at` в будущем меняет маршруты. | minor; монотонность и ограничение будущих меток (подпись presence закрыта в Q37). |
 | R-12 | `packages/core_relay/lib/src/relay_transport.dart:85-88,212-219,280-300` | Broadcast `incoming` теряет кадры до подписки при уже увеличенном `delivered`; синтетическое `'closed'` вне контракта; `close()` не закрывает `direct`. | minor; определить владение, буферизацию и события. |
 | R-13 | `packages/core_relay/pubspec.yaml:15`; `relay_transport.dart:7` | Для не-security fingerprint используется `package:crypto`, формально расходится с hard rule `package:cryptography`. | minor; заменить или локально задокументировать. |
