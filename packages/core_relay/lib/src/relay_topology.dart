@@ -91,18 +91,42 @@ class RelayTopology {
     int loadBytesPerSecond = 0,
     DateTime? at,
   }) {
-    _peers[peerId] = RelayPeer(
-      peerId: peerId,
-      neighbors: Set<PeerId>.unmodifiable(neighbors),
-      updatedAt: at ?? _clock(),
-      canRelay: canRelay,
-      capacityBytesPerSecond: capacityBytesPerSecond,
-      rtt: rtt,
-      loadBytesPerSecond: loadBytesPerSecond,
+    final now = _clock();
+    final receivedAt = at != null && at.isAfter(now) ? now : (at ?? now);
+    _apply(
+      RelayPeer(
+        peerId: peerId,
+        neighbors: Set<PeerId>.unmodifiable(neighbors),
+        updatedAt: receivedAt,
+        canRelay: canRelay,
+        capacityBytesPerSecond: capacityBytesPerSecond,
+        rtt: rtt,
+        loadBytesPerSecond: loadBytesPerSecond,
+      ),
     );
   }
 
   void announce(RelayPeer peer) {
+    final now = _clock();
+    _apply(
+      RelayPeer(
+        peerId: peer.peerId,
+        neighbors: Set<PeerId>.unmodifiable(peer.neighbors),
+        updatedAt: peer.updatedAt.isAfter(now) ? now : peer.updatedAt,
+        canRelay: peer.canRelay,
+        capacityBytesPerSecond: peer.capacityBytesPerSecond,
+        rtt: peer.rtt,
+        loadBytesPerSecond: peer.loadBytesPerSecond,
+      ),
+    );
+  }
+
+  /// Применяет только более новый анонс: старый не откатывает маршруты.
+  void _apply(RelayPeer peer) {
+    final current = _peers[peer.peerId];
+    if (current != null && !peer.updatedAt.isAfter(current.updatedAt)) {
+      return;
+    }
     _peers[peer.peerId] = peer;
   }
 

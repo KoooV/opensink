@@ -282,6 +282,177 @@ void main() {
 
       expect(topology.selectRelay(source: a, destination: b)?.peerId, fast);
     });
+
+    test('R-11: старый и повторный presence не откатывают маршруты', () {
+      final clock = FakeClock(DateTime.utc(2026));
+      final topology = RelayTopology(
+        clock: clock.call,
+        maxAge: const Duration(minutes: 1),
+      );
+      final a = peer(1);
+      final b = peer(2);
+      final c = peer(3);
+      final d = peer(4);
+      final now = clock();
+
+      topology.applyPresence(
+        c,
+        neighbors: [a, b],
+        canRelay: true,
+        capacityBytesPerSecond: 1000,
+        rtt: const Duration(milliseconds: 20),
+        at: now,
+      );
+      topology.applyPresence(
+        c,
+        neighbors: [a, d],
+        canRelay: false,
+        rtt: const Duration(milliseconds: 1),
+        at: now.subtract(const Duration(seconds: 1)),
+      );
+      topology.applyPresence(
+        c,
+        neighbors: [a, d],
+        canRelay: false,
+        rtt: const Duration(milliseconds: 1),
+        at: now,
+      );
+
+      expect(topology.infoFor(c)?.neighbors, {a, b});
+      expect(topology.infoFor(c)?.canRelay, isTrue);
+      expect(topology.candidates(source: a, destination: b), hasLength(1));
+      expect(topology.selectRelay(source: a, destination: b)?.peerId, c);
+    });
+
+    test('R-11: будущий updatedAt ограничен временем получения', () {
+      final clock = FakeClock(DateTime.utc(2026));
+      final topology = RelayTopology(
+        clock: clock.call,
+        maxAge: const Duration(minutes: 1),
+      );
+      final a = peer(1);
+      final b = peer(2);
+      final c = peer(3);
+      final now = clock();
+
+      topology.applyPresence(
+        c,
+        neighbors: [a, b],
+        canRelay: true,
+        capacityBytesPerSecond: 1000,
+        at: now.add(const Duration(days: 365)),
+      );
+
+      expect(topology.infoFor(c)?.updatedAt, now);
+      expect(topology.candidates(source: a, destination: b), hasLength(1));
+
+      clock.advance(const Duration(minutes: 2));
+      expect(topology.candidates(source: a, destination: b), isEmpty);
+    });
+
+    test('R-11: disableRelay держится до более нового presence', () {
+      final clock = FakeClock(DateTime.utc(2026));
+      final topology = RelayTopology(clock: clock.call);
+      final a = peer(1);
+      final b = peer(2);
+      final c = peer(3);
+      final now = clock();
+
+      topology.applyPresence(
+        c,
+        neighbors: [a, b],
+        canRelay: true,
+        capacityBytesPerSecond: 1000,
+        at: now.subtract(const Duration(seconds: 10)),
+      );
+      topology.disableRelay(c);
+      topology.applyPresence(
+        c,
+        neighbors: [a, b],
+        canRelay: true,
+        capacityBytesPerSecond: 1000,
+        at: now.subtract(const Duration(seconds: 20)),
+      );
+
+      expect(topology.infoFor(c)?.canRelay, isFalse);
+
+      topology.applyPresence(
+        c,
+        neighbors: [a, b],
+        canRelay: true,
+        capacityBytesPerSecond: 1000,
+        at: now,
+      );
+
+      expect(topology.infoFor(c)?.canRelay, isTrue);
+    });
+
+    test('R-11: announce соблюдает монотонность и границу будущего', () {
+      final clock = FakeClock(DateTime.utc(2026));
+      final topology = RelayTopology(clock: clock.call);
+      final a = peer(1);
+      final b = peer(2);
+      final c = peer(3);
+      final now = clock();
+
+      topology.announce(
+        RelayPeer(
+          peerId: c,
+          neighbors: {a, b},
+          updatedAt: now.subtract(const Duration(seconds: 10)),
+          canRelay: true,
+          capacityBytesPerSecond: 1000,
+        ),
+      );
+      topology.announce(
+        RelayPeer(
+          peerId: c,
+          neighbors: {b},
+          updatedAt: now.subtract(const Duration(seconds: 20)),
+          canRelay: false,
+        ),
+      );
+
+      expect(topology.infoFor(c)?.neighbors, {a, b});
+      expect(topology.infoFor(c)?.canRelay, isTrue);
+
+      topology.announce(
+        RelayPeer(
+          peerId: c,
+          neighbors: {a},
+          updatedAt: now.add(const Duration(days: 365)),
+          canRelay: false,
+        ),
+      );
+
+      expect(topology.infoFor(c)?.updatedAt, now);
+      expect(topology.infoFor(c)?.neighbors, {a});
+      expect(topology.infoFor(c)?.canRelay, isFalse);
+    });
+
+    test('R-11: announce не разделяет neighbors с вызывающим', () {
+      final topology = RelayTopology();
+      final a = peer(1);
+      final b = peer(2);
+      final c = peer(3);
+      final neighbors = <PeerId>{a, b};
+
+      topology.announce(
+        RelayPeer(
+          peerId: c,
+          neighbors: neighbors,
+          updatedAt: DateTime.utc(2026),
+          canRelay: true,
+          capacityBytesPerSecond: 1000,
+        ),
+      );
+
+      neighbors
+        ..clear()
+        ..add(peer(9));
+
+      expect(topology.infoFor(c)?.neighbors, {a, b});
+    });
   });
 
   group('RelayTransport', () {

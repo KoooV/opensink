@@ -72,7 +72,11 @@
 ключевание лимитов по `from`, LRU-границы, единые размеры, bucket до парсинга,
 учёт unknown-полей, seen после успеха и in-flight, проброс ошибок
 `MemberRelay`, relay-тег и opt-in default. Тесты (21) и `dart analyze` чисты.
-Остаточные пункты `R-11`–`R-15` — в `docs/DEFECTS.md`, раздел «Релей».
+R-11: `applyPresence`/`announce` применяют только более новый `updatedAt`, а
+будущие метки ограничивают локальным временем получения, а `announce`
+копирует `neighbors` в unmodifiable-set; старый presence не откатывает
+маршруты и снятую relay-роль.
+Остаточные пункты `R-12`–`R-15` — в `docs/DEFECTS.md`, раздел «Релей».
 
 ## Решения poll (2026-10-25)
 
@@ -83,6 +87,10 @@
 | Область `attempted` | per-frame перебор; relay-роль снимается глобально в локальной топологии |
 | Метрика исчерпания | добавлен `forwardExhausted` на кадр при исчерпании альтернатив в `accept` |
 | Границы R-10 | буферизация `incoming`, synthetic `'closed'` и `close()` — в R-12 |
+| Будущий `at` | clamp до локального времени получения |
+| Равный `updatedAt` | игнорировать (строгая монотонность) |
+| `disableRelay` | не двигает `updatedAt`; ждать более новый presence |
+| `neighbors` в `announce` | unmodifiable-копия, как в `applyPresence` |
 
 ## Остаточное
 

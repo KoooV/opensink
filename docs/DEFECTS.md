@@ -25,19 +25,20 @@
 
 ## Релей (core_relay, ревью 2026-10-24)
 
-R-01…R-10 закрыты 2026-10-25 (аутентификация первого хопа, LRU-лимиты,
+R-01…R-11 закрыты 2026-10-25 (аутентификация первого хопа, LRU-лимиты,
 единый размер, token bucket до парсинга, unknown-поля, seen/in-flight,
 MemberRelay, relay-тег и opt-in default). Дополнительно 2026-10-25:
 Ed25519-подпись origin, `originTtl = ttl + hopCount`, подписанный nonce(16),
 отдельный `PeerChannels.relay` и `Transport.relayIncoming/sendRelay`;
 `RelayEnvelope` v3. R-10: `accept`/`deliver` перебирают альтернативы, сбой
 снимает только relay-роль (`disableRelay`), presence сохраняется; исчерпание
-альтернатив в `accept` считается в `forwardExhausted`.
+альтернатив в `accept` считается в `forwardExhausted`. R-11: presence
+применяется только при более новом `updatedAt`, будущие метки ограничены
+временем получения, `announce` копирует `neighbors`.
 Остаточные пункты:
 
 | id | Место | Риск | Проверка / статус |
 |----|-------|------|-------------------|
-| R-11 | `packages/core_relay/lib/src/relay_topology.dart:46-47,94-102,105-107` | `applyPresence` перезаписывает запись без сравнения `updatedAt`; старый анонс или `at` в будущем меняет маршруты. | minor; монотонность и ограничение будущих меток (подпись presence закрыта в Q37). |
 | R-12 | `packages/core_relay/lib/src/relay_transport.dart:85-88,212-219,280-300` | Broadcast `incoming` теряет кадры до подписки при уже увеличенном `delivered`; синтетическое `'closed'` вне контракта; `close()` не закрывает `direct`. | minor; определить владение, буферизацию и события. |
 | R-13 | `packages/core_relay/pubspec.yaml:15`; `relay_transport.dart:7` | Для не-security fingerprint используется `package:crypto`, формально расходится с hard rule `package:cryptography`. | minor; заменить или локально задокументировать. |
 | R-14 | `packages/core_relay/lib/src/relay_transport.dart:90,302-315` | `_seen` защищает только 5 минут; после TTL повтор доставляется. Nonce входит в ключ, но окно не расширяет. Для group-sync покрыто sync-дедупом, для прочих payload контракт не зафиксирован. | minor; персистентный replay-window или явная документация. |
