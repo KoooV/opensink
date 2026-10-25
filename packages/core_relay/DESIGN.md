@@ -138,10 +138,22 @@ real-Ed25519 auth.
 | Вопрос | Решение |
 |---|---|
 | Нагрузка кандидата | Наблюдаемая скорость пересылки от этого source; удалённая нагрузка недоступна без изменения presence. |
-| RTT в production | `linkStats` callback; подключение к `WebRtcTransport` — когда `transportProvider` перестанет быть fake. |
+| RTT в production | `linkStats` callback; подключён в DI через `Transport.statsFor` (`WebRtcTransport.linkFor(...).stats`). |
 | Seed при смене local peer | Только при создании транспорта; повторный `setLocalPeer` очищает seeded-линки. |
 | Окно нагрузки | 10 с, константа `RelayMetrics`; в `RelayConfig` не выносим. |
 | Нулевой RTT | Не считается измерением, используется presence-RTT. |
+
+## Решения poll по linkStats в DI (2026-10-26)
+
+| Вопрос | Решение |
+|---|---|
+| Размещение `statsFor` | Метод `Transport.statsFor(PeerId)` с default `null`; отдельный `LinkStatsSource` не вводим. |
+| Семантика `statsFor` | `null` — измерений нет; `RTT == 0` не считается измерением. |
+| Частота обновления RTT | Только в `_observeTopology` при `deliver`/`accept`; события `'stats'` не подписываются. |
+| `RelayTransport.statsFor` | Делегирует `direct`; собственные relay-метрики не смешиваются с RTT. |
+| `FakeTransport.statsFor` | Отдаёт `stats` fake-линков, как `WebRtcTransport`. |
+| `transportProvider` | Остаётся fake; подключение `WebRtcTransport` — отдельная задача. |
+| Смена `transportProvider` | `relayLinkStatsProvider` использует `watch`: callback и relay пересоздаются вместе с транспортом. |
 
 ## Остаточное
 

@@ -145,6 +145,18 @@ void main() {
       );
     });
 
+    test('statsFor отдаёт статистику прямого линка', () async {
+      final fixture = _Fixture();
+      addTearDown(fixture.close);
+      await fixture.start();
+      await fixture.transportA.connect(fixture.peerB);
+
+      final link = fixture.transportA.linkFor(fixture.peerB)!;
+
+      expect(fixture.transportA.statsFor(fixture.peerB), link.stats);
+      expect(fixture.transportA.statsFor(peerId(3)), isNull);
+    });
+
     test('relay channel is separate from control', () async {
       final fixture = _Fixture();
       addTearDown(fixture.close);

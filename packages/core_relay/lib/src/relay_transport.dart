@@ -163,6 +163,9 @@ class RelayTransport implements Transport {
   Stream<RelayDatagram> get relayIncoming => direct.relayIncoming;
 
   @override
+  PeerLinkStats? statsFor(PeerId peerId) => direct.statsFor(peerId);
+
+  @override
   Future<PeerLink> connect(PeerId peerId) => direct.connect(peerId);
 
   @override

@@ -103,8 +103,12 @@ class ScriptedTransport implements Transport {
   final sent = <Sent>[];
   final reachable = <PeerId>{};
   final blackhole = <PeerId>{};
+  final stats = <PeerId, PeerLinkStats>{};
   bool closed = false;
   int closeCount = 0;
+
+  @override
+  PeerLinkStats? statsFor(PeerId peerId) => stats[peerId];
 
   @override
   Stream<PeerLinkEvent> get events => _events.stream;
@@ -2152,6 +2156,17 @@ void main() {
   });
 
   group('Layer-9: seed и локальные измерения', () {
+    test('statsFor делегируется прямому транспорту', () {
+      final topology = RelayTopology();
+      final a = SimNode(id: peer(1), topology: topology);
+      final target = peer(2);
+      final measured = linkStats(const Duration(milliseconds: 7));
+
+      expect(a.relay.statsFor(target), isNull);
+      a.direct.stats[target] = measured;
+      expect(a.relay.statsFor(target), measured);
+    });
+
     test(
       'seed local neighbor пересылает без presence и connected-события',
       () async {

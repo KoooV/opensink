@@ -161,6 +161,9 @@ class FakeTransport implements Transport {
   @override
   Stream<RelayDatagram> get relayIncoming => _relayController.stream;
 
+  @override
+  PeerLinkStats? statsFor(PeerId peerId) => _links[peerId]?.stats;
+
   List<PeerLinkEvent> get sent => List.unmodifiable(_sent);
 
   List<PeerLinkEvent> get relaySent => List.unmodifiable(_relaySent);

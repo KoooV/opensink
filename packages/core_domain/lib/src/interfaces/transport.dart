@@ -58,6 +58,12 @@ abstract class Transport {
   /// Входящие relay-кадры из канала `relay`.
   Stream<RelayDatagram> get relayIncoming;
 
+  /// Локальная статистика прямого линка, если транспорт её знает.
+  ///
+  /// `null` означает, что измерения недоступны: например, линк ещё не
+  /// установлен или реализация не собирает RTT.
+  PeerLinkStats? statsFor(PeerId peerId) => null;
+
   /// Закрывает транспорт и все соединения.
   Future<void> close();
 }

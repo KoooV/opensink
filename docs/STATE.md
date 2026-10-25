@@ -8,9 +8,10 @@
 - G-03…G-08 закрыты: сериализация lifecycle, preflight publish до записи, Ed25519 при restore, invite fail-closed (Q39), autoDispose bridge, payload/envelope consistency; 111 core_group, 43 core_sync, 8 app.
 - G-15…G-24 закрыты: подпись метаданных и инвайт-ссылок, pin до genesis, изоляция pending, verify-before-decode, сериализация refresh/publish, лимит и очистка незакреплённых групп; 125 core_group, core_sync group_root/drift зелёные.
 - core_relay poll 2026-10-26: load = скорость от source, `linkStats` callback, seed только при создании, окно 10 с, RTT=0 игнорируется.
+- core_relay linkStats в DI: `Transport.statsFor` (WebRTC → `linkFor().stats`), `relayLinkStatsProvider` → `RelayTransport.linkStats`; сквозной тест RTT.
 - toolchain: melos 8 `run` исполнялся только в корне, а regex терял двойной пробел; `test` переведён на `exec` с `[[:space:]]`, platform_web исключён (web-jobs CI), корневой шаблонный widget_test удалён, apps/app тесты зелёные.
 ## Дальше
+- `apps/app`: реальный `WebRtcTransport` в `transportProvider` (linkStats уже готов).
 - `core_group`: production GroupKeyDistributor/InviteProofVerifier. Follow-up poll 2026-10-25: verified-кэш restore, карантин невалидных записей store.
-- `core_relay`: подключить `linkStats` в DI к `WebRtcTransport.linkFor(...).stats`, когда `transportProvider` перестанет быть fake.
 ## Открытые вопросы
 - Legacy GroupState; trusted time (Q36); аутентификация снапшота и fingerprints как хэш; ротация GroupSecret при удалении; Q39 (хранение GroupSecret).

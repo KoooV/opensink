@@ -88,6 +88,9 @@ class WebRtcTransport implements Transport {
 
   PeerLink? linkFor(PeerId peerId) => _links[peerId];
 
+  @override
+  PeerLinkStats? statsFor(PeerId peerId) => linkFor(peerId)?.stats;
+
   Future<void> start() => _ensureStarted();
 
   Future<void> joinTopic(String topic) async {

@@ -58,6 +58,11 @@ final relayTopologyProvider = Provider<RelayTopology>((ref) {
   return topology;
 });
 
+/// Локальная статистика прямого линка для оценки RTT в релейной топологии.
+final relayLinkStatsProvider = Provider<PeerLinkStats? Function(PeerId)>((ref) {
+  return ref.watch(transportProvider).statsFor;
+});
+
 final relayTransportProvider = FutureProvider<RelayTransport>((ref) async {
   final identity = await ref.watch(localIdentityProvider.future);
   final relay = RelayTransport(
@@ -66,6 +71,7 @@ final relayTransportProvider = FutureProvider<RelayTransport>((ref) async {
     topology: ref.watch(relayTopologyProvider),
     signer: identity.signer,
     config: ref.watch(relayConfigProvider),
+    linkStats: ref.watch(relayLinkStatsProvider),
   );
   ref.onDispose(() => unawaited(relay.close()));
   return relay;
